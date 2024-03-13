@@ -28,7 +28,9 @@ def on_release(event):
     """Handle the release of the mouse button, close the program."""
     global end_x, end_y
     end_x, end_y = event.x, event.y
-    print(f"Selection: [{start_x}, {start_y}, {end_x-start_x}, {end_y-start_y}]")
+    x, y = min(start_x, end_x), min(start_y, end_y)
+    mx, my = max(start_x, end_x), max(start_y, end_y)
+    print(f"Selection: [{x}, {y}, {mx-x}, {my-y}]")
     root.destroy()  # Close the tkinter window to exit the program
     
 
