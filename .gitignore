@@ -1,6 +1,9 @@
 __pycache__/
 venv/
 .venv/
+saves/
 
 configs/*.json
 !example.json
+
+notes.txt
