@@ -1,15 +1,10 @@
-import pyautogui
 import argparse
 import tkinter as tk
 from tkinter import Canvas
 from PIL import ImageTk
+from pyautogui import screenshot
 from time import sleep
 
-
-def take_screenshot():
-    """Takes a screenshot of the entire screen."""
-    screenshot = pyautogui.screenshot()
-    return screenshot
 
 def on_click(event):
     """Handle the initial click by saving the start coordinates."""
@@ -36,19 +31,19 @@ def on_release(event):
 
 parser = argparse.ArgumentParser(prog="boxing-tool",
                                  description="Useful tool to select bounding boxes on your screen")
-parser.add_argument("-t", "--time",
+parser.add_argument("-d", "--delay",
                     type=int,
                     help="Time delay between starting the program and the screen capture, in seconds",
                     default=2)
 
 args = parser.parse_args()
 
-if args.time > 0:
-    sleep(args.time)
+if args.delay > 0:
+    sleep(args.delay)
 
 
 start_x = start_y = end_x = end_y = 0
-screenshot = take_screenshot()
+image = screenshot()
 
 # Setup the Tkinter window
 root = tk.Tk()
@@ -57,7 +52,7 @@ root.attributes('-topmost', True)
 root.after(100, lambda: root.attributes('-topmost', False))
 
 # Convert the screenshot to a format Tkinter can use
-tk_screenshot = ImageTk.PhotoImage(screenshot)
+tk_screenshot = ImageTk.PhotoImage(image)
 
 # Create a canvas to display the screenshot and capture mouse events
 canvas = Canvas(root, width=root.winfo_screenwidth(), height=root.winfo_screenheight())
