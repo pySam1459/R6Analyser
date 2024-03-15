@@ -4,11 +4,61 @@ import pyautogui
 import cv2
 import numpy as np
 import easyocr
+from dataclasses import dataclass
 from re import search
 from time import sleep, time
 from os.path import join, exists
 from PIL import Image
 from Levenshtein import ratio as leven_ratio
+
+
+class IGNMatrix:
+    VALID_THRESHOLD = 0.75
+    
+    def __init__(self, fixed: int, igns: list[str]) -> None:
+        self.__fixed = fixed
+        self.__igns = igns
+        
+    def get(self, ign: str) -> tuple[int, str]:
+        ## Check the fixed igns
+        fixed_igns = self.__igns[:self.__fixed]
+        for i, name in enumerate(fixed_igns):
+            if IGNMatrix.__compare_names(ign, name) > IGNMatrix.VALID_THRESHOLD:
+                return i, name
+        
+        ## Check the unfixed, infered igns
+        unfixed_igns = self.__igns[self.__fixed:]
+        for i, names_dict in enumerate(unfixed_igns, start=self.__fixed):
+            if ign in names_dict:
+                names_dict[ign] += 1
+                return i, max(names_dict, key=lambda k: names_dict[k])
+            
+            scores = [IGNMatrix.__compare_names(ign, name) for name in names_dict.keys()]
+            if max(scores) > IGNMatrix.VALID_THRESHOLD:
+                names_dict[ign] = 1
+                return i, max(names_dict, key=lambda k: names_dict[k])
+        
+        ## if ign has not been seen, add to matrix
+        idx = len(self.__igns)
+        self.__igns.append({ign: 1})
+        return idx, ign
+
+    
+    @staticmethod
+    def __compare_names(name1: str, name2: str) -> float:
+        return leven_ratio(name1.lower(), name2.lower())
+
+
+@dataclass
+class KFRecord:
+    player: str
+    player_idx: int
+    target: str
+    target_idx: str
+    time: str
+    
+    def __eq__(self, other: 'KFRecord') -> bool:
+        return self.player_idx == other.player_idx and self.target_idx == other.target_idx
 
 
 class Analyser:
@@ -19,8 +69,8 @@ class Analyser:
         self.gpu = not args.cpu
         self.verbose = args.verbose
 
-        self.ign_fix, self.ign_matrix = Analyser.__parse_igns(self.config["IGNS"])
-        self.kill_feed = []
+        self.ign_matrix = Analyser.__parse_igns(self.config["IGNS"])
+        self.kill_feed: list[KFRecord] = []
         
         self.running = False
         self.tdelta = self.config.get("SCREENSHOT_PERIOD", 1.0)
@@ -33,18 +83,18 @@ class Analyser:
         self.no_timer = 0
     
     @staticmethod
-    def __parse_igns(igns: list[list[str]]) -> tuple[int, list]:
+    def __parse_igns(igns: list[list[str]]) -> IGNMatrix:
         if len(igns) == 0:
-            return 0, []
+            return IGNMatrix(0, [])
         
         elif len(igns) == 1:
             if len(igns[0]) != 5: raise ValueError(f"Invalid Config IGN list, only {len(igns[0])} IGNS")
-            return 5, igns[0]
+            return IGNMatrix(5, igns[0])
 
         elif len(igns) == 2:
             if len(igns[0]) != 5: raise ValueError(f"Invalid Config IGN list, only {len(igns[0])} IGNS")
             if len(igns[1]) != 5: raise ValueError(f"Invalid Config IGN list, only {len(igns[1])} IGNS")
-            return 10, igns[0] + igns[1]
+            return IGNMatrix(10, igns[0] + igns[1])
 
         else:
             raise ValueError(f"Invalid Config IGN list, too many teams")
@@ -108,14 +158,17 @@ class Analyser:
         if len(cleaned_results) % 2 != 0: return None
         
         for i in range(0, len(cleaned_results), 2):
-            name1 = cleaned_results[i]
-            name2 = cleaned_results[i+1]
-    
-    
-    def __compare_names(name1: str, name2: str) -> float:
-        return leven_ratio(name1.lower(), name2.lower())
-        
-        
+            player_ign_raw = cleaned_results[i]
+            target_ign_raw = cleaned_results[i+1]
+            p_idx, p_name = self.ign_matrix.get(player_ign_raw)
+            t_idx, t_name = self.ign_matrix.get(target_ign_raw)
+            
+            record = KFRecord(p_name, p_idx, t_name, t_idx, self.current_time)
+            
+            if record not in self.kill_feed:
+                self.kill_feed.append(record)
+                print(f"{record.time}: {record.player}/{record.player_idx} -> {record.target}/{record.target_idx}")
+
 
 
 def get_screen_bb() -> list[int]:
