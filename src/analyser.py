@@ -179,7 +179,8 @@ class Analyser:
             
             if record not in self.kill_feed:
                 self.kill_feed.append(record)
-                print(f"{record.time}: {record.player}/{record.player_idx} -> {record.target}/{record.target_idx}")
+                ## print(f"{record.time}: {record.player}/{record.player_idx} -> {record.target}/{record.target_idx}")
+                print(f"{record.time}: {record.player} -> {record.target}")
 
 
 
