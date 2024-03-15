@@ -5,16 +5,22 @@ import cv2
 import numpy as np
 import easyocr
 from re import search
-from PIL import Image
 from time import sleep, time
 from os.path import join, exists
+from PIL import Image
+from Levenshtein import ratio as leven_ratio
 
 
 class Analyser:
+    PROB_THRESHOLD = 0.5
+    
     def __init__(self, args: argparse.Namespace):
         self.config = args.config
         self.gpu = not args.cpu
         self.verbose = args.verbose
+
+        self.ign_fix, self.ign_matrix = Analyser.__parse_igns(self.config["IGNS"])
+        self.kill_feed = []
         
         self.running = False
         self.tdelta = self.config.get("SCREENSHOT_PERIOD", 1.0)
@@ -23,17 +29,38 @@ class Analyser:
         if self.verbose:
             print("Info: EasyOCR Reader model loaded")
         
-        self.current_time = 0 ## //[1210, 110, 140, 65],
+        self.current_time = 0
         self.no_timer = 0
     
+    @staticmethod
+    def __parse_igns(igns: list[list[str]]) -> tuple[int, list]:
+        if len(igns) == 0:
+            return 0, []
+        
+        elif len(igns) == 1:
+            if len(igns[0]) != 5: raise ValueError(f"Invalid Config IGN list, only {len(igns[0])} IGNS")
+            return 5, igns[0]
+
+        elif len(igns) == 2:
+            if len(igns[0]) != 5: raise ValueError(f"Invalid Config IGN list, only {len(igns[0])} IGNS")
+            if len(igns[1]) != 5: raise ValueError(f"Invalid Config IGN list, only {len(igns[1])} IGNS")
+            return 10, igns[0] + igns[1]
+
+        else:
+            raise ValueError(f"Invalid Config IGN list, too many teams")
+
+
     def run(self):
         self.running = True
+        if self.verbose:
+            print("Info: Running...")
+
         self.timer = time()
         while self.running:
             if self.timer + self.tdelta > time(): continue
             
             ## READ TIMER
-            timer_image = pyautogui.screenshot(region=self.config["TIMER"])
+            timer_image = pyautogui.screenshot(region=self.config["TIMER_REGION"])
             new_time = self.__read_timer(timer_image)
             if new_time is not None:
                 self.current_time = new_time
@@ -42,8 +69,8 @@ class Analyser:
                 self.no_timer += 1
             
             ## READ KILL FEED
-            ## feed_image = pyautogui.screenshot(region=self.config["KILL_FEED"])
-            ## self.__read_feed(feed_image)
+            feed_image = pyautogui.screenshot(region=self.config["KILL_FEED_REGION"])
+            self.__read_feed(feed_image)
 
             if self.verbose and False:
                 print(f"Info: Inference time {time()-self.timer:.2f}s")
@@ -66,7 +93,7 @@ class Analyser:
         image = self.__screenshot_process(screenshot)
         results = self.reader.readtext(image)
 
-        cleaned_results = [out[1] for out in results if out[2] > 0.5]
+        cleaned_results = [out[1] for out in results if out[2] > Analyser.PROB_THRESHOLD]
         for read_time in cleaned_results:
             if (time := search(r"(\d?\d)[ \.:](\d\d)", read_time)):
                 return f"{time.group(1)}:{time.group(2)}"
@@ -77,10 +104,17 @@ class Analyser:
         image = self.__screenshot_process(screenshot)
         results = self.reader.readtext(image)
         
-        for (bbox, text, prob) in results:
-            if prob > 0.5:
-                print(f"{text}/{prob:.4f}", end="\t")
-        print()
+        cleaned_results = [text for (_, text, prob) in results if prob > Analyser.PROB_THRESHOLD]
+        if len(cleaned_results) % 2 != 0: return None
+        
+        for i in range(0, len(cleaned_results), 2):
+            name1 = cleaned_results[i]
+            name2 = cleaned_results[i+1]
+    
+    
+    def __compare_names(name1: str, name2: str) -> float:
+        return leven_ratio(name1.lower(), name2.lower())
+        
         
 
 
