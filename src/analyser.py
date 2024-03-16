@@ -87,20 +87,26 @@ class KFRecord:
     def __eq__(self, other: 'KFRecord') -> bool:
         return self.player_idx == other.player_idx and self.target_idx == other.target_idx
 
+@dataclass
+class RHRecord:
+    bomb_planted_time: str
+
 
 class Analyser:
     PROB_THRESHOLD = 0.5
+    RED_THRESHOLD = 0.85
     
     def __init__(self, args: argparse.Namespace):
-        self.config = args.config
-        self.gpu = not args.cpu
-        self.verbose = args.verbose
+        self.config: dict  = args.config
+        self.gpu: bool     = not args.cpu
+        self.verbose: bool = args.verbose
 
         self.ign_matrix = IGNMatrix.new(self.config["IGNS"])
         self.kill_feed: list[KFRecord] = []
-        
+        self.round_history: list[RHRecord] = []
+
         self.running = False
-        self.tdelta = self.config.get("SCREENSHOT_PERIOD", 1.0)
+        self.tdelta: float = self.config.get("SCREENSHOT_PERIOD", 1.0)
         
         self.reader = easyocr.Reader(['en'], gpu=self.gpu)
         if self.verbose:
@@ -108,40 +114,72 @@ class Analyser:
         
         self.current_time = 0
         self.no_timer = 0
+        self.defuse_countdown_timer = None
+                
+        self.__red_hsv_space = np.array([  # Define the range for red color in HSV space
+            [0, 70, 50],
+            [10, 255, 255],
+            [170, 70, 50],
+            [180, 255, 255]])
 
 
     def run(self):
         self.running = True
-        if self.verbose:
-            print("Info: Running...")
+        # if self.verbose:
+        print("Info: Running...")
 
         self.timer = time()
         while self.running:
-            if self.timer + self.tdelta > time(): continue
+            if self.timer + self.tdelta > time():
+                continue
             
-            ## READ TIMER
             timer_image = pyautogui.screenshot(region=self.config["TIMER_REGION"])
-            new_time = self.__read_timer(timer_image)
-            if new_time is not None:
-                self.current_time = new_time
-                self.no_timer = 0
-            else:
-                self.no_timer += 1
-            
-            ## READ KILL FEED
             feed_image = pyautogui.screenshot(region=self.config["KILL_FEED_REGION"])
+            
+            self.__handle_timer(timer_image)
             self.__read_feed(feed_image)
 
             if self.verbose and False:
                 print(f"Info: Inference time {time()-self.timer:.2f}s")
             
             self.timer = time()
-            
+    
+    def __handle_timer(self, timer_image: Image.Image) -> None:
+        timer_image_np = np.array(timer_image)
+        if self.__is_timer(timer_image_np):
+            new_time = self.__read_timer(timer_image_np)
+            if new_time is not None:
+                self.current_time = new_time
+                self.no_timer = 0
+                self.defuse_countdown_timer = None
+            else:
+                self.no_timer += 1
 
-    def __screenshot_process(self, screenshot: Image.Image) -> np.ndarray:
+        elif self.defuse_countdown_timer is None: ## bomb planted
+            self.defuse_countdown_timer = time()
+            self.round_history.append(RHRecord(self.current_time))
+            print(f"{self.current_time}: BOMB PLANTED")
+    
+    def __is_timer(self, image: np.ndarray):
+        hsv = cv2.cvtColor(image, cv2.COLOR_RGB2HSV)
+
+        # Create masks for red color
+        mask1 = cv2.inRange(hsv, self.__red_hsv_space[0], self.__red_hsv_space[1])
+        mask2 = cv2.inRange(hsv, self.__red_hsv_space[2], self.__red_hsv_space[3])
+        red_mask = cv2.bitwise_or(mask1, mask2)
+
+        # Calculate the percentage of red in the image
+        red_percentage = np.sum(red_mask > 0) / red_mask.size
+        return red_percentage < Analyser.RED_THRESHOLD
+
+
+    def __screenshot_process(self, image: Image.Image | np.ndarray, to_gray: bool=True) -> np.ndarray:
         # Convert the PIL Image to a NumPy array (RGB)
-        img_np = np.array(screenshot)
-        image = cv2.cvtColor(img_np, cv2.COLOR_RGB2GRAY)
+        if type(image) != np.ndarray:
+            image = np.array(image)
+
+        if to_gray:
+            image = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
 
         scale_factor = self.config.get("SCREENSHOT_RESIZE_X", 2)
         new_width = int(image.shape[1] * scale_factor)
@@ -149,7 +187,7 @@ class Analyser:
 
         return cv2.resize(image, (new_width, new_height), interpolation=cv2.INTER_LINEAR)
     
-    def __read_timer(self, screenshot: Image.Image) -> None:
+    def __read_timer(self, screenshot: Image.Image | np.ndarray) -> None:
         image = self.__screenshot_process(screenshot)
         results = self.reader.readtext(image)
 
@@ -159,6 +197,13 @@ class Analyser:
                 return f"{time.group(1)}:{time.group(2)}"
         
         return None
+    
+    def __get_time(self) -> str:
+        if self.defuse_countdown_timer is None:
+            return self.current_time
+        else:
+            time_past = time() - self.defuse_countdown_timer
+            return f"!0:{int(45-time_past)}"
 
     def __read_feed(self, screenshot: Image.Image) -> None:
         image = self.__screenshot_process(screenshot)
@@ -175,18 +220,11 @@ class Analyser:
             
             if p_idx is None or t_idx is None: continue
             
-            record = KFRecord(p_name, p_idx, t_name, t_idx, self.current_time)
-            
+            record = KFRecord(p_name, p_idx, t_name, t_idx, self.__get_time())
             if record not in self.kill_feed:
                 self.kill_feed.append(record)
                 ## print(f"{record.time}: {record.player}/{record.player_idx} -> {record.target}/{record.target_idx}")
                 print(f"{record.time}: {record.player} -> {record.target}")
-
-
-
-def get_screen_bb() -> list[int]:
-    res = pyautogui.resolution()
-    return [0, 0, res.width, res.height]
 
 
 def __parse_config(arg: str) -> dict:

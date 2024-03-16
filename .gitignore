@@ -2,8 +2,10 @@ __pycache__/
 venv/
 .venv/
 saves/
+test/
 
 configs/*.json
 !example.json
 
 notes.txt
+test.ipynb
