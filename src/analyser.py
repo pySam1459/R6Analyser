@@ -4,29 +4,47 @@ import pyautogui
 import cv2
 import numpy as np
 import easyocr
-from dataclasses import dataclass
 from re import search
 from time import sleep, time
 from os.path import join, exists
+from dataclasses import dataclass
 from PIL import Image
 from Levenshtein import ratio as leven_ratio
 
 
 class IGNMatrix:
-    VALID_THRESHOLD = 0.75
+    """
+    IGN Matrix infers the true IGN from the EasyOCR reading of the IGN (pseudoIGN) from the killfeed.
+    The matrix can be initialised with a prior list of 'fixed' IGNs (IGNs known before starting the game)
+    If the matrix is not provided with 10 fixed IGNs, it will infer the remaining from the OCR's output
+    The matrix will return an index/ID and the true/most-seen IGN when requested using the `get` method
+    Notes:
+      - Fixing the IGNs prior to recording is recommended and more accurate
+          (None, None) will be returned if the IGN requested is not present in a fully-fixed matrix (all 10 IGNs fixed)
+      - The matrix uses Levenshtein distance to determine whether two IGNs are the same (could be improved?)
+      - The matrix records the number of occurrences of a pseudoIGN to determine its true IGN
+      - When requested and not fixed, the matrix will compare a pseudoIGN against all occurrences of pseudoIGNs
+          if the requested pseudoIGN matches with a known-pseudoIGN, it will return this pseudoIGN's index
+          otherwise, the pseudoIGN will be added to the matrix
+    """
+    VALID_THRESHOLD = 0.75 ## threshold for Levenshtein distance to determine equality
     
     def __init__(self, fixed: int, igns: list[str]) -> None:
-        self.__fixed = fixed
-        self.__igns = igns
+        self.__fixed: int = fixed
+        self.__igns: list[str|dict] = igns
         
-    def get(self, ign: str) -> tuple[int, str]:
+    def get(self, ign: str) -> tuple[int|None, str|None]:
+        """
+        This method is used to request the index/ID and true/most-seen IGN from the pseudoIGN `ign` argument.
+        If the matrix is fully-fixed, the method will return (None, None) if the pseudoIGN is not present.
+        """
         ## Check the fixed igns
         fixed_igns = self.__igns[:self.__fixed]
         for i, name in enumerate(fixed_igns):
             if IGNMatrix.__compare_names(ign, name) > IGNMatrix.VALID_THRESHOLD:
                 return i, name
         
-        if self.__fixed == 10: return None, None
+        if self.__fixed == 10: return None, None ## not a valid IGN
 
         ## Check the unfixed, infered igns
         unfixed_igns = self.__igns[self.__fixed:]
@@ -47,6 +65,14 @@ class IGNMatrix:
 
     @staticmethod
     def new(igns: list[list|str]) -> 'IGNMatrix':
+        """
+        Creates a new IGNMatrix object from a list of fixed IGNs
+        The parameter `igns` can be:
+          - The empty list, no IGNs will be fixed  - ([])
+          - A list of 5/10 IGNs to fix, if 5 are present, the remaining 5 IGNS will be infered  -  (["IGN_1", "IGN_2" ..., "IGN_10"])
+          - A list of 1/2 lists containing the 5 IGNs from each team,  -  ([["IGM_1", ..., "IGN_5"], ["IGM_6", ..., "IGN_10"]])
+              if only 1 team list is given, the other team's IGNs will be inferred
+        """
         if len(igns) == 0:
             return IGNMatrix(0, [])
         
@@ -73,11 +99,16 @@ class IGNMatrix:
     
     @staticmethod
     def __compare_names(name1: str, name2: str) -> float:
+        """Compares two IGN's (pseudo/non-pseudo) using Levenshtein distance, output in the range [0-1]"""
         return leven_ratio(name1.lower(), name2.lower())
 
 
 @dataclass
 class KFRecord:
+    """
+    Dataclass to record an player interaction, who killed who and at what time.
+      player: killer, target: dead
+    """
     player: str
     player_idx: int
     target: str
@@ -87,19 +118,42 @@ class KFRecord:
     def __eq__(self, other: 'KFRecord') -> bool:
         return self.player_idx == other.player_idx and self.target_idx == other.target_idx
 
-@dataclass
+
 class RHRecord:
-    bomb_planted_time: str
+    """
+    Class to record a piece of information about a round.
+    """
+    def __init__(self,
+                 bomb_planted_time=None,
+                 round_scoreline=None,
+                 **kwargs):
+        attributes = [bomb_planted_time, round_scoreline, *kwargs.values()]
+        n_attrs = sum(attr is not None for attr in attributes)
+        if n_attrs != 1:
+            raise ValueError("RHRecord must only have one property set at a time.")
+
+        self.bomb_planted_time = bomb_planted_time
+        self.round_scoreline = round_scoreline
+        for key, value in kwargs.items():
+            setattr(self, key, value)
+
+    def __repr__(self):
+        active_property = next(((k, v) for k, v in self.__dict__.items() if v is not None), ('none', None))
+        return f"RHRecord({active_property[0]}={active_property[1]!r})"
 
 
 class Analyser:
+    """
+    Main class `Analyser`
+    Operates the main inference loop `run` and records match/round information
+    """
     PROB_THRESHOLD = 0.5
-    RED_THRESHOLD = 0.85
+    RED_THRESHOLD = 0.9   ## Note: avg red_perc for bomb-defuse countdown ~0.93
     
     def __init__(self, args: argparse.Namespace):
-        self.config: dict  = args.config
-        self.gpu: bool     = not args.cpu
-        self.verbose: bool = args.verbose
+        self.config: dict = args.config
+        self.gpu: bool    = not args.cpu
+        self.verbose: int = args.verbose
 
         self.ign_matrix = IGNMatrix.new(self.config["IGNS"])
         self.kill_feed: list[KFRecord] = []
@@ -109,9 +163,10 @@ class Analyser:
         self.tdelta: float = self.config.get("SCREENSHOT_PERIOD", 1.0)
         
         self.reader = easyocr.Reader(['en'], gpu=self.gpu)
-        if self.verbose:
+        if self.verbose > 0:
             print("Info: EasyOCR Reader model loaded")
         
+        self.current_scoreline = None
         self.current_time = 0
         self.no_timer = 0
         self.defuse_countdown_timer = None
@@ -125,22 +180,22 @@ class Analyser:
 
     def run(self):
         self.running = True
-        # if self.verbose:
-        print("Info: Running...")
+        if self.verbose > 0:
+         print("Info: Running...")
 
         self.timer = time()
         while self.running:
             if self.timer + self.tdelta > time():
                 continue
             
+            start = time()
             timer_image = pyautogui.screenshot(region=self.config["TIMER_REGION"])
             feed_image = pyautogui.screenshot(region=self.config["KILL_FEED_REGION"])
             
             self.__handle_timer(timer_image)
             self.__read_feed(feed_image)
 
-            if self.verbose and False:
-                print(f"Info: Inference time {time()-self.timer:.2f}s")
+            self.__debug_print(f"Info: Inference time {time()-start:.2f}s")
             
             self.timer = time()
     
@@ -157,8 +212,10 @@ class Analyser:
 
         elif self.defuse_countdown_timer is None: ## bomb planted
             self.defuse_countdown_timer = time()
-            self.round_history.append(RHRecord(self.current_time))
-            print(f"{self.current_time}: BOMB PLANTED")
+            self.round_history.append(RHRecord(bomb_planted_time=self.current_time))
+            if self.verbose > 0:
+                print(f"{self.current_time}: BOMB PLANTED")
+    
     
     def __is_timer(self, image: np.ndarray):
         hsv = cv2.cvtColor(image, cv2.COLOR_RGB2HSV)
@@ -170,6 +227,7 @@ class Analyser:
 
         # Calculate the percentage of red in the image
         red_percentage = np.sum(red_mask > 0) / red_mask.size
+        self.__debug_print(f"{red_percentage=}")
         return red_percentage < Analyser.RED_THRESHOLD
 
 
@@ -181,7 +239,7 @@ class Analyser:
         if to_gray:
             image = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
 
-        scale_factor = self.config.get("SCREENSHOT_RESIZE_X", 2)
+        scale_factor = self.config.get("SCREENSHOT_RESIZE_FACTOR", 2)
         new_width = int(image.shape[1] * scale_factor)
         new_height = int(image.shape[0] * scale_factor)
 
@@ -223,8 +281,16 @@ class Analyser:
             record = KFRecord(p_name, p_idx, t_name, t_idx, self.__get_time())
             if record not in self.kill_feed:
                 self.kill_feed.append(record)
-                ## print(f"{record.time}: {record.player}/{record.player_idx} -> {record.target}/{record.target_idx}")
-                print(f"{record.time}: {record.player} -> {record.target}")
+
+                if self.verbose == 3:
+                    print(f"{record.time}: {record.player}/{record.player_idx} -> {record.target}/{record.target_idx}")
+                elif self.verbose > 0:
+                    print(f"{record.time}: {record.player} -> {record.target}")
+
+
+    def __debug_print(self, prompt: str) -> None:
+        if self.verbose == 3:
+            print(prompt)
 
 
 def __parse_config(arg: str) -> dict:
@@ -235,7 +301,7 @@ def __parse_config(arg: str) -> dict:
         arg = join("configs", arg)
     
     REQUIRED_CONFIG_KEYS = ["TIMER_REGION", "KILL_FEED_REGION"]
-    OPTIONAL_CONFIG_KEYS = ["SCREENSHOT_RESIZE_X", "SCREENSHOT_PERIOD", "IGNS"]
+    OPTIONAL_CONFIG_KEYS = ["SCREENSHOT_RESIZE_FACTOR", "SCREENSHOT_PERIOD", "IGNS"]
     DEFAULT_CONFIG_FILENAME = "defaults.json"
     with open(arg, "r", encoding="utf-8") as f_in:
         config = json.load(f_in)
@@ -265,6 +331,17 @@ def __parse_config(arg: str) -> dict:
     return config
 
 
+def __parse_verbose(arg: str) -> int:
+    try:
+        x = int(arg)
+        if 0 <= x <= 3:
+            return x
+        raise argparse.ArgumentError("Verbose argument out of range [0,2]")
+
+    except ValueError:
+        raise argparse.ArgumentError(f"Invalid Verbose argument {arg}")
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         prog="R6 Analyser",
@@ -279,8 +356,8 @@ if __name__ == "__main__":
                         dest="delay",
                         default=2)
     parser.add_argument("-v", "--verbose",
-                        action="store_true",
-                        help="Determines how detailed the console output is",
+                        type=__parse_verbose,
+                        help="Determines how detailed the console output is, 0-nothing, 1-some, 2-all, 3-debug",
                         dest="verbose")
     parser.add_argument("--cpu",
                         action="store_true",
