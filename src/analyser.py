@@ -142,6 +142,12 @@ class RHRecord:
         return f"RHRecord({active_property[0]}={active_property[1]!r})"
 
 
+@dataclass
+class State:
+    in_round: bool
+    bomb_planted: bool
+
+
 class Analyser:
     """
     Main class `Analyser`
@@ -150,10 +156,13 @@ class Analyser:
     PROB_THRESHOLD = 0.5
     RED_THRESHOLD = 0.9   ## Note: avg red_perc for bomb-defuse countdown ~0.93
     
+    SCREENSHOT_REGIONS = ["TEAM1_SCORE_REGION", "TEAM2_SCORE_REGION", "TIMER_REGION", "KILL_FEED_REGION"]
+    
     def __init__(self, args: argparse.Namespace):
         self.config: dict = args.config
         self.gpu: bool    = not args.cpu
         self.verbose: int = args.verbose
+        self.__debug_print(f"Config Keys -", list(self.config.keys()))
 
         self.ign_matrix = IGNMatrix.new(self.config["IGNS"])
         self.kill_feed: list[KFRecord] = []
@@ -166,6 +175,7 @@ class Analyser:
         if self.verbose > 0:
             print("Info: EasyOCR Reader model loaded")
         
+        self.state = State(False, False)
         self.current_scoreline = None
         self.current_time = 0
         self.no_timer = 0
@@ -176,48 +186,121 @@ class Analyser:
             [10, 255, 255],
             [170, 70, 50],
             [180, 255, 255]])
-
+        
+        self.__saved = True
 
     def run(self):
         self.running = True
         if self.verbose > 0:
-         print("Info: Running...")
+            print("Info: Running...")
 
         self.timer = time()
         while self.running:
             if self.timer + self.tdelta > time():
                 continue
             
-            start = time()
-            timer_image = pyautogui.screenshot(region=self.config["TIMER_REGION"])
-            feed_image = pyautogui.screenshot(region=self.config["KILL_FEED_REGION"])
+            __inference_start = time()
+            team1_scoreline, team2_scoreline, timer, feed = self.__get_ss_regions(Analyser.SCREENSHOT_REGIONS)
             
-            self.__handle_timer(timer_image)
-            self.__read_feed(feed_image)
+            self.__handle_timer(timer)
 
-            self.__debug_print(f"Info: Inference time {time()-start:.2f}s")
+            self.__read_scoreline(team1_scoreline, team2_scoreline)
+
+            self.__read_feed(feed)
+
+            self.__debug_print(f"Inference time {time()-__inference_start:.2f}s")
             
             self.timer = time()
-    
-    def __handle_timer(self, timer_image: Image.Image) -> None:
-        timer_image_np = np.array(timer_image)
-        if self.__is_timer(timer_image_np):
-            new_time = self.__read_timer(timer_image_np)
-            if new_time is not None:
-                self.current_time = new_time
-                self.no_timer = 0
-                self.defuse_countdown_timer = None
-            else:
-                self.no_timer += 1
 
-        elif self.defuse_countdown_timer is None: ## bomb planted
-            self.defuse_countdown_timer = time()
-            self.round_history.append(RHRecord(bomb_planted_time=self.current_time))
-            if self.verbose > 0:
-                print(f"{self.current_time}: BOMB PLANTED")
+    def __get_ss_regions(self, regions: list[str]) -> list[np.ndarray]:
+        """Takes a screenshot of the screen, selects regions, and returns them as numpy.ndarray"""
+        screenshot = pyautogui.screenshot()
+        return [np.array(screenshot.crop(Analyser.convert_region(self.config[region])), copy=False) for region in regions]
     
+    @staticmethod
+    def convert_region(region: list[int]) -> list[int]:
+        """Converts (X,Y,W,H) -> (Left,Top,Right,Bottom)"""
+        left, top, width, height = region
+        return (left, top, left + width, top + height)
+
+    def __screenshot_preprocess(self, image: np.ndarray, to_gray: bool=True) -> np.ndarray:
+        """
+        To increase the accuracy of the EasyOCR readtext function, a few preprocessing techniques are used
+          - RGB to Grayscale conversion
+          - Resize by factor `Config.SCREENSHOT_RESIZE_FACTOR` (normally 2-4)
+        """
+        if to_gray:
+            image = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
+
+        scale_factor = self.config.get("SCREENSHOT_RESIZE_FACTOR", 2)
+        new_width = int(image.shape[1] * scale_factor)
+        new_height = int(image.shape[0] * scale_factor)
+
+        return cv2.resize(image, (new_width, new_height), interpolation=cv2.INTER_LINEAR)
     
-    def __is_timer(self, image: np.ndarray):
+    def __readtext(self, image: np.ndarray) -> list[str]:
+        """Performs the EasyOCR inference and cleans the output based on the model's assigned probabilities and a threshold"""
+        results = self.reader.readtext(image)
+        return [out[1] for out in results if out[2] > Analyser.PROB_THRESHOLD]
+
+
+    def __read_scoreline(self, team1_scoreline: np.ndarray, team2_scoreline: np.ndarray):
+        scores = np.hstack([self.__screenshot_preprocess(team1_scoreline, to_gray=False), 
+                            self.__screenshot_preprocess(team2_scoreline, to_gray=False)])
+        if not self.__saved:
+            gray1 = self.__screenshot_preprocess(team1_scoreline)
+            gray2 = self.__screenshot_preprocess(team2_scoreline)
+            
+            cv2.imwrite('test/gray1.png', gray1.astype(np.uint8))
+            cv2.imwrite('test/gray2.png', gray2.astype(np.uint8))
+
+            self.__saved = True
+
+        self.__debug_print(self.__readtext(scores))
+        # results1 = self.__readtext(self.__screenshot_preprocess(team1_scoreline))
+        # results2 = self.__readtext(self.__screenshot_preprocess(team2_scoreline))
+        # self.__debug_print(results1, results2)
+        
+    
+    def __handle_timer(self, timer_image: np.ndarray) -> None:
+        new_time = self.__read_timer(timer_image)
+        
+        if new_time is not None: ## timer is showing
+            self.current_time = new_time
+            self.defuse_countdown_timer = None
+            self.state.in_round = True ## might get confused with pick phase timer?
+        
+        elif self.__is_bomb_countdown(timer_image):
+            if self.defuse_countdown_timer is None: ## bomb planted
+                self.defuse_countdown_timer = time()
+                self.round_history.append(RHRecord(bomb_planted_time=self.current_time))
+
+                self.state.bomb_planted = True
+                if self.verbose > 0:
+                    print(f"{self.current_time}: BOMB PLANTED")
+        else:
+            self.state.in_round = False
+            self.state.bomb_planted = False
+
+    
+    def __read_timer(self, image: np.ndarray) -> str | None:
+        """
+        Reads the current time displayed in the region `TIMER_REGION`
+        If the timer is not present, None is returned
+        """
+        image = self.__screenshot_preprocess(image)
+        results = self.__readtext(image)
+        for read_time in results:
+            if (time := search(r"(\d?\d)[ \.:](\d\d)", read_time)):
+                return f"{time.group(1)}:{time.group(2)}"
+        
+        return None
+    
+    def __is_bomb_countdown(self, image: np.ndarray) -> bool:
+        """
+        When a bomb is planted, the timer is replaced with a majority red circular countdown
+        This method detects when the bomb defuse countdown is shown using a majority red threshold
+        """
         hsv = cv2.cvtColor(image, cv2.COLOR_RGB2HSV)
 
         # Create masks for red color
@@ -228,33 +311,8 @@ class Analyser:
         # Calculate the percentage of red in the image
         red_percentage = np.sum(red_mask > 0) / red_mask.size
         self.__debug_print(f"{red_percentage=}")
-        return red_percentage < Analyser.RED_THRESHOLD
+        return red_percentage > Analyser.RED_THRESHOLD
 
-
-    def __screenshot_process(self, image: Image.Image | np.ndarray, to_gray: bool=True) -> np.ndarray:
-        # Convert the PIL Image to a NumPy array (RGB)
-        if type(image) != np.ndarray:
-            image = np.array(image)
-
-        if to_gray:
-            image = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
-
-        scale_factor = self.config.get("SCREENSHOT_RESIZE_FACTOR", 2)
-        new_width = int(image.shape[1] * scale_factor)
-        new_height = int(image.shape[0] * scale_factor)
-
-        return cv2.resize(image, (new_width, new_height), interpolation=cv2.INTER_LINEAR)
-    
-    def __read_timer(self, screenshot: Image.Image | np.ndarray) -> None:
-        image = self.__screenshot_process(screenshot)
-        results = self.reader.readtext(image)
-
-        cleaned_results = [out[1] for out in results if out[2] > Analyser.PROB_THRESHOLD]
-        for read_time in cleaned_results:
-            if (time := search(r"(\d?\d)[ \.:](\d\d)", read_time)):
-                return f"{time.group(1)}:{time.group(2)}"
-        
-        return None
     
     def __get_time(self) -> str:
         if self.defuse_countdown_timer is None:
@@ -263,16 +321,16 @@ class Analyser:
             time_past = time() - self.defuse_countdown_timer
             return f"!0:{int(45-time_past)}"
 
-    def __read_feed(self, screenshot: Image.Image) -> None:
-        image = self.__screenshot_process(screenshot)
-        results = self.reader.readtext(image)
+    def __read_feed(self, image: np.ndarray) -> None:
+        if not self.state.in_round: return
+
+        image = self.__screenshot_preprocess(image)
+        results = self.__readtext(image)
+        if len(results) % 2 != 0: return None  ## TODO: could cause an issue when someone c4's themselves
         
-        cleaned_results = [text for (_, text, prob) in results if prob > Analyser.PROB_THRESHOLD]
-        if len(cleaned_results) % 2 != 0: return None  ## TODO: could cause an issue when someone c4's themselves
-        
-        for i in range(0, len(cleaned_results), 2):
-            player_ign_raw = cleaned_results[i]
-            target_ign_raw = cleaned_results[i+1]
+        for i in range(0, len(results), 2):
+            player_ign_raw = results[i]
+            target_ign_raw = results[i+1]
             p_idx, p_name = self.ign_matrix.get(player_ign_raw)
             t_idx, t_name = self.ign_matrix.get(target_ign_raw)
             
@@ -282,35 +340,53 @@ class Analyser:
             if record not in self.kill_feed:
                 self.kill_feed.append(record)
 
-                if self.verbose == 3:
+                if self.verbose >= 2:
                     print(f"{record.time}: {record.player}/{record.player_idx} -> {record.target}/{record.target_idx}")
                 elif self.verbose > 0:
                     print(f"{record.time}: {record.player} -> {record.target}")
 
 
-    def __debug_print(self, prompt: str) -> None:
+    def __debug_print(self, *prompt: str) -> None:
         if self.verbose == 3:
-            print(prompt)
+            print("Debug:", *prompt)
+
+
+def __infer_key(config: dict, key: str) -> None:
+    match key:
+        case "TEAM1_SCORE_REGION":
+            tr = config["TIMER_REGION"]
+            config["TEAM1_SCORE_REGION"] = [tr[0] - tr[2]//2, tr[1], tr[2]//2, tr[3]]
+        case "TEAM2_SCORE_REGION":
+            tr = config["TIMER_REGION"]
+            config["TEAM2_SCORE_REGION"] = [tr[0] + tr[2], tr[1], tr[2]//2, tr[3]]
+        case _:
+            ...
 
 
 def __parse_config(arg: str) -> dict:
+    ## argument checks
     if not (exists(arg) or exists(join("configs", arg))):
         raise argparse.ArgumentError(f"Config file '{arg}' cannot be found!")
     
     if not exists(arg):
         arg = join("configs", arg)
     
+    ## config keys
     REQUIRED_CONFIG_KEYS = ["TIMER_REGION", "KILL_FEED_REGION"]
     OPTIONAL_CONFIG_KEYS = ["SCREENSHOT_RESIZE_FACTOR", "SCREENSHOT_PERIOD", "IGNS"]
+    INFER_CONFIG_KEYS = ["TEAM1_SCORE_REGION", "TEAM2_SCORE_REGION"]
     DEFAULT_CONFIG_FILENAME = "defaults.json"
     with open(arg, "r", encoding="utf-8") as f_in:
         config = json.load(f_in)
 
+    ## check if all required keys are contained in config file
     for key in REQUIRED_CONFIG_KEYS:
         if key not in config:
             raise argparse.ArgumentError(f"Config file does not contain key '{key}'!")
     
     print(f"Info: Loaded configuration file '{arg}'")
+    
+    ## if the optional keys weren't provided, use defaults from default.json
     to_add = [key for key in OPTIONAL_CONFIG_KEYS if key not in config]
     if len(to_add) > 0:
         if not exists(DEFAULT_CONFIG_FILENAME):
@@ -327,7 +403,12 @@ def __parse_config(arg: str) -> dict:
             config[key] = default_config[key]
             __log += f"{key}, "
         print(f"Info: Loaded default config keys {__log}")
-        
+    
+    to_add = [key for key in INFER_CONFIG_KEYS if key not in config]
+    if len(to_add) > 0:
+        for key in INFER_CONFIG_KEYS:
+            __infer_key(config, key)
+
     return config
 
 
@@ -358,7 +439,8 @@ if __name__ == "__main__":
     parser.add_argument("-v", "--verbose",
                         type=__parse_verbose,
                         help="Determines how detailed the console output is, 0-nothing, 1-some, 2-all, 3-debug",
-                        dest="verbose")
+                        dest="verbose",
+                        default=1)
     parser.add_argument("--cpu",
                         action="store_true",
                         help="Flag for only cpu execution, if your machine does not support gpu acceleration")
