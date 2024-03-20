@@ -138,6 +138,7 @@ class KFRecord:
 class RHRecord:
     """
     Class to record a piece of information about a round.
+    TODO: probably going to remove this, not the format i'm looking for
     """
     def __init__(self,
                  bomb_planted_time=None,
@@ -188,8 +189,7 @@ class Analyser:
         self.tdelta: float = self.config.get("SCREENSHOT_PERIOD", 1.0)
         
         self.reader = easyocr.Reader(['en'], gpu=self.gpu)
-        if self.verbose > 0:
-            print("Info: EasyOCR Reader model loaded")
+        self.__verbose_print("EasyOCR Reader model loaded")
         
         self.state = State(False, False)
         self.current_scoreline = None
@@ -207,8 +207,7 @@ class Analyser:
 
     def run(self):
         self.running = True
-        if self.verbose > 0:
-            print("Info: Running...")
+        self.__verbose_print(0, "Running...")
 
         self.timer = time()
         while self.running:
@@ -219,9 +218,7 @@ class Analyser:
             team1_scoreline, team2_scoreline, timer, feed = self.__get_ss_regions(Analyser.SCREENSHOT_REGIONS)
             
             self.__handle_timer(timer)
-
             self.__read_scoreline(team1_scoreline, team2_scoreline)
-
             self.__read_feed(feed)
 
             self.__debug_print(f"Inference time {time()-__inference_start:.2f}s")
@@ -292,8 +289,7 @@ class Analyser:
                 self.round_history.append(RHRecord(bomb_planted_time=self.current_time))
 
                 self.state.bomb_planted = True
-                if self.verbose > 0:
-                    print(f"{self.current_time}: BOMB PLANTED")
+                self.__verbose_print(0, f"{self.current_time}: BOMB PLANTED")
         else:
             self.state.in_round = False
             self.state.bomb_planted = False
@@ -358,11 +354,14 @@ class Analyser:
             if record not in self.kill_feed:
                 self.kill_feed.append(record)
 
-                if self.verbose >= 2:
-                    print(f"{record.time}: {record.player}/{record.player_idx} -> {record.target}/{record.target_idx}")
-                elif self.verbose > 0:
-                    print(f"{record.time}: {record.player} -> {record.target}")
+                did_print = self.__verbose_print(1, f"{record.time}: {record.player}/{record.player_idx} -> {record.target}/{record.target_idx}")
+                if not did_print: self.__verbose_print(0, f"{record.time}: {record.player} -> {record.target}")
 
+    def __verbose_print(self, verbose_value: int, *prompt) -> bool:
+        if self.verbose > verbose_value:
+            print("Info:", *prompt)
+
+        return self.verbose > verbose_value
 
     def __debug_print(self, *prompt: str) -> None:
         if self.verbose == 3:
