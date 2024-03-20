@@ -4,9 +4,12 @@ import pyautogui
 import cv2
 import numpy as np
 import easyocr
+from PIL import Image
 from re import search
 from time import sleep, time
+from os import mkdir
 from os.path import join, exists
+from sys import exit as sys_exit
 from dataclasses import dataclass
 from enum import Enum
 from Levenshtein import ratio as leven_ratio
@@ -177,9 +180,13 @@ class Analyser:
     
     def __init__(self, args: argparse.Namespace):
         self.config: dict = args.config
-        self.gpu: bool    = not args.cpu
+        self.gpu:    bool = not args.cpu
         self.verbose: int = args.verbose
         self.__debug_print(f"Config Keys -", list(self.config.keys()))
+        
+        if args.check:
+            regions = self.__get_ss_regions(Analyser.SCREENSHOT_REGIONS)
+            self.__save_regions(regions)
 
         self.ign_matrix = IGNMatrix.new(self.config["IGNS"], self.config["IGN_MODE"])
         self.kill_feed: list[KFRecord] = []
@@ -189,7 +196,7 @@ class Analyser:
         self.tdelta: float = self.config.get("SCREENSHOT_PERIOD", 1.0)
         
         self.reader = easyocr.Reader(['en'], gpu=self.gpu)
-        self.__verbose_print("EasyOCR Reader model loaded")
+        self.__verbose_print(0, "EasyOCR Reader model loaded")
         
         self.state = State(False, False)
         self.current_scoreline = None
@@ -202,8 +209,17 @@ class Analyser:
             [10, 255, 255],
             [170, 70, 50],
             [180, 255, 255]])
-        
-        self.__saved = True
+    
+    
+    def __save_regions(self, regions: list[np.ndarray]) -> None:
+        if not exists("images"):
+            mkdir("images")
+
+        print("Info: Saving check images")
+        for region_name, region_image in zip(Analyser.SCREENSHOT_REGIONS, regions):
+            Image.fromarray(region_image).save(join("images", f"{region_name}.png"))
+
+        sys_exit()
 
     def run(self):
         self.running = True
@@ -215,11 +231,14 @@ class Analyser:
                 continue
             
             __inference_start = time()
-            team1_scoreline, team2_scoreline, timer, feed = self.__get_ss_regions(Analyser.SCREENSHOT_REGIONS)
+            regions = self.__get_ss_regions(Analyser.SCREENSHOT_REGIONS)
+            if self.check:
+                self.__save_regions(regions)
             
-            self.__handle_timer(timer)
-            self.__read_scoreline(team1_scoreline, team2_scoreline)
-            self.__read_feed(feed)
+            team1_scoreline, team2_scoreline, timer, feed = regions
+            self.__handle_scoreline(team1_scoreline, team2_scoreline)
+            # self.__handle_timer(timer)
+            # self.__read_feed(feed)
 
             self.__debug_print(f"Inference time {time()-__inference_start:.2f}s")
             
@@ -236,7 +255,10 @@ class Analyser:
         left, top, width, height = region
         return (left, top, left + width, top + height)
 
-    def __screenshot_preprocess(self, image: np.ndarray, to_gray: bool=True) -> np.ndarray:
+    def __screenshot_preprocess(self,
+                                image: np.ndarray,
+                                to_gray: bool = True,
+                                squeeze_width: float = -1) -> np.ndarray:
         """
         To increase the accuracy of the EasyOCR readtext function, a few preprocessing techniques are used
           - RGB to Grayscale conversion
@@ -246,8 +268,13 @@ class Analyser:
             image = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
 
         scale_factor = self.config.get("SCREENSHOT_RESIZE_FACTOR", 2)
-        new_width = int(image.shape[1] * scale_factor)
-        new_height = int(image.shape[0] * scale_factor)
+        if squeeze_width != -1:
+            sf_w, sf_h = scale_factor * squeeze_width, scale_factor
+        else:
+            sf_w = sf_h = scale_factor
+
+        new_width = int(image.shape[1] * sf_w)
+        new_height = int(image.shape[0] * sf_h)
 
         return cv2.resize(image, (new_width, new_height), interpolation=cv2.INTER_LINEAR)
     
@@ -257,22 +284,13 @@ class Analyser:
         return [out[1] for out in results if out[2] > Analyser.PROB_THRESHOLD]
 
 
-    def __read_scoreline(self, team1_scoreline: np.ndarray, team2_scoreline: np.ndarray):
-        scores = np.hstack([self.__screenshot_preprocess(team1_scoreline, to_gray=False), 
-                            self.__screenshot_preprocess(team2_scoreline, to_gray=False)])
-        if not self.__saved:
-            gray1 = self.__screenshot_preprocess(team1_scoreline)
-            gray2 = self.__screenshot_preprocess(team2_scoreline)
-            
-            cv2.imwrite('test/gray1.png', gray1.astype(np.uint8))
-            cv2.imwrite('test/gray2.png', gray2.astype(np.uint8))
+    def __handle_scoreline(self, team1_scoreline: np.ndarray, team2_scoreline: np.ndarray):
+        img1 = self.__screenshot_preprocess(team1_scoreline, squeeze_width=0.5)
+        img2 = self.__screenshot_preprocess(team2_scoreline, squeeze_width=0.5)
 
-            self.__saved = True
-
-        self.__debug_print(self.__readtext(scores))
-        # results1 = self.__readtext(self.__screenshot_preprocess(team1_scoreline))
-        # results2 = self.__readtext(self.__screenshot_preprocess(team2_scoreline))
-        # self.__debug_print(results1, results2)
+        results1 = self.__readtext(img1)
+        results2 = self.__readtext(img2)
+        self.__verbose_print(0, results1, results2)
         
     
     def __handle_timer(self, timer_image: np.ndarray) -> None:
@@ -341,12 +359,10 @@ class Analyser:
         if len(results) % 2 != 0: return None  ## TODO: could cause an issue when someone c4's themselves
         
         for i in range(0, len(results), 2):
-            player_ign_raw = results[i]
-            target_ign_raw = results[i+1]
-            p_idx, p_name = self.ign_matrix.get(player_ign_raw)
-            t_idx, t_name = self.ign_matrix.get(target_ign_raw)
+            p_idx, p_name = self.ign_matrix.get(results[i])
+            t_idx, t_name = self.ign_matrix.get(results[i+1])
             
-            if p_idx is None or t_idx is None: continue
+            if p_idx is None or t_idx is None: continue ## invalid igns
             if self.ign_matrix.get_mode == IGNMatrixMode.OPPOSITION and (p_idx == -1 and t_idx == -1):
                 continue ## disregard opp on opp / invalid igns
             
@@ -458,6 +474,9 @@ if __name__ == "__main__":
                         help="Determines how detailed the console output is, 0-nothing, 1-some, 2-all, 3-debug",
                         dest="verbose",
                         default=1)
+    parser.add_argument("--check", 
+                        action="store_true",
+                        help="Does not perform data extract but saves the regions of interest as images for quality check")
     parser.add_argument("--cpu",
                         action="store_true",
                         help="Flag for only cpu execution, if your machine does not support gpu acceleration")
