@@ -5,7 +5,7 @@ import cv2
 import numpy as np
 import easyocr
 from PIL import Image
-from re import search
+from re import search, fullmatch
 from time import sleep, time
 from os import mkdir
 from os.path import join, exists
@@ -136,6 +136,11 @@ class KFRecord:
     
     def __eq__(self, other: 'KFRecord') -> bool:
         return self.player_idx == other.player_idx and self.target_idx == other.target_idx
+    
+    def __str__(self) -> str:
+        return f"{self.time}: {self.player} -> {self.target}"
+
+    __repr__ = __str__
 
 
 class RHRecord:
@@ -175,6 +180,8 @@ class Analyser:
     """
     PROB_THRESHOLD = 0.5
     RED_THRESHOLD = 0.9   ## Note: avg red_perc for bomb-defuse countdown ~0.93
+
+    NUM_LAST_SECONDS = 3  ## number of seconds to continue reading killfeed after round end (reliability reasons)
     
     SCREENSHOT_REGIONS = ["TEAM1_SCORE_REGION", "TEAM2_SCORE_REGION", "TIMER_REGION", "KILL_FEED_REGION"]
     
@@ -199,10 +206,13 @@ class Analyser:
         self.__verbose_print(0, "EasyOCR Reader model loaded")
         
         self.state = State(False, False)
-        self.current_scoreline = None
+        self.current_round = None
         self.current_time = 0
-        self.no_timer = 0
         self.defuse_countdown_timer = None
+        self.check_scoreline = True
+        self.last_seconds = None
+        self.history = {}
+        self.__temp_history = {}
                 
         self.__red_hsv_space = np.array([  # Define the range for red color in HSV space
             [0, 70, 50],
@@ -221,6 +231,7 @@ class Analyser:
 
         sys_exit()
 
+
     def run(self):
         self.running = True
         self.__verbose_print(0, "Running...")
@@ -232,13 +243,11 @@ class Analyser:
             
             __inference_start = time()
             regions = self.__get_ss_regions(Analyser.SCREENSHOT_REGIONS)
-            if self.check:
-                self.__save_regions(regions)
             
             team1_scoreline, team2_scoreline, timer, feed = regions
             self.__handle_scoreline(team1_scoreline, team2_scoreline)
-            # self.__handle_timer(timer)
-            # self.__read_feed(feed)
+            self.__handle_timer(timer)
+            self.__read_feed(feed)
 
             self.__debug_print(f"Inference time {time()-__inference_start:.2f}s")
             
@@ -255,6 +264,7 @@ class Analyser:
         left, top, width, height = region
         return (left, top, left + width, top + height)
 
+
     def __screenshot_preprocess(self,
                                 image: np.ndarray,
                                 to_gray: bool = True,
@@ -263,6 +273,7 @@ class Analyser:
         To increase the accuracy of the EasyOCR readtext function, a few preprocessing techniques are used
           - RGB to Grayscale conversion
           - Resize by factor `Config.SCREENSHOT_RESIZE_FACTOR` (normally 2-4)
+          - squeeze the width of the image, useful for scoreline OCR
         """
         if to_gray:
             image = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
@@ -284,33 +295,95 @@ class Analyser:
         return [out[1] for out in results if out[2] > Analyser.PROB_THRESHOLD]
 
 
-    def __handle_scoreline(self, team1_scoreline: np.ndarray, team2_scoreline: np.ndarray):
+    def __handle_scoreline(self, team1_scoreline: np.ndarray, team2_scoreline: np.ndarray) -> None:
+        if not self.check_scoreline: return
+
         img1 = self.__screenshot_preprocess(team1_scoreline, squeeze_width=0.5)
         img2 = self.__screenshot_preprocess(team2_scoreline, squeeze_width=0.5)
 
-        results1 = self.__readtext(img1)
-        results2 = self.__readtext(img2)
-        self.__verbose_print(0, results1, results2)
+        results = self.__readtext(img1) + self.__readtext(img2)
+        if len(results) != 2:
+            return
+        if not fullmatch(r"^\d+$", results[0]) or not fullmatch(r"^\d+$", results[1]):
+            return
         
+        ## create update for new round start
+        score1, score2 = map(int, results)
+        if score1 + score2 + 1 == self.current_round and self.current_round in self.history:
+            self.check_scoreline = False
+            return
+        
+        self.__new_round(score1, score2)
+        self.check_scoreline = False
+        
+    def __new_round(self, score1: int, score2: int) -> None:
+        new_round = score1 + score2 + 1
+        self.current_round = new_round
+        self.history[new_round] = {
+            "scoreline": [score1, score2],
+            "bomb_planted_at": None,
+            "bomb_defused_at": None,
+            "round_end_at": None,
+            "killfeed": []
+        }
+
+        ## temp history is an attempt to be fault tolerant, if certain OCR processes (scoreline) are inaccurate
+        if len(self.__temp_history) > 0:
+            for key, value in self.__temp_history.items():
+                self.history[new_round][key] = value
+
+            self.__temp_history.clear()
+        
+        print(self.history[new_round])
     
+    def __history_set(self, key: str, value) -> None:
+        APPEND_KEYS = ["killfeed"]
+        if self.current_round not in self.history:
+            self.check_scoreline = True
+            history = self.__temp_history
+        else:
+            history = self.history[self.current_round]
+        
+        if key in APPEND_KEYS:
+            history[key].append(value)
+        else:
+            history[key] = value
+        
+        print(history)
+    
+    def get_killfeed(self) -> list[dict]:
+        if self.current_round not in self.history:
+            return self.__temp_history.get("killfeed", [])
+        else:
+            return self.history[self.current_round].get("killfeed", [])       
+        
     def __handle_timer(self, timer_image: np.ndarray) -> None:
         new_time = self.__read_timer(timer_image)
         
         if new_time is not None: ## timer is showing
             self.current_time = new_time
             self.defuse_countdown_timer = None
-            self.state.in_round = True ## might get confused with pick phase timer?
+
+            if not self.state.in_round:
+                self.check_scoreline = True
+                self.state.in_round = True ## might get confused with pick phase timer?
+                self.last_seconds = None
         
         elif self.__is_bomb_countdown(timer_image):
             if self.defuse_countdown_timer is None: ## bomb planted
                 self.defuse_countdown_timer = time()
-                self.round_history.append(RHRecord(bomb_planted_time=self.current_time))
+                self.__history_set("bomb_planted_at", self.current_time)
 
                 self.state.bomb_planted = True
                 self.__verbose_print(0, f"{self.current_time}: BOMB PLANTED")
         else:
+            self.__history_set("round_end_at", self.current_time)
             self.state.in_round = False
             self.state.bomb_planted = False
+            self.last_seconds = time()
+        
+        if self.last_seconds is not None and self.last_seconds + Analyser.NUM_LAST_SECONDS < time():
+            self.last_seconds = None
 
     
     def __read_timer(self, image: np.ndarray) -> str | None:
@@ -352,7 +425,7 @@ class Analyser:
             return f"!0:{int(45-time_past)}"
 
     def __read_feed(self, image: np.ndarray) -> None:
-        if not self.state.in_round: return
+        if not self.state.in_round and self.last_seconds is None: return
 
         image = self.__screenshot_preprocess(image)
         results = self.__readtext(image)
@@ -367,11 +440,11 @@ class Analyser:
                 continue ## disregard opp on opp / invalid igns
             
             record = KFRecord(p_name, p_idx, t_name, t_idx, self.__get_time())
-            if record not in self.kill_feed:
-                self.kill_feed.append(record)
+            if record not in self.get_killfeed():
+                self.__history_set("killfeed", record)
 
-                did_print = self.__verbose_print(1, f"{record.time}: {record.player}/{record.player_idx} -> {record.target}/{record.target_idx}")
-                if not did_print: self.__verbose_print(0, f"{record.time}: {record.player} -> {record.target}")
+                # did_print = self.__verbose_print(1, f"{record.time}: {record.player}/{record.player_idx} -> {record.target}/{record.target_idx}")
+                # if not did_print: self.__verbose_print(0, f"{record.time}: {record.player} -> {record.target}")
 
     def __verbose_print(self, verbose_value: int, *prompt) -> bool:
         if self.verbose > verbose_value:
