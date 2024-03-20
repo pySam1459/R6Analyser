@@ -8,93 +8,109 @@ from re import search
 from time import sleep, time
 from os.path import join, exists
 from dataclasses import dataclass
-from PIL import Image
+from enum import Enum
 from Levenshtein import ratio as leven_ratio
+
+
+class IGNMatrixMode(Enum):
+    FIXED = "fixed"
+    INFER = "infer"
+    OPPOSITION = "opposition"
+
+    @classmethod
+    def from_string(cls, value: str):
+        """
+        Class method to convert a string to an Enum value, with validity checks.
+        """
+        for enum_member in cls:
+            if enum_member.value == value:
+                return enum_member
+        raise ValueError(f"'{value}' is not a valid {cls.__name__}")
 
 
 class IGNMatrix:
     """
     IGN Matrix infers the true IGN from the EasyOCR reading of the IGN (pseudoIGN) from the killfeed.
     The matrix can be initialised with a prior list of 'fixed' IGNs (IGNs known before starting the game)
-    If the matrix is not provided with 10 fixed IGNs, it will infer the remaining from the OCR's output
+    If the matrix is not provided with 10 fixed IGNs, the matrix's output will depend on its initialised mode
+    - fixed:      will return None for all non-fixed IGNs
+    - infer:      will infer the non-fixed IGNs from the OCR's output
+    - opposition: will return init param opp_value  [default='OPPOSITION'] for non-fixed IGNs, used when you only care about a single team's statistics
     The matrix will return an index/ID and the true/most-seen IGN when requested using the `get` method
     Notes:
-      - Fixing the IGNs prior to recording is recommended and more accurate
-          (None, None) will be returned if the IGN requested is not present in a fully-fixed matrix (all 10 IGNs fixed)
-      - The matrix uses Levenshtein distance to determine whether two IGNs are the same (could be improved?)
-      - The matrix records the number of occurrences of a pseudoIGN to determine its true IGN
-      - When requested and not fixed, the matrix will compare a pseudoIGN against all occurrences of pseudoIGNs
-          if the requested pseudoIGN matches with a known-pseudoIGN, it will return this pseudoIGN's index
-          otherwise, the pseudoIGN will be added to the matrix
+    - Fixing the IGNs prior to recording is recommended and more accurate
+        (None, None) will be returned if the IGN requested is not present in a fully-fixed matrix (all 10 IGNs fixed)
+    - The matrix uses Levenshtein distance to determine whether two IGNs are the same (could be improved?)
+    - The matrix records the number of occurrences of a pseudoIGN to determine its true IGN
+    - When requested and not fixed, the matrix will compare a pseudoIGN against all occurrences of pseudoIGNs
+        if the requested pseudoIGN matches with a known-pseudoIGN, it will return this pseudoIGN's index
+        otherwise, the pseudoIGN will be added to the matrix
     """
     VALID_THRESHOLD = 0.75 ## threshold for Levenshtein distance to determine equality
     
-    def __init__(self, fixed: int, igns: list[str]) -> None:
-        self.__fixed: int = fixed
+    def __init__(self, igns: list[str], mode: IGNMatrixMode, opp_value: str = "OPPOSITION") -> None:
         self.__igns: list[str|dict] = igns
+        self.__fixed: int = len(igns)
+        self.__mode = mode
+        self.__opp_value = opp_value
         
-    def get(self, ign: str) -> tuple[int|None, str|None]:
+    def get(self, pseudoIGN: str) -> tuple[int|None, str|None]:
         """
-        This method is used to request the index/ID and true/most-seen IGN from the pseudoIGN `ign` argument.
+        This method is used to request the index/ID and true/most-seen IGN from the pseudoIGN argument.
         If the matrix is fully-fixed, the method will return (None, None) if the pseudoIGN is not present.
         """
         ## Check the fixed igns
-        fixed_igns = self.__igns[:self.__fixed]
-        for i, name in enumerate(fixed_igns):
-            if IGNMatrix.__compare_names(ign, name) > IGNMatrix.VALID_THRESHOLD:
-                return i, name
+        if self.__fixed > 0:
+            fixed_igns = self.__igns[:self.__fixed]
+            for i, name in enumerate(fixed_igns):
+                if IGNMatrix.__compare_names(pseudoIGN, name) > IGNMatrix.VALID_THRESHOLD:
+                    return i, name
         
-        if self.__fixed == 10: return None, None ## not a valid IGN
+        if self.__fixed == 10 or self.__mode == IGNMatrixMode.FIXED:
+            return None, None ## not a valid IGN
+
+        if self.__mode == IGNMatrixMode.OPPOSITION:
+            return -1, self.__opp_value
 
         ## Check the unfixed, infered igns
         unfixed_igns = self.__igns[self.__fixed:]
         for i, names_dict in enumerate(unfixed_igns, start=self.__fixed):
-            if ign in names_dict:
-                names_dict[ign] += 1
+            if pseudoIGN in names_dict:
+                names_dict[pseudoIGN] += 1
                 return i, max(names_dict, key=lambda k: names_dict[k])
             
-            scores = [IGNMatrix.__compare_names(ign, name) for name in names_dict.keys()]
+            scores = [IGNMatrix.__compare_names(pseudoIGN, name) for name in names_dict.keys()]
             if max(scores) > IGNMatrix.VALID_THRESHOLD:
-                names_dict[ign] = 1
+                names_dict[pseudoIGN] = 1
                 return i, max(names_dict, key=lambda k: names_dict[k])
         
         ## if ign has not been seen, add to matrix
         idx = len(self.__igns)
-        self.__igns.append({ign: 1})
-        return idx, ign
+        self.__igns.append({pseudoIGN: 1})
+        return idx, pseudoIGN
+
+    def get_mode(self) -> IGNMatrixMode:
+        return self.__mode
 
     @staticmethod
-    def new(igns: list[list|str]) -> 'IGNMatrix':
-        """
-        Creates a new IGNMatrix object from a list of fixed IGNs
-        The parameter `igns` can be:
-          - The empty list, no IGNs will be fixed  - ([])
-          - A list of 5/10 IGNs to fix, if 5 are present, the remaining 5 IGNS will be infered  -  (["IGN_1", "IGN_2" ..., "IGN_10"])
-          - A list of 1/2 lists containing the 5 IGNs from each team,  -  ([["IGM_1", ..., "IGN_5"], ["IGM_6", ..., "IGN_10"]])
-              if only 1 team list is given, the other team's IGNs will be inferred
-        """
-        if len(igns) == 0:
-            return IGNMatrix(0, [])
-        
-        if type(igns[0]) == list:
-            if len(igns) == 1:
-                if len(igns[0]) == 5 or len(igns[0]) == 10:
-                    return IGNMatrix(len(igns[0]), igns[0])
-                
-                raise ValueError(f"Invalid Config IGN list, only {len(igns[0])} IGNS, must be 5/10")
-                
-            elif len(igns) == 2:
-                if len(igns[0]) != 5: raise ValueError(f"Invalid Config IGN list team 1, only {len(igns[0])} IGNS")
-                if len(igns[1]) != 5: raise ValueError(f"Invalid Config IGN list team 2, only {len(igns[1])} IGNS")
-                return IGNMatrix(10, igns[0] + igns[1])
-        
-        elif type(igns[0]) == str:
-            if len(igns) == 5 or len(igns) == 10:
-                return IGNMatrix(len(igns), igns)
-            
-            raise ValueError(f"Invalid Config IGN list, only {len(igns)} IGNS, must be 5/10")
+    def new(igns: list[str], mode: str) -> 'IGNMatrix':
+        """Creates a new IGNMatrix object from a list of fixed IGNs"""
+        if type(igns) != list:
+            raise ValueError(f"Invalid Config IGN list, argument is not a list")
 
-        raise ValueError("Invalid Config IGN list")
+        if len(igns) == 0:
+            return IGNMatrix([], IGNMatrixMode.INFER)
+
+        for i, el in enumerate(igns):
+            if type(el) != str:
+                raise ValueError(f"Invalid Config IGN list, element {i} is not a string")
+        
+        if len(igns) > 10:
+            igns = igns[:10]
+            print("Warning: Config IGN list has more than 10 IGNs, will only use first 10")
+
+        _mode = IGNMatrixMode.from_string(mode)
+        return IGNMatrix(igns, _mode)
             
     
     @staticmethod
@@ -164,7 +180,7 @@ class Analyser:
         self.verbose: int = args.verbose
         self.__debug_print(f"Config Keys -", list(self.config.keys()))
 
-        self.ign_matrix = IGNMatrix.new(self.config["IGNS"])
+        self.ign_matrix = IGNMatrix.new(self.config["IGNS"], self.config["IGN_MODE"])
         self.kill_feed: list[KFRecord] = []
         self.round_history: list[RHRecord] = []
 
@@ -335,6 +351,8 @@ class Analyser:
             t_idx, t_name = self.ign_matrix.get(target_ign_raw)
             
             if p_idx is None or t_idx is None: continue
+            if self.ign_matrix.get_mode == IGNMatrixMode.OPPOSITION and (p_idx == -1 and t_idx == -1):
+                continue ## disregard opp on opp / invalid igns
             
             record = KFRecord(p_name, p_idx, t_name, t_idx, self.__get_time())
             if record not in self.kill_feed:
@@ -373,8 +391,8 @@ def __parse_config(arg: str) -> dict:
     
     ## config keys
     REQUIRED_CONFIG_KEYS = ["TIMER_REGION", "KILL_FEED_REGION"]
-    OPTIONAL_CONFIG_KEYS = ["SCREENSHOT_RESIZE_FACTOR", "SCREENSHOT_PERIOD", "IGNS"]
-    INFER_CONFIG_KEYS = ["TEAM1_SCORE_REGION", "TEAM2_SCORE_REGION"]
+    OPTIONAL_CONFIG_KEYS = ["SCREENSHOT_RESIZE_FACTOR", "SCREENSHOT_PERIOD", "IGNS", "IGN_MODE"]
+    INFER_CONFIG_KEYS    = ["TEAM1_SCORE_REGION", "TEAM2_SCORE_REGION"]
     DEFAULT_CONFIG_FILENAME = "defaults.json"
     with open(arg, "r", encoding="utf-8") as f_in:
         config = json.load(f_in)
