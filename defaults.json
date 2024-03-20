@@ -1,5 +1,6 @@
 {
     "SCREENSHOT_RESIZE_FACTOR": 4,
     "SCREENSHOT_PERIOD": 1,
-    "IGNS": []
+    "IGNS": [],
+    "IGN_MODE": "infer"
 }
