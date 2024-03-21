@@ -4,3 +4,4 @@ pyautogui
 numpy
 pillow
 python-Levenshtein
+screeninfo
