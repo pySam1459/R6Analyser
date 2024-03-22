@@ -1,4 +1,10 @@
 {
+    "SCRIM": false,
+    "MAX_ROUNDS": 9,
     "TIMER_REGION": [1210, 110, 140, 65],
-    "KILL_FEED_REGION": [1640, 310, 565, 140]
+    "KILL_FEED_REGION": [1640, 310, 565, 140],
+    "IGNS": [
+        "Samba."
+    ],
+    "IGN_MODE": "infer"
 }

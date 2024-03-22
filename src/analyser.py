@@ -7,6 +7,7 @@ import easyocr
 from PIL import Image
 from re import search, fullmatch
 from time import sleep, time
+from datetime import datetime
 from os import mkdir
 from os.path import join, exists
 from sys import exit as sys_exit
@@ -15,11 +16,7 @@ from enum import Enum
 from Levenshtein import ratio as leven_ratio
 
 
-class IGNMatrixMode(Enum):
-    FIXED = "fixed"
-    INFER = "infer"
-    OPPOSITION = "opposition"
-
+class StrEnum(Enum):
     @classmethod
     def from_string(cls, value: str):
         """
@@ -29,6 +26,12 @@ class IGNMatrixMode(Enum):
             if enum_member.value == value:
                 return enum_member
         raise ValueError(f"'{value}' is not a valid {cls.__name__}")
+
+
+class IGNMatrixMode(StrEnum):
+    FIXED = "fixed"
+    INFER = "infer"
+    OPPOSITION = "opposition"
 
 
 class IGNMatrix:
@@ -52,17 +55,38 @@ class IGNMatrix:
     VALID_THRESHOLD = 0.75 ## threshold for Levenshtein distance to determine equality
     
     def __init__(self, igns: list[str], mode: IGNMatrixMode, opp_value: str = "OPPOSITION") -> None:
-        self.__igns: list[str|dict] = igns
-        self.__fixed: int = len(igns)
+        self.__igns: list[str|dict] = [ign for ign in igns if ign is not None]
+        self.__fixed: int = len(self.__igns)
         self.__mode = mode
         self.__opp_value = opp_value
-        
+
+        self.__team_table = { self.__igns.index(ign): int(idx >= 5) for idx, ign in enumerate(igns) if ign is not None }
+
+    def from_idx(self, index: int) -> str | None:
+        """
+        Returns the IGN of a player with the specified index, if the IGN was inferred, the highest recorded occurrence IGN is returned
+        """
+        if 0 <= index < len(self.__igns):
+            el = self.__igns[index]
+            if type(el) == str:
+                return el
+            elif type(el) == dict: ## names_dict
+                return IGNMatrix.__max_dict(el)
+
+        return None
+    
+    def get_index(self, pseudoIGN: str) -> int | None:
+        return self.get(pseudoIGN)[0]
+
     def get(self, pseudoIGN: str) -> tuple[int|None, str|None]:
         """
         This method is used to request the index/ID and true/most-seen IGN from the pseudoIGN argument.
         If the matrix is fully-fixed, the method will return (None, None) if the pseudoIGN is not present.
         """
         ## Check the fixed igns
+        if pseudoIGN in self.__igns:
+            return self.__igns.index(pseudoIGN)
+
         if self.__fixed > 0:
             fixed_igns = self.__igns[:self.__fixed]
             for i, name in enumerate(fixed_igns):
@@ -79,18 +103,69 @@ class IGNMatrix:
         unfixed_igns = self.__igns[self.__fixed:]
         for i, names_dict in enumerate(unfixed_igns, start=self.__fixed):
             if pseudoIGN in names_dict:
-                names_dict[pseudoIGN] += 1
-                return i, max(names_dict, key=lambda k: names_dict[k])
+                names_dict[pseudoIGN] += 1 # increase occurrence count for pseudoIGN
+                return i, IGNMatrix.__max_dict(names_dict)
             
             scores = [IGNMatrix.__compare_names(pseudoIGN, name) for name in names_dict.keys()]
             if max(scores) > IGNMatrix.VALID_THRESHOLD:
-                names_dict[pseudoIGN] = 1
-                return i, max(names_dict, key=lambda k: names_dict[k])
+                names_dict[pseudoIGN] = 1 # add to names_dict as a possible true IGN
+                return i, IGNMatrix.__max_dict(names_dict)
         
         ## if ign has not been seen, add to matrix
         idx = len(self.__igns)
-        self.__igns.append({pseudoIGN: 1})
+        self.__igns.append({ pseudoIGN: 1 })
         return idx, pseudoIGN
+
+    def get_team(self, ign: str | int) -> int | None:
+        """
+        Fixed:
+            first 5 igns provided are team idx 0, last 5 are team idx 1
+        Infer:
+            a team index table will be created, and records 
+        """
+        idx = ign if type(ign) == int else self.get_index(ign)
+
+        if self.__fixed >= 5:
+            return int(idx >= 5)
+        
+        ## Infer from table
+        if idx in self.__team_table:
+            kill_diff = self.__team_table[idx]
+            if kill_diff[0] < kill_diff[1]:
+                return 0
+            elif kill_diff[1] < kill_diff[0]:
+                return 1
+
+        return None ## team idx is unknown
+    
+    def update_team_table(self, player: str | int, target: str | int) -> None:
+        if self.__fixed == 10: return ## team_table update is unneccessary
+
+        pidx = player if type(player) == int else self.get_index(player)
+        tidx = target if type(target) == int else self.get_index(target)
+
+        p_killdiff = self.__team_table.get(pidx, None)
+        t_killdiff = self.__team_table.get(tidx, None)
+        pknown = type(p_killdiff) == int
+        tknown = type(t_killdiff) == int
+        if pknown and tknown: ## if player's team is already known
+            return
+        elif pknown or tknown:
+            if pidx is not self.__team_table:
+                self.__team_table[pidx] = 1 - tknown
+            elif tidx is not self.__team_table:
+                self.__team_table[tidx] = 1 - pknown
+
+        elif False: ## TODO fix, inference
+            if pidx not in self.__team_table:
+                self.__team_table[pidx] = [0, 0]
+            if tidx not in self.__team_table:
+                self.__team_table[tidx] = [0, 0]
+
+            pidx_team = self.get_team(pidx)
+            tidx_team = self.get_team(tidx)
+            self.__team_table[pidx][tidx_team] += 1  
+
 
     def get_mode(self) -> IGNMatrixMode:
         return self.__mode
@@ -114,7 +189,10 @@ class IGNMatrix:
 
         _mode = IGNMatrixMode.from_string(mode)
         return IGNMatrix(igns, _mode)
-            
+    
+    @staticmethod
+    def __max_dict(_dict: dict[str: int]) -> str:
+        return max(_dict, key=_dict.get)
     
     @staticmethod
     def __compare_names(name1: str, name2: str) -> float:
@@ -137,40 +215,38 @@ class KFRecord:
     def __eq__(self, other: 'KFRecord') -> bool:
         return self.player_idx == other.player_idx and self.target_idx == other.target_idx
     
-    def __str__(self) -> str:
+    def to_string(self) -> str:
         return f"{self.time}: {self.player} -> {self.target}"
 
-    __repr__ = __str__
+    def to_json(self, ign_matrix: IGNMatrix = None) -> dict:
+        if ign_matrix is None:
+            player = self.player
+            target = self.target
+        else:
+            player = ign_matrix.from_idx(self.player_idx) or self.player
+            target = ign_matrix.from_idx(self.target_idx) or self.target
 
+        return {
+            "time": self.time,
+            "player": player,
+            "target": target
+        }
 
-class RHRecord:
-    """
-    Class to record a piece of information about a round.
-    TODO: probably going to remove this, not the format i'm looking for
-    """
-    def __init__(self,
-                 bomb_planted_time=None,
-                 round_scoreline=None,
-                 **kwargs):
-        attributes = [bomb_planted_time, round_scoreline, *kwargs.values()]
-        n_attrs = sum(attr is not None for attr in attributes)
-        if n_attrs != 1:
-            raise ValueError("RHRecord must only have one property set at a time.")
-
-        self.bomb_planted_time = bomb_planted_time
-        self.round_scoreline = round_scoreline
-        for key, value in kwargs.items():
-            setattr(self, key, value)
-
-    def __repr__(self):
-        active_property = next(((k, v) for k, v in self.__dict__.items() if v is not None), ('none', None))
-        return f"RHRecord({active_property[0]}={active_property[1]!r})"
+    __repr__ = to_json
 
 
 @dataclass
 class State:
     in_round: bool
+    last_ten: bool
     bomb_planted: bool
+
+
+class WinCondition(StrEnum):
+    KILLED_OPPONENTS = "KilledOpponents"
+    TIME = "Time"
+    DEFUSED_BOMB = "DefusedBomb"
+    DISABLED_DEFUSER = "DisabledDefuser"
 
 
 class Analyser:
@@ -179,47 +255,51 @@ class Analyser:
     Operates the main inference loop `run` and records match/round information
     """
     PROB_THRESHOLD = 0.5
-    RED_THRESHOLD = 0.9   ## Note: avg red_perc for bomb-defuse countdown ~0.93
+    RED_THRESHOLD = 0.9    ## Note: avg red_perc for bomb-defuse countdown ~0.93
 
-    NUM_LAST_SECONDS = 3  ## number of seconds to continue reading killfeed after round end (reliability reasons)
+    NUM_LAST_SECONDS = 4   ## number of seconds to continue reading killfeed after round end (reliability reasons)
+    END_ROUND_SECONDS = 12 ## number of seconds to check no timer to determine round end
     
     SCREENSHOT_REGIONS = ["TEAM1_SCORE_REGION", "TEAM2_SCORE_REGION", "TIMER_REGION", "KILL_FEED_REGION"]
+
+    RED_HSV_SPACE = np.array([ ## Defines the range for red color in HSV space
+        [0, 70, 50],
+        [10, 255, 255],
+        [170, 70, 50],
+        [180, 255, 255]])
     
     def __init__(self, args: argparse.Namespace):
         self.config: dict = args.config
-        self.gpu:    bool = not args.cpu
         self.verbose: int = args.verbose
+        self.prog_args = args
         self.__debug_print(f"Config Keys -", list(self.config.keys()))
         
         if args.check:
-            regions = self.__get_ss_regions(Analyser.SCREENSHOT_REGIONS)
-            self.__save_regions(regions)
-
-        self.ign_matrix = IGNMatrix.new(self.config["IGNS"], self.config["IGN_MODE"])
-        self.kill_feed: list[KFRecord] = []
-        self.round_history: list[RHRecord] = []
+            self.check()
 
         self.running = False
         self.tdelta: float = self.config.get("SCREENSHOT_PERIOD", 1.0)
         
-        self.reader = easyocr.Reader(['en'], gpu=self.gpu)
+        self.ign_matrix = IGNMatrix.new(self.config["IGNS"], self.config["IGN_MODE"])
+        self.reader = easyocr.Reader(['en'], gpu=args.gpu)
         self.__verbose_print(0, "EasyOCR Reader model loaded")
         
         self.state = State(False, False)
-        self.current_round = None
-        self.current_time = 0
-        self.defuse_countdown_timer = None
-        self.check_scoreline = True
-        self.last_seconds = None
         self.history = {}
         self.__temp_history = {}
-                
-        self.__red_hsv_space = np.array([  # Define the range for red color in HSV space
-            [0, 70, 50],
-            [10, 255, 255],
-            [170, 70, 50],
-            [180, 255, 255]])
-    
+        self.current_round = None
+        self.current_time = None
+
+        self.check_scoreline = True        
+        self.defuse_countdown_timer = None
+        self.last_kf_seconds = None
+        self.end_round_seconds = None
+
+
+    def check(self) -> None:
+        regions = self.__get_ss_regions(Analyser.SCREENSHOT_REGIONS)
+        self.__save_regions(regions)
+        sys_exit()
     
     def __save_regions(self, regions: list[np.ndarray]) -> None:
         if not exists("images"):
@@ -228,8 +308,6 @@ class Analyser:
         print("Info: Saving check images")
         for region_name, region_image in zip(Analyser.SCREENSHOT_REGIONS, regions):
             Image.fromarray(region_image).save(join("images", f"{region_name}.png"))
-
-        sys_exit()
 
 
     def run(self):
@@ -255,7 +333,7 @@ class Analyser:
 
     def __get_ss_regions(self, regions: list[str]) -> list[np.ndarray]:
         """Takes a screenshot of the screen, selects regions, and returns them as numpy.ndarray"""
-        screenshot = pyautogui.screenshot()
+        screenshot = pyautogui.screenshot(allScreens=True)
         return [np.array(screenshot.crop(Analyser.convert_region(self.config[region])), copy=False) for region in regions]
     
     @staticmethod
@@ -264,7 +342,24 @@ class Analyser:
         left, top, width, height = region
         return (left, top, left + width, top + height)
 
-
+    
+    def __history_set(self, key: str, value) -> None:
+        """Sets the values of elements in the history attributes; appending values to the `killfeed` element"""
+        APPEND_KEYS = ["killfeed"]
+        if self.current_round not in self.history:
+            self.check_scoreline = True
+            history = self.__temp_history
+        else:
+            history = self.history[self.current_round]
+        
+        if key in APPEND_KEYS:
+            history[key].append(value)
+        else:
+            history[key] = value
+        
+        self.__verbose_print(1, history)   
+    
+    ## ----- OCR -----
     def __screenshot_preprocess(self,
                                 image: np.ndarray,
                                 to_gray: bool = True,
@@ -288,14 +383,16 @@ class Analyser:
         new_height = int(image.shape[0] * sf_h)
 
         return cv2.resize(image, (new_width, new_height), interpolation=cv2.INTER_LINEAR)
-    
-    def __readtext(self, image: np.ndarray) -> list[str]:
+
+    def __readtext(self, image: np.ndarray, prob: float=PROB_THRESHOLD) -> list[str]:
         """Performs the EasyOCR inference and cleans the output based on the model's assigned probabilities and a threshold"""
         results = self.reader.readtext(image)
-        return [out[1] for out in results if out[2] > Analyser.PROB_THRESHOLD]
+        return [out[1] for out in results if out[2] > prob]
 
 
+    ## ----- SCORELINE -----
     def __handle_scoreline(self, team1_scoreline: np.ndarray, team2_scoreline: np.ndarray) -> None:
+        """Extracts the current scoreline visible and determines when a new rounds starts"""
         if not self.check_scoreline: return
 
         img1 = self.__screenshot_preprocess(team1_scoreline, squeeze_width=0.5)
@@ -315,48 +412,9 @@ class Analyser:
         
         self.__new_round(score1, score2)
         self.check_scoreline = False
-        
-    def __new_round(self, score1: int, score2: int) -> None:
-        new_round = score1 + score2 + 1
-        self.current_round = new_round
-        self.history[new_round] = {
-            "scoreline": [score1, score2],
-            "bomb_planted_at": None,
-            "bomb_defused_at": None,
-            "round_end_at": None,
-            "killfeed": []
-        }
 
-        ## temp history is an attempt to be fault tolerant, if certain OCR processes (scoreline) are inaccurate
-        if len(self.__temp_history) > 0:
-            for key, value in self.__temp_history.items():
-                self.history[new_round][key] = value
 
-            self.__temp_history.clear()
-        
-        print(self.history[new_round])
-    
-    def __history_set(self, key: str, value) -> None:
-        APPEND_KEYS = ["killfeed"]
-        if self.current_round not in self.history:
-            self.check_scoreline = True
-            history = self.__temp_history
-        else:
-            history = self.history[self.current_round]
-        
-        if key in APPEND_KEYS:
-            history[key].append(value)
-        else:
-            history[key] = value
-        
-        print(history)
-    
-    def get_killfeed(self) -> list[dict]:
-        if self.current_round not in self.history:
-            return self.__temp_history.get("killfeed", [])
-        else:
-            return self.history[self.current_round].get("killfeed", [])       
-        
+    ## ----- TIMER FUNCTION -----
     def __handle_timer(self, timer_image: np.ndarray) -> None:
         new_time = self.__read_timer(timer_image)
         
@@ -364,10 +422,12 @@ class Analyser:
             self.current_time = new_time
             self.defuse_countdown_timer = None
 
+            self.last_kf_seconds = None
+            self.end_round_seconds = None
+
             if not self.state.in_round:
                 self.check_scoreline = True
                 self.state.in_round = True ## might get confused with pick phase timer?
-                self.last_seconds = None
         
         elif self.__is_bomb_countdown(timer_image):
             if self.defuse_countdown_timer is None: ## bomb planted
@@ -376,14 +436,17 @@ class Analyser:
 
                 self.state.bomb_planted = True
                 self.__verbose_print(0, f"{self.current_time}: BOMB PLANTED")
-        else:
-            self.__history_set("round_end_at", self.current_time)
-            self.state.in_round = False
-            self.state.bomb_planted = False
-            self.last_seconds = time()
+
+        elif self.last_kf_seconds is None and self.end_round_seconds is None:
+            self.last_kf_seconds = time()
+            self.end_round_seconds = time()
         
-        if self.last_seconds is not None and self.last_seconds + Analyser.NUM_LAST_SECONDS < time():
-            self.last_seconds = None
+        if self.last_kf_seconds is not None and self.last_kf_seconds + Analyser.NUM_LAST_SECONDS < time():
+            self.last_kf_seconds = None
+
+        if self.end_round_seconds is not None and self.end_round_seconds + Analyser.END_ROUND_SECONDS < time():
+            self.__end_round()
+            self.end_round_seconds = None
 
     
     def __read_timer(self, image: np.ndarray) -> str | None:
@@ -392,10 +455,13 @@ class Analyser:
         If the timer is not present, None is returned
         """
         image = self.__screenshot_preprocess(image)
-        results = self.__readtext(image)
+        results = self.__readtext(image, prob=0.4)
         for read_time in results:
-            if (time := search(r"(\d?\d)[ \.:](\d\d)", read_time)):
-                return f"{time.group(1)}:{time.group(2)}"
+            if (time := search(r"([0-2]).{1,2}([0-5],?\d)", read_time)) and not self.state.last_ten: ## 2:59-0:10
+                seconds = time.group(2).replace(",", "")
+                return f"{time.group(1)}:{seconds}"
+            elif (time := search(r"(\d).{1,2}(\d,?\d)", read_time)): ## 9:99-0:00
+                return f"0:0{time.group(1)}"
         
         return None
     
@@ -407,8 +473,8 @@ class Analyser:
         hsv = cv2.cvtColor(image, cv2.COLOR_RGB2HSV)
 
         # Create masks for red color
-        mask1 = cv2.inRange(hsv, self.__red_hsv_space[0], self.__red_hsv_space[1])
-        mask2 = cv2.inRange(hsv, self.__red_hsv_space[2], self.__red_hsv_space[3])
+        mask1 = cv2.inRange(hsv, Analyser.RED_HSV_SPACE[0], Analyser.RED_HSV_SPACE[1])
+        mask2 = cv2.inRange(hsv, Analyser.RED_HSV_SPACE[2], Analyser.RED_HSV_SPACE[3])
         red_mask = cv2.bitwise_or(mask1, mask2)
 
         # Calculate the percentage of red in the image
@@ -416,16 +482,23 @@ class Analyser:
         self.__debug_print(f"{red_percentage=}")
         return red_percentage > Analyser.RED_THRESHOLD
 
-    
+
+    ## ----- KILL FEED -----
     def __get_time(self) -> str:
         if self.defuse_countdown_timer is None:
             return self.current_time
         else:
             time_past = time() - self.defuse_countdown_timer
             return f"!0:{int(45-time_past)}"
+    
+    def __get_killfeed(self) -> list[dict]:
+        if self.current_round not in self.history:
+            return self.__temp_history.get("killfeed", [])
+        else:
+            return self.history[self.current_round].get("killfeed", [])
 
     def __read_feed(self, image: np.ndarray) -> None:
-        if not self.state.in_round and self.last_seconds is None: return
+        if not self.state.in_round and self.last_kf_seconds is None: return
 
         image = self.__screenshot_preprocess(image)
         results = self.__readtext(image)
@@ -436,16 +509,103 @@ class Analyser:
             t_idx, t_name = self.ign_matrix.get(results[i+1])
             
             if p_idx is None or t_idx is None: continue ## invalid igns
-            if self.ign_matrix.get_mode == IGNMatrixMode.OPPOSITION and (p_idx == -1 and t_idx == -1):
+            if self.ign_matrix.get_mode() == IGNMatrixMode.OPPOSITION and (p_idx == -1 and t_idx == -1):
                 continue ## disregard opp on opp / invalid igns
             
             record = KFRecord(p_name, p_idx, t_name, t_idx, self.__get_time())
-            if record not in self.get_killfeed():
+            if record not in self.__get_killfeed():
                 self.__history_set("killfeed", record)
+                self.ign_matrix.update_team_table(p_idx, t_idx)
 
                 # did_print = self.__verbose_print(1, f"{record.time}: {record.player}/{record.player_idx} -> {record.target}/{record.target_idx}")
                 # if not did_print: self.__verbose_print(0, f"{record.time}: {record.player} -> {record.target}")
 
+
+    ## ----- GAME STATE FUNCTIONS -----
+    def __new_round(self, score1: int, score2: int) -> None:
+        """
+        When a new round starts, this method is called, initialising a new round history
+        The parameters `score1` and `score2` are the current scores displayed at the start of a new round
+        """
+        ## infer winner of previous round based on new scoreline
+        if self.current_round is not None and self.history[self.current_round]["winner"] is None:
+            _, _score2 = self.history[self.current_round]
+            self.history[self.current_round]["winner"] = int(_score2 < score2) ## if _score1+1 == score1, return 0
+
+        self.state.last_ten = False
+
+        new_round = score1 + score2 + 1
+        self.current_round = new_round
+        self.history[new_round] = {
+            "scoreline": [score1, score2],
+            "bomb_planted_at": None,
+            "bomb_defused_at": None,
+            "round_end_at": None,
+            "win_condition": None,
+            "winner": None,
+            "killfeed": []
+        }
+
+        ## temp history is an attempt to be fault tolerant, if certain OCR processes (scoreline) are inaccurate
+        if len(self.__temp_history) > 0:
+            for key, value in self.__temp_history.items():
+                self.history[new_round][key] = value
+
+            self.__temp_history.clear()
+        
+        self.__verbose_print(1, self.history[new_round])
+    
+    def __end_round(self) -> None:
+        if len(self.history) == 0: return ## TODO: consider if this is a appropriate clause guard
+
+        if self.state.bomb_planted:
+            win_con = WinCondition.DISABLED_DEFUSER if self.state.disabled_defuser else WinCondition.DEFUSED_BOMB
+        elif self.current_time == "0:00": ## this could be doubious
+            win_con = WinCondition.TIME
+            ## self.__history_set("winner", )
+        else: ## killed opps
+            ...
+
+        self.__history_set("win_condition", win_con)
+        self.__history_set("round_end_at", self.current_time)
+
+        self.state.in_round = False
+        self.state.bomb_planted = False
+
+        if len(self.history) >= self.config["MAX_ROUNDS"] or sum(self.history[self.current_round]["scoreline"])+1 >= self.config["MAX_ROUNDS"]:
+            self.__end_game()
+        elif self.prog_args.append_save:
+            self.__save()
+        elif self.prog_args.upload_save:
+            self.__upload_save()
+
+    def __end_game(self) -> None:
+        self.__save()
+        sys_exit()
+    
+    def __save(self) -> None:
+        if not exists("saves"):
+            mkdir("saves")
+
+        match self.prog_args.save.ext:
+            case "json":
+                self.__save_json()
+            case "xlsx":
+                self.__save_xlsx()
+
+    def __upload_save(self) -> None:
+        ...
+    
+    def __save_json(self) -> None:
+        hist_clone = repr(self.history.copy())
+        with open(join("saves", self.prog_args.save), "w") as f_out:
+            json.dump(hist_clone, f_out, indent=4)
+    
+    def __save_xlsx(self) -> None:
+        ...
+
+
+    ## ----- PRINT FUNCTION -----
     def __verbose_print(self, verbose_value: int, *prompt) -> bool:
         if self.verbose > verbose_value:
             print("Info:", *prompt)
@@ -457,6 +617,7 @@ class Analyser:
             print("Debug:", *prompt)
 
 
+## ----- HELPER FUNCTIONS -----
 def __infer_key(config: dict, key: str) -> None:
     match key:
         case "TEAM1_SCORE_REGION":
@@ -465,6 +626,8 @@ def __infer_key(config: dict, key: str) -> None:
         case "TEAM2_SCORE_REGION":
             tr = config["TIMER_REGION"]
             config["TEAM2_SCORE_REGION"] = [tr[0] + tr[2], tr[1], tr[2]//2, tr[3]]
+        case "MAX_ROUNDS":
+            config["MAX_ROUNDS"] = 12 if config["SCRIM"] else 15
         case _:
             ...
 
@@ -478,9 +641,9 @@ def __parse_config(arg: str) -> dict:
         arg = join("configs", arg)
     
     ## config keys
-    REQUIRED_CONFIG_KEYS = ["TIMER_REGION", "KILL_FEED_REGION"]
+    REQUIRED_CONFIG_KEYS = ["SCRIM", "TIMER_REGION", "KILL_FEED_REGION"]
     OPTIONAL_CONFIG_KEYS = ["SCREENSHOT_RESIZE_FACTOR", "SCREENSHOT_PERIOD", "IGNS", "IGN_MODE"]
-    INFER_CONFIG_KEYS    = ["TEAM1_SCORE_REGION", "TEAM2_SCORE_REGION"]
+    INFER_CONFIG_KEYS    = ["TEAM1_SCORE_REGION", "TEAM2_SCORE_REGION", "MAX_ROUNDS"]
     DEFAULT_CONFIG_FILENAME = "defaults.json"
     with open(arg, "r", encoding="utf-8") as f_in:
         config = json.load(f_in)
@@ -529,6 +692,25 @@ def __parse_verbose(arg: str) -> int:
         raise argparse.ArgumentError(f"Invalid Verbose argument {arg}")
 
 
+@dataclass
+class SaveFile:
+    filename: str
+    ext: str
+
+    def __str__(self) -> str: return f"{self.filename}.{self.ext}"
+    __repr__ = __str__
+
+
+def __parse_save(arg: str) -> SaveFile:
+    filename, ext = arg.rsplit(".", maxsplit=1)
+    if ext == "json" or ext == "xlsx":
+        return SaveFile(filename, ext)
+    raise argparse.ArgumentError(f"Invalid save file type {ext}, only json/xlsx allowed")
+
+def __default_save() -> str:
+    return datetime.now().strftime('%Y-%m-%d_%H-%M-%S') + ".json"
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         prog="R6 Analyser",
@@ -547,6 +729,19 @@ if __name__ == "__main__":
                         help="Determines how detailed the console output is, 0-nothing, 1-some, 2-all, 3-debug",
                         dest="verbose",
                         default=1)
+    parser.add_argument("-s", "--save",
+                        type=__parse_save,
+                        help="Where to save the output of R6Analyser, only json or xlsx files",
+                        dest="save",
+                        default=__default_save())
+    parser.add_argument("--append-save",
+                       action="store_true",
+                       help="Whether to append new round data onto the existing save file, otherwise save all data at the end of a game",
+                       dest="append_save")
+    # parser.add_argument("--upload-save",
+    #                    action="store_true",
+    #                    help="Whether to upload new round data directly to the cloud, otherwise save all data at the end of a game",
+    #                    dest="append_save")
     parser.add_argument("--check", 
                         action="store_true",
                         help="Does not perform data extract but saves the regions of interest as images for quality check")
