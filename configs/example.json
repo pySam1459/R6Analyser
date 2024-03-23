@@ -6,5 +6,6 @@
     "IGNS": [
         "Samba."
     ],
-    "IGN_MODE": "infer"
+    "IGN_MODE": "infer",
+    "SPECTATOR": false
 }

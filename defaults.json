@@ -4,5 +4,6 @@
     "SCREENSHOT_RESIZE_FACTOR": 4,
     "SCREENSHOT_PERIOD": 0.75,
     "IGNS": [],
-    "IGN_MODE": "infer"
+    "IGN_MODE": "infer",
+    "SPECTATOR": false
 }

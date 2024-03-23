@@ -19,7 +19,7 @@ These parameters must be specified for the program to function correctly; `REGIO
 ### Optional Parameters
 These parameters are optional and will default to values in `default.json` if not specified:
 
-- `IGNS`: A list of strings specifying the in-game names (IGNs) of the players in the game. The first 5 IGNs will be considered team 1. If this is not specified, the program will infer the names from the kill feed.
+- `IGNS`: (RECOMMENDED) A list of strings specifying the in-game names (IGNs) of the players in the game. The first 5 IGNs will be considered team 1. If this is not specified, the program will infer the names from the kill feed.
 
 - `IGN_MODE`: Specifies how the IGNs are processed. There are three modes available:
   - `fixed`: Will return `None` for all non-fixed IGNs. This mode is used when you have a predefined list of IGNs, and any IGN not in this list will not be considered.
@@ -27,8 +27,8 @@ These parameters are optional and will default to values in `default.json` if no
   - `opposition`: Will return the initial parameter `opp_value` (defaulting to `'OPPOSITION'`) for non-fixed IGNs. This mode is useful when you are only interested in statistics for one team and want to group all opposing team members under a single identifier.
 
 - `SCREENSHOT_RESIZE_FACTOR`: A number specifying the factor by which the screenshot is resized before processing. This can help in optimizing the OCR performance by adjusting the image size.
-
 - `SCREENSHOT_PERIOD`: A number specifying the period in seconds between screenshots. This determines how frequently the program captures the game feed for analysis.
+- `SPECTATOR`: (true/false) specifying if the game perspective is in spectator mode, compared to in-person (default).
 
 ### Inferred Parameters
 These parameters are optional and will be inferred by the program if not explicitly specified:
