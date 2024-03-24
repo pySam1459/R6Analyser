@@ -47,16 +47,9 @@ class IGNMatrix(ABC):
     If the matrix is not provided with 10 fixed IGNs, the matrix's output will depend on its initialised mode
     - fixed:      will return None for all non-fixed IGNs
     - infer:      will infer the non-fixed IGNs from the OCR's output
-    - opposition: will return init param opp_value  [default='OPPOSITION'] for non-fixed IGNs, used when you only care about a single team's statistics
+    - opposition: will return 'OPPOSITION' for non-fixed IGNs, used when you only care about a single team's statistics
     The matrix will return an index/ID and the true/most-seen IGN when requested using the `get` method
-    Notes:
-    - Fixing the IGNs prior to recording is recommended and more accurate
-        (None, None) will be returned if the IGN requested is not present in a fully-fixed matrix (all 10 IGNs fixed)
-    - The matrix uses Levenshtein distance to determine whether two IGNs are the same (could be improved?)
-    - The matrix records the number of occurrences of a pseudoIGN to determine its true IGN
-    - When requested and not fixed, the matrix will compare a pseudoIGN against all occurrences of pseudoIGNs
-        if the requested pseudoIGN matches with a known-pseudoIGN, it will return this pseudoIGN's index
-        otherwise, the pseudoIGN will be added to the matrix
+    The matrix uses Levenshtein distance to determine whether two IGNs are the same (could be improved?)
     """
 
     @abstractmethod
@@ -357,7 +350,6 @@ class SaveFile:
     __repr__ = __str__
 
 
-
 @dataclass
 class State:
     in_round: bool
@@ -378,13 +370,6 @@ class Analyser(ABC):
     Operates the main inference loop `run` and records match/round information
     """
     PROB_THRESHOLD = 0.5
-    RED_THRESHOLD = 0.9    ## Note: avg red_perc for bomb-defuse countdown ~0.93
-
-    RED_HSV_SPACE = np.array([ ## Defines the range for red color in HSV space
-        [0, 120, 70],
-        [10, 255, 255],
-        [170, 170, 70],
-        [180, 255, 255]])
 
     SHARPEN_KERNEL = np.array([
         [-1, -1, -1],
@@ -423,7 +408,7 @@ class Analyser(ABC):
         regions = self.__get_ss_regions(self._get_ss_region_keys())
         self.__save_regions(regions)
         sys_exit()
-    
+
     def __save_regions(self, regions: list[np.ndarray]) -> None:
         if not exists("images"):
             mkdir("images")
@@ -431,8 +416,24 @@ class Analyser(ABC):
         print("Info: Saving check images")
         for region_name, region_image in zip(self._get_ss_region_keys(), regions):
             if region_name == "KILL_FEED_REGION":
-                region_image = self.__killfeed_preprocess(region_image)
+                region_image = self._killfeed_preprocess(region_image)
             Image.fromarray(region_image).save(join("images", f"{region_name}.png"))
+
+
+    @abstractmethod
+    def _get_ss_region_keys(self) -> list[str]:
+        ...
+
+    def __get_ss_regions(self, regions: list[str]) -> list[np.ndarray]:
+        """Takes a screenshot of the screen, selects regions, and returns them as numpy.ndarray"""
+        screenshot = pyautogui.screenshot(allScreens=True)
+        return [np.array(screenshot.crop(Analyser.convert_region(self.config[region])), copy=False) for region in regions]
+
+    @staticmethod
+    def convert_region(region: list[int]) -> list[int]:
+        """Converts (X,Y,W,H) -> (Left,Top,Right,Bottom)"""
+        left, top, width, height = region
+        return (left, top, left + width, top + height)
 
 
     def run(self):
@@ -443,7 +444,7 @@ class Analyser(ABC):
         while self.running:
             if self.timer + self.tdelta > time():
                 continue
-            
+
             __inference_start = time()
             regions = self.__get_ss_regions(self._get_ss_region_keys())
 
@@ -452,41 +453,8 @@ class Analyser(ABC):
             self._handle_timer(timer)
             self._read_feed(feed)
 
-            # self.__debug_print(f"Inference time {time()-__inference_start:.2f}s")
-            
+            self._debug_print(f"Inference time {time()-__inference_start:.2f}s")
             self.timer = time()
-    
-    @abstractmethod
-    def _get_ss_region_keys(self) -> list[str]:
-        ...
-
-    def __get_ss_regions(self, regions: list[str]) -> list[np.ndarray]:
-        """Takes a screenshot of the screen, selects regions, and returns them as numpy.ndarray"""
-        screenshot = pyautogui.screenshot(allScreens=True)
-        return [np.array(screenshot.crop(Analyser.convert_region(self.config[region])), copy=False) for region in regions]
-    
-    @staticmethod
-    def convert_region(region: list[int]) -> list[int]:
-        """Converts (X,Y,W,H) -> (Left,Top,Right,Bottom)"""
-        left, top, width, height = region
-        return (left, top, left + width, top + height)
-
-    
-    def _history_set(self, key: str, value) -> None:
-        """Sets the values of elements in the history attributes; appending values to the `killfeed` element"""
-        APPEND_KEYS = ["killfeed"]
-        if self.current_round not in self.history:
-            self.check_scoreline = True
-            history = self.__temp_history
-        else:
-            history = self.history[self.current_round]
-        
-        if key in APPEND_KEYS:
-            history[key].append(value)
-        else:
-            history[key] = value
-        
-        self.__verbose_print(1, history)
     
     ## ----- OCR -----
     def _killfeed_preprocess(self, image: np.ndarray) -> np.ndarray:
@@ -494,12 +462,12 @@ class Analyser(ABC):
 
         image = cv2.fastNlMeansDenoising(image, None, 5, 7, 21)
     
-        # image = cv2.filter2D(image, -1, Analyser.SHARPEN_KERNEL2)
+        # image = cv2.filter2D(image, -1, Analyser.SHARPEN_KERNEL)
         sf = self.config.get("SCREENSHOT_RESIZE_FACTOR", 2)
         new_width = int(image.shape[1] * sf)
         new_height = int(image.shape[0] * sf)
         
-        image = cv2.resize(image, (new_width, new_height), interpolation=cv2.INTER_AREA)
+        image = cv2.resize(image, (new_width, new_height), interpolation=cv2.INTER_LINEAR)
         return image
 
     def _screenshot_preprocess(self, image: np.ndarray,
@@ -536,7 +504,8 @@ class Analyser(ABC):
         if out: print(results)
         return [out[1] for out in results if out[2] > prob]
 
-    ## Main abstract methods
+
+    ## ----- IN ROUND OCR FUNCTIONS -----
     @abstractmethod
     def _handle_scoreline(self, team1_scoreline: np.ndarray, team2_scoreline: np.ndarray) -> None:
         ...
@@ -549,7 +518,6 @@ class Analyser(ABC):
     def _read_feed(self, feed: np.ndarray) -> None:
         ...
 
-
     ## ----- GAME STATE FUNCTIONS -----
     @abstractmethod
     def _new_round(self, score1: int, score2: int) -> None:
@@ -558,7 +526,24 @@ class Analyser(ABC):
     @abstractmethod
     def _end_round(self) -> None:
         ...    
-    
+
+    # ----- HISTORY FUNCTIONS -----
+    def _history_set(self, key: str, value) -> None:
+        """Sets the values of elements in the history attributes; appending values to the `killfeed` element"""
+        APPEND_KEYS = ["killfeed"]
+        if self.current_round not in self.history:
+            self.check_scoreline = True
+            history = self.__temp_history
+        else:
+            history = self.history[self.current_round]
+        
+        if key in APPEND_KEYS:
+            history[key].append(value)
+        else:
+            history[key] = value
+        
+        self._verbose_print(1, history)
+
     def _new_history_round(self) -> None:
         return {
             "scoreline": None,
@@ -570,6 +555,7 @@ class Analyser(ABC):
             "killfeed": []
         }
 
+    # ----- ENG OF PROGRAM \ SAVING -----
     def _end_game(self) -> None:
         self._save()
         sys_exit()
@@ -588,7 +574,9 @@ class Analyser(ABC):
         ...
     
     def _save_json(self) -> None:
-        hist_clone = repr(self.history.copy())
+        hist_clone = self.history.copy()
+        for round in hist_clone.values():
+            round["killfeed"] = [record.to_json() for record in round["killfeed"]]
         with open(join("saves", self.prog_args.save), "w") as f_out:
             json.dump(hist_clone, f_out, indent=4)
     
@@ -613,6 +601,14 @@ class InPersonAnalyser(Analyser):
     END_ROUND_SECONDS = 12 ## number of seconds to check no timer to determine round end
     
     SCREENSHOT_REGIONS = ["TEAM1_SCORE_REGION", "TEAM2_SCORE_REGION", "TIMER_REGION", "KILL_FEED_REGION"]
+
+    RED_THRESHOLD = 0.9    ## Note: avg red_perc for bomb-defuse countdown ~0.93
+
+    RED_HSV_SPACE = np.array([ ## Defines the range for red color in HSV space
+        [0, 120, 70],
+        [10, 255, 255],
+        [170, 170, 70],
+        [180, 255, 255]])
 
     def __init__(self, args) -> None:
         super(InPersonAnalyser, self).__init__(args)
@@ -721,8 +717,9 @@ class InPersonAnalyser(Analyser):
         image = self._killfeed_preprocess(image)
         threshold = 0.3
         results = [out for out in self.reader.readtext(image) if out[2] > threshold]
+        print(results)
 
-        if len(results) % 2 != 0: return None  ## TODO: could cause an issue when someone c4's themselves
+        # if len(results) % 2 != 0: return None  ## TODO: could cause an issue when someone c4's themselves
         
         for i in range(0, len(results), 2):
             player = self.ign_matrix.get(results[i], 0.65)
@@ -803,5 +800,31 @@ class InPersonAnalyser(Analyser):
 
 
 class SpectatorAnalyser(Analyser):
+    NUM_LAST_SECONDS = 4
+    END_ROUND_SECONDS = 12
+    
+    SCREENSHOT_REGIONS = ["TEAM1_SCORE_REGION", "TEAM2_SCORE_REGION", "TIMER_REGION", "KILL_FEED_REGION"]
+
     def __init__(self, args) -> None:
         super(SpectatorAnalyser, self).__init__(args)
+
+    @abstractmethod
+    def _get_ss_region_keys(self) -> list[str]:
+        return SpectatorAnalyser.SCREENSHOT_REGIONS
+
+    ## ----- IN ROUND OCR FUNCTIONS -----
+    def _handle_scoreline(self, team1_scoreline: np.ndarray, team2_scoreline: np.ndarray) -> None:
+        ...
+    
+    def _handle_timer(self, timer: np.ndarray) -> None:
+        ...
+    
+    def _read_feed(self, feed: np.ndarray) -> None:
+        ...
+
+    ## ----- GAME STATE FUNCTIONS -----
+    def _new_round(self, score1: int, score2: int) -> None:
+        ...
+
+    def _end_round(self) -> None:
+        ...    
