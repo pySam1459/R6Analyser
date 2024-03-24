@@ -34,9 +34,15 @@ class IGNMatrixMode(StrEnum):
     OPPOSITION = "opposition"
 
 
-class IGNMatrix:
+@dataclass
+class Player:
+    idx: int
+    ign: str
+
+
+class IGNMatrix(ABC):
     """
-    IGN Matrix infers the true IGN from the EasyOCR reading of the IGN (pseudoIGN) from the killfeed.
+    IGN Matrix infers the true IGN from the EasyOCR reading of the IGN (pseudoIGN/pign) from the killfeed.
     The matrix can be initialised with a prior list of 'fixed' IGNs (IGNs known before starting the game)
     If the matrix is not provided with 10 fixed IGNs, the matrix's output will depend on its initialised mode
     - fixed:      will return None for all non-fixed IGNs
@@ -52,77 +58,215 @@ class IGNMatrix:
         if the requested pseudoIGN matches with a known-pseudoIGN, it will return this pseudoIGN's index
         otherwise, the pseudoIGN will be added to the matrix
     """
-    VALID_THRESHOLD = 0.75 ## threshold for Levenshtein distance to determine equality
+
+    @abstractmethod
+    def get(self, pseudoIGN: str, threshold: float) -> Player | None:
+        ...
     
-    def __init__(self, igns: list[str], mode: IGNMatrixMode, opp_value: str = "OPPOSITION") -> None:
-        self.__igns: list[str|dict] = [ign for ign in igns if ign is not None]
-        self.__fixed: int = len(self.__igns)
-        self.__mode = mode
-        self.__opp_value = opp_value
+    @abstractmethod
+    def from_idx(self, idx: int) -> Player | None:
+        ...
+    
+    @abstractmethod
+    def get_team(self, ign: str | int) -> int:
+        ...
+    
+    def update_team_table(self, player: str | int, target: str | int) -> None:
+        ...
+    
+    @staticmethod
+    def new(igns: list[str], mode: IGNMatrixMode) -> 'IGNMatrix':
+        """Creates a new IGNMatrix object from a list of fixed IGNs"""
+        match mode:
+            case IGNMatrixMode.FIXED:
+                return IGNMatrixFixed.new(igns)
+            case IGNMatrixMode.INFER:
+                if len(igns) == 10: return IGNMatrixFixed.new(igns)
+                else: return IGNMatrixInfer.new(igns)
+            case IGNMatrixMode.OPPOSITION:
+                return IGNMatrixOpposition.new(igns)
+            case _:
+                raise ValueError(f"Unknown IGNMatrixMode {mode}")
 
-        self.__team_table = { self.__igns.index(ign): int(idx >= 5) for idx, ign in enumerate(igns) if ign is not None }
+    @staticmethod
+    def _compare_names(name1: str, name2: str) -> float:
+        """Compares two IGN's (pseudo/non-pseudo) using Levenshtein distance, output in the range [0-1]"""
+        return leven_ratio(name1.lower(), name2.lower())
+    
+    @staticmethod
+    def _check_fixed(ign_list: list[str], pign: str, threshold: float) -> Player | None:
+        for i, ign in enumerate(ign_list):
+            if ign == pign or IGNMatrix._compare_names(pign, ign) > threshold:
+                return Player(i, ign)
+        return None
 
-    def from_idx(self, index: int) -> str | None:
-        """
-        Returns the IGN of a player with the specified index, if the IGN was inferred, the highest recorded occurrence IGN is returned
-        """
-        if 0 <= index < len(self.__igns):
-            el = self.__igns[index]
-            if type(el) == str:
-                return el
-            elif type(el) == dict: ## names_dict
-                return IGNMatrix.__max_dict(el)
+
+class IGNMatrixFixed(IGNMatrix):
+    """
+    This subclass of IGNMatrix only handles the case where all IGNs are known beforehand
+    Separating the different IGN modes aims to improve efficiency, readability and modularity
+    """
+    VALID_THRESHOLD = 0.75 ## threshold for Levenshtein distance to determine equality
+
+    def __init__(self, igns: list[str]) -> None:
+        self.__matrix = igns
+    
+    def get(self, pign: str, threshold: float = VALID_THRESHOLD) -> Player | None:
+        """This method is used to request the index/ID and true/most-seen IGN from the pseudoIGN argument."""
+        return IGNMatrix._check_fixed(self.__matrix, pign, threshold)
+
+    def from_idx(self, idx: int) -> Player | None:
+        if 0 <= idx <= 10:
+            return Player(idx, self.__matrix[idx])
 
         return None
     
-    def get_index(self, pseudoIGN: str) -> int | None:
-        return self.get(pseudoIGN)[0]
+    def get_team(self, ign: str | int) -> int | None:
+        if type(ign) == str and ((pl := self.get(ign)) is not None):
+            return int(pl.idx >= 5)
+        elif type(ign) == int and 0 <= ign < 10:
+            return int(ign >= 5)
 
-    def get(self, pseudoIGN: str, threshold: float = VALID_THRESHOLD) -> tuple[int|None, str|None]:
-        """
-        This method is used to request the index/ID and true/most-seen IGN from the pseudoIGN argument.
-        If the matrix is fully-fixed, the method will return (None, None) if the pseudoIGN is not present.
-        """
-        ## Check the fixed igns
-        if pseudoIGN in self.__igns:
-            return self.__igns.index(pseudoIGN), pseudoIGN
+        return None
 
-        if self.__fixed > 0:
-            fixed_igns = self.__igns[:self.__fixed]
-            for i, name in enumerate(fixed_igns):
-                if IGNMatrix.__compare_names(pseudoIGN, name) > threshold:
-                    return i, name
+    @staticmethod
+    def new(igns: list[str]) -> 'IGNMatrixFixed':
+        """Type checking of `igns` is done by the `__cparse_IGNS` function, except for length=10 check"""
+        if len(igns) != 10:
+            raise ValueError(f"Invalid Fixed IGNMatrix argument, must have 10 IGNs, not {len(igns)}")
         
-        if self.__fixed == 10 or self.__mode == IGNMatrixMode.FIXED:
-            return None, None ## not a valid IGN
+        return IGNMatrixFixed(igns)
 
-        if self.__mode == IGNMatrixMode.OPPOSITION:
-            return -1, self.__opp_value
 
-        ## Check the unfixed, infered igns
-        unfixed_igns = self.__igns[self.__fixed:]
-        for i, names_dict in enumerate(unfixed_igns, start=self.__fixed):
-            if pseudoIGN in names_dict:
-                names_dict[pseudoIGN] += 1 # increase occurrence count for pseudoIGN
-                return i, IGNMatrix.__max_dict(names_dict)
-            
-            scores = [IGNMatrix.__compare_names(pseudoIGN, name) for name in names_dict.keys()]
-            if max(scores) > threshold:
-                names_dict[pseudoIGN] = 1 # add to names_dict as a possible true IGN
-                return i, IGNMatrix.__max_dict(names_dict)
+class IGNMatrixInfer(IGNMatrix):
+    """
+    IGN Inference has 3 steps, fixed, semi-fixed, matrix
+    1. Fixed      - a pseudoIGN is compared to the list of known IGNs
+    2. Semi-Fixed - a pseudoIGN is tested against all of the semi-fixed IGN names-dicts
+    3. Matrix     - a pseudoIGN is tested against all other pseudoIGN names-dicts
+    When a pseudoIGN is found in either semi-fixed or matrix names-dicts, the occurrence of that pseudoIGN is incremented
+    If a matrix names-dict reaches the Assimilation threshold of occurrences, that pseduo IGN names-dict is promoted to semi-fixed
+    Once len(Fixed) + len(Semi-Fixed) == 10, no more psuedoIGN names-dict can be promoted and assumed to be invalid IGNs
+    A `names-dict: dict[str, int]` is a dictionary containing the occurrency count for each pseudoIGN of an unknown true IGN
+    """
+    VALID_THRESHOLD = 0.75   ## threshold for Levenshtein distance to determine equality
+    ASSIMILATE_THRESHOLD = 5 ## how many times a pseudoIGN has to be seen before adding to 'semi-fixed' list
+
+    def __init__(self, igns: list[str]) -> None:
+        self.__fixmat = igns
+        self.__fixlen = len(igns)
+
+        self.__semi_fixmat: dict[int,dict[str,int]] = {}
+        self.__matrix:      dict[int,dict[str,int]] = {}
+        self.__semi_fixlen = 0
+        self.__idx_counter = self.__fixlen
+    
+    def get(self, pign: str, threshold: float = VALID_THRESHOLD) -> Player | None:
+        ## first check the fixed igns
+        if self.__fixlen > 0 and (pl := IGNMatrix._check_fixed(self.__fixmat, pign, threshold)) is not None:
+            return pl
         
+        ## second, check the semi-fixed igns
+        for idx, names_dict in self.__semi_fixmat.items():
+            if (pl := self.__in_names_dict(pign, idx, names_dict, threshold)):
+                return pl
+        
+        ## if all fixed and semi-fixed igns have been found, assume pseudoIGN is invalid
+        if self.__fixlen + self.__semi_fixlen >= 10:
+            return None
+
+        ## if not all semi-fixed igns have been found, check matrix, and assimilate if necessary
+        for idx, names_dict in self.__matrix.items():
+            if (pl := self.__in_names_dict(pign, idx, names_dict, threshold)):
+                self.__check_assimilation(idx, names_dict)
+                return pl
+
         ## if ign has not been seen, add to matrix
-        idx = len(self.__igns)
-        self.__igns.append({ pseudoIGN: 1 })
-        return idx, pseudoIGN
+        self.__matrix[self.__idx_counter] = { pign: 1 }
+        self.__idx_counter += 1
+        return Player(idx, pign)
+
+    def __in_names_dict(self, pign: str, idx: int, names_dict: dict, threshold: float) -> Player | None:
+        """
+        This method determines whether a pseudoIGN/pign belongs to a specified names_dict,
+          and increases the occurrence counts if it does.
+        """
+        if pign in names_dict:
+            names_dict[pign] += 1 # increase occurrence count for pseudoIGN
+            return Player(idx, IGNMatrixInfer._max_dict(names_dict))
+        
+        for seen_pign in names_dict.keys():
+            if IGNMatrix._compare_names(pign, seen_pign) > threshold:
+                names_dict[pign] = 1  # add to names_dict as a possible true IGN
+                return Player(idx, IGNMatrixInfer._max_dict(names_dict))
+
+        return None
+    
+    def __check_assimilation(self, idx: int, names_dict: dict[str, int]) -> None:
+        """
+        Checks to see if a specified names_dict has passed over the Assimilation threshold, 
+          and if so assimilate to semi-fixed matrix
+        """
+        if sum(names_dict, key=names_dict.get) >= IGNMatrixInfer.ASSIMILATE_THRESHOLD:
+            self.__semi_fixmat[idx] = self.__matrix.pop(idx)
+            self.__semi_fixlen += 1
+        
+    
+    def from_idx(self, idx: int) -> str | None:
+        """Returns the (most likely) IGN from a given idx"""
+        if 0 <= idx < self.__fixlen:
+            return self.__fixmat[idx]
+        elif idx in self.__semi_fixmat:
+            return IGNMatrixInfer._max_dict(self.__semi_fixmat[idx])
+        elif idx in self.__matrix:
+            return IGNMatrixInfer._max_dict(self.__matrix[idx])
+
+        return None
+    
+    def get_team(self, ign: str | int) -> int | None:
+        ...
+
+    @staticmethod
+    def new(igns: list[str]) -> 'IGNMatrixInfer':
+        """Type checking of `igns` is done by the `__cparse_IGNS` function"""
+        return IGNMatrixInfer(igns)
+
+    @staticmethod
+    def _max_dict(_dict: dict[str: int]) -> str:
+        return max(_dict, key=_dict.get)
+
+
+class IGNMatrixOpposition(IGNMatrixInfer):
+    VALID_THRESHOLD = 0.75
+
+    def __init__(self, igns: list[str]) -> None:
+        super(IGNMatrixOpposition, self).__init__(igns)
+    
+    def get(self, pign: str, threshold: float = VALID_THRESHOLD) -> Player | None:
+        if (pl := super().get(pign, threshold)) is None:
+            return None
+        
+        if pl.ign not in self.__fixmat:
+            pl.ign = "OPPOSITION"
+
+        return pl
+
+    @staticmethod
+    def new(igns: list[str]) -> 'IGNMatrixOpposition':
+        """Type checking of `igns` is done by the `__cparse_IGNS` function"""
+        return IGNMatrixOpposition(igns)
+
+"""
+    self.__team_table = { self.__igns.index(ign): int(idx >= 5) for idx, ign in enumerate(igns) if ign is not None }
+
 
     def get_team(self, ign: str | int) -> int | None:
-        """
+        ""
         Fixed:
             first 5 igns provided are team idx 0, last 5 are team idx 1
         Infer:
             a team index table will be created, and records 
-        """
+        ""
         idx = ign if type(ign) == int else self.get_index(ign)
 
         if self.__fixed >= 5:
@@ -165,39 +309,8 @@ class IGNMatrix:
             pidx_team = self.get_team(pidx)
             tidx_team = self.get_team(tidx)
             self.__team_table[pidx][tidx_team] += 1  
-
-
-    def get_mode(self) -> IGNMatrixMode:
-        return self.__mode
-
-    @staticmethod
-    def new(igns: list[str], mode: IGNMatrixMode) -> 'IGNMatrix':
-        """Creates a new IGNMatrix object from a list of fixed IGNs"""
-        if type(igns) != list:
-            raise ValueError(f"Invalid Config IGN list, argument is not a list")
-
-        if len(igns) == 0:
-            return IGNMatrix([], IGNMatrixMode.INFER)
-
-        for i, el in enumerate(igns):
-            if type(el) != str:
-                raise ValueError(f"Invalid Config IGN list, element {i} is not a string")
-        
-        if len(igns) > 10:
-            igns = igns[:10]
-            print("Warning: Config IGN list has more than 10 IGNs, will only use first 10")
-
-        return IGNMatrix(igns, mode)
-    
-    @staticmethod
-    def __max_dict(_dict: dict[str: int]) -> str:
-        return max(_dict, key=_dict.get)
-    
-    @staticmethod
-    def __compare_names(name1: str, name2: str) -> float:
-        """Compares two IGN's (pseudo/non-pseudo) using Levenshtein distance, output in the range [0-1]"""
-        return leven_ratio(name1.lower(), name2.lower())
-
+"""
+            
 
 @dataclass
 class KFRecord:
@@ -606,21 +719,21 @@ class InPersonAnalyser(Analyser):
         if not self.state.in_round and self.last_kf_seconds is None: return
 
         image = self._killfeed_preprocess(image)
-        results = self._readtext(image, prob=0.3)
+        threshold = 0.3
+        results = [out for out in self.reader.readtext(image) if out[2] > threshold]
+
         if len(results) % 2 != 0: return None  ## TODO: could cause an issue when someone c4's themselves
         
         for i in range(0, len(results), 2):
-            p_idx, p_name = self.ign_matrix.get(results[i], 0.65)
-            t_idx, t_name = self.ign_matrix.get(results[i+1], 0.65)
+            player = self.ign_matrix.get(results[i], 0.65)
+            target = self.ign_matrix.get(results[i+1], 0.65)
             
-            if p_idx is None or t_idx is None: continue ## invalid igns
-            if self.ign_matrix.get_mode() == IGNMatrixMode.OPPOSITION and (p_idx == -1 and t_idx == -1):
-                continue ## disregard opp on opp / invalid igns
+            if player is None or target is None: continue ## invalid igns
             
-            record = KFRecord(p_name, p_idx, t_name, t_idx, self.__get_time())
+            record = KFRecord(player.ign, player.idx, target.ign, target.idx, self.__get_time())
             if record not in self.__get_killfeed():
                 self._history_set("killfeed", record)
-                self.ign_matrix.update_team_table(p_idx, t_idx)
+                self.ign_matrix.update_team_table(player.idx, target.idx)
 
                 # did_print = self.__verbose_print(1, f"{record.time}: {record.player}/{record.player_idx} -> {record.target}/{record.target_idx}")
                 # if not did_print: self.__verbose_print(0, f"{record.time}: {record.player} -> {record.target}")
