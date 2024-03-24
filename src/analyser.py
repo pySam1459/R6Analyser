@@ -89,7 +89,7 @@ class IGNMatrix(ABC):
     @staticmethod
     def _check_fixed(ign_list: list[str], pign: str, threshold: float) -> Player | None:
         for i, ign in enumerate(ign_list):
-            if ign == pign or IGNMatrix._compare_names(pign, ign) > threshold:
+            if ign == pign or IGNMatrix._compare_names(pign, ign) >= threshold:
                 return Player(i, ign)
         return None
 
@@ -99,7 +99,7 @@ class IGNMatrixFixed(IGNMatrix):
     This subclass of IGNMatrix only handles the case where all IGNs are known beforehand
     Separating the different IGN modes aims to improve efficiency, readability and modularity
     """
-    VALID_THRESHOLD = 0.75 ## threshold for Levenshtein distance to determine equality
+    VALID_THRESHOLD = 0.6 ## threshold for Levenshtein distance to determine equality
 
     def __init__(self, igns: list[str]) -> None:
         self.__matrix = igns
@@ -364,6 +364,65 @@ class WinCondition(StrEnum):
     DISABLED_DEFUSER = "DisabledDefuser"
 
 
+class History:
+    def __init__(self) -> None:
+        self.__roundn = -1
+        self.__memory: dict[int,dict] = {}
+        self.new_round(-1)
+    
+    @property
+    def current_round(self) -> int:
+        return self.__roundn
+    
+    def get(self, key: str):
+        return self.__memory[self.__roundn].get(key, None)
+    
+    def set(self, key: str, value) -> None:
+        """Sets the values of elements in the history attributes; appending values to the `killfeed` element"""
+        APPEND_KEYS = ["killfeed"]
+        if key in APPEND_KEYS:
+            self.__memory[self.__roundn][key].append(value)
+        else:
+            self.__memory[self.__roundn][key] = value
+        self.__memory[self.__roundn]["updates"] += 1
+        self.print()
+
+    def new_round(self, round_number: int) -> None:
+        new_data = {
+            "scoreline": None,
+            "bomb_planted_at": None,
+            "bomb_defused_at": None,
+            "round_end_at": None,
+            "win_condition": None,
+            "winner": None,
+            "killfeed": [],
+            "updates": 0
+        }
+        self.__memory[round_number] = new_data
+        self.__roundn = round_number
+    
+    def __contains__(self, other) -> bool:
+        return other in self.__memory
+    
+    def __len__(self) -> int:
+        return len(self.__memory)
+    
+    def is_empty(self) -> bool:
+        return len(self.__memory) == 0
+    
+    def to_json(self) -> dict:
+        if self.__memory[-1]["updates"] == 0:
+            self.__memory.pop(-1)
+
+        mem_clone = self.__memory.copy()
+        for round in mem_clone.values():
+            round["killfeed"] = [record.to_json() for record in round["killfeed"]]
+        return mem_clone
+
+    def print(self) -> None:
+        print(self.__roundn, self.__memory[self.__roundn])
+
+
 class Analyser(ABC):
     """
     Main class `Analyser`
@@ -393,12 +452,10 @@ class Analyser(ABC):
         self._verbose_print(0, "EasyOCR Reader model loaded")
         
         self.state = State(False, False, False)
-        self.history = {}
-        self.__temp_history = self._new_history_round()
-        self.current_round = None
+        self.history = History()
         self.current_time = None
 
-        self.check_scoreline = True        
+        self.check_scoreline = True
         self.defuse_countdown_timer = None
         self.last_kf_seconds = None
         self.end_round_seconds = None
@@ -527,35 +584,7 @@ class Analyser(ABC):
     def _end_round(self) -> None:
         ...    
 
-    # ----- HISTORY FUNCTIONS -----
-    def _history_set(self, key: str, value) -> None:
-        """Sets the values of elements in the history attributes; appending values to the `killfeed` element"""
-        APPEND_KEYS = ["killfeed"]
-        if self.current_round not in self.history:
-            self.check_scoreline = True
-            history = self.__temp_history
-        else:
-            history = self.history[self.current_round]
-        
-        if key in APPEND_KEYS:
-            history[key].append(value)
-        else:
-            history[key] = value
-        
-        self._verbose_print(1, history)
-
-    def _new_history_round(self) -> None:
-        return {
-            "scoreline": None,
-            "bomb_planted_at": None,
-            "bomb_defused_at": None,
-            "round_end_at": None,
-            "win_condition": None,
-            "winner": None,
-            "killfeed": []
-        }
-
-    # ----- ENG OF PROGRAM \ SAVING -----
+    # ----- ENG OF PROGRAM / SAVING -----
     def _end_game(self) -> None:
         self._save()
         sys_exit()
@@ -574,11 +603,8 @@ class Analyser(ABC):
         ...
     
     def _save_json(self) -> None:
-        hist_clone = self.history.copy()
-        for round in hist_clone.values():
-            round["killfeed"] = [record.to_json() for record in round["killfeed"]]
-        with open(join("saves", self.prog_args.save), "w") as f_out:
-            json.dump(hist_clone, f_out, indent=4)
+        with open(join("saves", str(self.prog_args.save)), "w") as f_out:
+            json.dump(self.history.to_json(), f_out, indent=4)
     
     def _save_xlsx(self) -> None:
         ...
@@ -613,7 +639,6 @@ class InPersonAnalyser(Analyser):
     def __init__(self, args) -> None:
         super(InPersonAnalyser, self).__init__(args)
 
-    @abstractmethod
     def _get_ss_region_keys(self) -> list[str]:
         return InPersonAnalyser.SCREENSHOT_REGIONS
 
@@ -631,12 +656,7 @@ class InPersonAnalyser(Analyser):
         if not fullmatch(r"^\d+$", results[0]) or not fullmatch(r"^\d+$", results[1]):
             return
         
-        ## create update for new round start
         score1, score2 = map(int, results)
-        if score1 + score2 + 1 == self.current_round and self.current_round in self.history:
-            self.check_scoreline = False
-            return
-        
         self._new_round(score1, score2)
         self.check_scoreline = False
 
@@ -653,13 +673,12 @@ class InPersonAnalyser(Analyser):
             self.end_round_seconds = None
 
             if not self.state.in_round:
-                self.check_scoreline = True
                 self.state.in_round = True ## might get confused with pick phase timer?
         
         elif self.__is_bomb_countdown(timer_image):
             if self.defuse_countdown_timer is None: ## bomb planted
                 self.defuse_countdown_timer = time()
-                self._history_set("bomb_planted_at", self.current_time)
+                self.history.set("bomb_planted_at", self.current_time)
 
                 self.state.bomb_planted = True
                 self._verbose_print(0, f"{self.current_time}: BOMB PLANTED")
@@ -700,40 +719,66 @@ class InPersonAnalyser(Analyser):
         hsv = cv2.cvtColor(image, cv2.COLOR_RGB2HSV)
 
         # Create masks for red color
-        mask1 = cv2.inRange(hsv, Analyser.RED_HSV_SPACE[0], Analyser.RED_HSV_SPACE[1])
-        mask2 = cv2.inRange(hsv, Analyser.RED_HSV_SPACE[2], Analyser.RED_HSV_SPACE[3])
+        mask1 = cv2.inRange(hsv, InPersonAnalyser.RED_HSV_SPACE[0], InPersonAnalyser.RED_HSV_SPACE[1])
+        mask2 = cv2.inRange(hsv, InPersonAnalyser.RED_HSV_SPACE[2], InPersonAnalyser.RED_HSV_SPACE[3])
         red_mask = cv2.bitwise_or(mask1, mask2)
 
         # Calculate the percentage of red in the image
         red_percentage = np.sum(red_mask > 0) / red_mask.size
         self._debug_print(f"{red_percentage=}")
-        return 0.97 > red_percentage > Analyser.RED_THRESHOLD
+        return 0.97 > red_percentage > InPersonAnalyser.RED_THRESHOLD
 
 
     ## ----- KILL FEED -----
     def _read_feed(self, image: np.ndarray) -> None:
         if not self.state.in_round and self.last_kf_seconds is None: return
 
-        image = self._killfeed_preprocess(image)
-        threshold = 0.3
-        results = [out for out in self.reader.readtext(image) if out[2] > threshold]
-        print(results)
+        image = self._killfeed_preprocess(image) ## remember, image has been resized
+        ocr_results = self.reader.readtext(image)
+        cleaned_results = self.__clean_kf_results(ocr_results, image.shape[1])
+        pairs = self.__get_kf_pairs(cleaned_results)
 
-        # if len(results) % 2 != 0: return None  ## TODO: could cause an issue when someone c4's themselves
-        
-        for i in range(0, len(results), 2):
-            player = self.ign_matrix.get(results[i], 0.65)
-            target = self.ign_matrix.get(results[i+1], 0.65)
+        for left, right in pairs:
+            player = self.ign_matrix.get(left, 0.65)
+            target = self.ign_matrix.get(right, 0.65)
             
-            if player is None or target is None: continue ## invalid igns
+            if player is None or target is None:
+                continue ## invalid igns
             
             record = KFRecord(player.ign, player.idx, target.ign, target.idx, self.__get_time())
-            if record not in self.__get_killfeed():
-                self._history_set("killfeed", record)
+            if record not in self.history.get("killfeed"):
+                self.history.set("killfeed", record)
                 self.ign_matrix.update_team_table(player.idx, target.idx)
 
                 # did_print = self.__verbose_print(1, f"{record.time}: {record.player}/{record.player_idx} -> {record.target}/{record.target_idx}")
                 # if not did_print: self.__verbose_print(0, f"{record.time}: {record.player} -> {record.target}")
+
+    def __clean_kf_results(self, results: list[tuple], width: int) -> list[tuple]:
+        out = []
+        for res in results:
+            if res[2] < 0.3 or len(res[1]) < 3: continue
+
+            rect = bbox_to_rect(res[0])
+            if rect[2] > width // 2: continue ## TODO: relook at this, assumed that name-length < image-width/2
+
+            out.append(res)
+        return out
+
+    def __get_kf_pairs(self, results: list[tuple]) -> list[tuple[str, str]]:
+        n = len(results)
+        if n <= 1: return [] ## TODO: account for un-alives
+
+        pairs = []
+        for i, res1 in enumerate(results[:-1]):
+            box1 = bbox_to_rect(res1[0])
+            mid1 = box1[1] + box1[3]/2 
+            for res2 in results[i+1:]:
+                box2 = bbox_to_rect(res2[0])
+                mid2 = box2[1] + box2[3]/2
+                if box1[0] + box1[2] < box2[0] and abs(mid1-mid2) < 0.2 * max(box1[3], box2[3]):
+                    pairs.append((res1[1], res2[1]))
+
+        return pairs
 
     def __get_time(self) -> str:
         if self.defuse_countdown_timer is None:
@@ -741,12 +786,6 @@ class InPersonAnalyser(Analyser):
         else:
             time_past = time() - self.defuse_countdown_timer
             return f"!0:{int(45-time_past)}"
-    
-    def __get_killfeed(self) -> list[dict]:
-        if self.current_round not in self.history:
-            return self.__temp_history.get("killfeed", [])
-        else:
-            return self.history[self.current_round].get("killfeed", [])
 
     def _new_round(self, score1: int, score2: int) -> None:
         """
@@ -754,28 +793,19 @@ class InPersonAnalyser(Analyser):
         The parameters `score1` and `score2` are the current scores displayed at the start of a new round
         """
         ## infer winner of previous round based on new scoreline
-        if self.current_round is not None and self.history[self.current_round]["winner"] is None:
-            _, _score2 = self.history[self.current_round]
-            self.history[self.current_round]["winner"] = int(_score2 < score2) ## if _score1+1 == score1, return 0
+        if self.history.current_round != -1 and self.history.get("winner") is None:
+            _, _score2 = self.history.get("scoreline")
+            self.history.set("winner", int(_score2 < score2)) ## if _score1+1 == score1, return 0
 
         self.state.last_ten = False
 
         new_round = score1 + score2 + 1
-        self.current_round = new_round
-        self.history[new_round] = self._new_history_round()
-        self.history[new_round]["scoreline"] = [score1, score2]
-
-        ## temp history is an attempt to be fault tolerant, if certain OCR processes (scoreline) are inaccurate
-        if len(self.__temp_history) > 0:
-            for key, value in self.__temp_history.items():
-                self.history[new_round][key] = value
-
-            self.__temp_history = self._new_history_round()
-        
-        self._verbose_print(1, self.history[new_round])
+        self.history.new_round(new_round)
+        self.history.set("scoreline", [score1, score2])
     
     def _end_round(self) -> None:
-        if len(self.history) == 0: return ## TODO: consider if this is a appropriate clause guard
+        self.check_scoreline = True
+        if self.history.is_empty(): return ## TODO: consider if this is a appropriate clause guard
 
         # if self.state.bomb_planted:
         #     win_con = WinCondition.DISABLED_DEFUSER if self.state.disabled_defuser else WinCondition.DEFUSED_BOMB
@@ -786,12 +816,12 @@ class InPersonAnalyser(Analyser):
         #     ...
 
         # self.__history_set("win_condition", win_con)
-        self._history_set("round_end_at", self.current_time)
+        self.history.set("round_end_at", self.current_time)
 
         self.state.in_round = False
         self.state.bomb_planted = False
 
-        if len(self.history) >= self.config["MAX_ROUNDS"] or sum(self.history[self.current_round]["scoreline"])+1 >= self.config["MAX_ROUNDS"]:
+        if len(self.history) >= self.config["MAX_ROUNDS"] or sum(self.history.get("scoreline"))+1 >= self.config["MAX_ROUNDS"]:
             self._end_game()
         elif self.prog_args.append_save:
             self._save()
@@ -808,7 +838,6 @@ class SpectatorAnalyser(Analyser):
     def __init__(self, args) -> None:
         super(SpectatorAnalyser, self).__init__(args)
 
-    @abstractmethod
     def _get_ss_region_keys(self) -> list[str]:
         return SpectatorAnalyser.SCREENSHOT_REGIONS
 
@@ -828,3 +857,8 @@ class SpectatorAnalyser(Analyser):
 
     def _end_round(self) -> None:
         ...    
+
+
+def bbox_to_rect(bbox: list[int]) -> list[int]:
+    tl, tr, _, bl = bbox
+    return [tl[0], tl[1], tr[0]-tl[0], bl[1]-tl[1]]

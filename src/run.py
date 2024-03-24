@@ -1,6 +1,7 @@
 import argparse
 from json import load as json_load
 from os.path import exists, join
+from sys import exit
 from time import sleep
 from datetime import datetime
 from enum import Enum
@@ -24,7 +25,8 @@ def __infer_key(config: dict, key: str) -> None:
 
 ## Config Parser helper function
 def arg_error(name: str, reason: str) -> argparse.ArgumentError:
-    raise argparse.ArgumentError(f"Invalid `{name}` config argument, {reason}")
+    print(f"CONFIG ERROR: Invalid `{name}` argument, {reason}")
+    exit()
 
 def __cparse_bool(arg, name: str) -> bool:
     if type(arg) != bool:
@@ -33,9 +35,10 @@ def __cparse_bool(arg, name: str) -> bool:
 
 T = TypeVar("T")
 def __cparse_type_range(arg, _type: T|list[T], name: str, lower: T, upper: T) -> T:
-    if type(_type) != list: _type = [_type]
-    s_type = ",".join(_type)
+    if type(_type) != list:
+        _type = [_type]
     if not any([type(arg) == t for t in _type]):
+        s_type = ",".join([str(t) for t in _type])
         arg_error(name, f"only {s_type} types")
     if not (lower <= arg <= upper):
         arg_error(name, f"must be in range [{lower}-{upper}]")
@@ -43,7 +46,7 @@ def __cparse_type_range(arg, _type: T|list[T], name: str, lower: T, upper: T) ->
 
 def __cparse_bounding_box(arg, name: str) -> list[int]:
     if type(arg) != list or len(arg) != 4 or not all([type(el) == int for el in arg]):
-        arg_error(name, "must be of type list[int,int,int,int]")
+        arg_error(name, "must be of length=4 and type list[int]")
     if any([el < 0 for el in arg]):
         arg_error(name, "elements must be positive integers")    
     return arg
@@ -80,7 +83,7 @@ __cparse_functions = {
     "MAX_ROUNDS":       lambda arg: __cparse_type_range(arg, int, "MAX_ROUNDS", 1, 15),
     "SPECTATOR":        lambda arg: __cparse_bool(arg, "SPECTATOR"),
     "IGNS":             lambda arg: __cparse_IGNS(arg),
-    "IGN_MODE":         lambda arg: __cparse_enum(arg, IGNMatrixMode),
+    "IGN_MODE":         lambda arg: __cparse_enum(arg, "IGN_MODE", IGNMatrixMode),
     "SCREENSHOT_RESIZE_FACTOR": lambda arg: __cparse_type_range(arg, [int, float], "SCREENSHOT_RESIZE_FACTOR", 1, 8),
     "SCREENSHOT_PERIOD":  lambda arg: __cparse_type_range(arg, [int, float], "SCREENSHOT_PERIOD", 0.25, 2),
     "TEAM1_SCORE_REGION": lambda arg: __cparse_bounding_box(arg, "TEAM1_SCORE_REGION"),
@@ -95,18 +98,20 @@ def __parse_config(arg: str) -> dict:
     if not exists(arg):
         arg = join("configs", arg)
 
-    ##
+    ## Load config from json
     with open(arg, "r", encoding="utf-8") as f_in:
-        config = json_load(f_in)
+        config: dict = json_load(f_in)
 
     ## check if all required keys are contained in config file
     for key in REQUIRED_CONFIG_KEYS:
         if key not in config:
             raise argparse.ArgumentError(f"Config file does not contain key '{key}'!")
     
+    validated_keys = []
     for key in config.keys():
         config[key] = __cparse_functions[key](config[key])
-    
+        validated_keys.append(key)
+        
     print(f"Info: Loaded configuration file '{arg}'") 
     ## if the optional keys weren't provided, use defaults from default.json
     to_add = [key for key in OPTIONAL_CONFIG_KEYS if key not in config]
@@ -130,6 +135,11 @@ def __parse_config(arg: str) -> dict:
     if len(to_add) > 0:
         for key in INFER_CONFIG_KEYS:
             __infer_key(config, key)
+
+    ## final checks, in-case default.json was tampered with
+    for key, func in __cparse_functions.items():
+        if key not in validated_keys:
+            config[key] = func(config[key])
 
     return config
 
