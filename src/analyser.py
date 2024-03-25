@@ -353,6 +353,7 @@ class SaveFile:
 @dataclass
 class State:
     in_round: bool
+    end_round: bool
     last_ten: bool
     bomb_planted: bool
 
@@ -365,10 +366,12 @@ class WinCondition(StrEnum):
 
 
 class History:
-    def __init__(self) -> None:
+    def __init__(self, verbose: int) -> None:
         self.__roundn = -1
         self.__memory: dict[int,dict] = {}
         self.new_round(-1)
+
+        self.__verbose = verbose
     
     @property
     def current_round(self) -> int:
@@ -385,7 +388,11 @@ class History:
         else:
             self.__memory[self.__roundn][key] = value
         self.__memory[self.__roundn]["updates"] += 1
-        self.print()
+
+        if self.__verbose > 1:
+            print(f"{self.__roundn}|{key}: {self.__memory[self.__roundn][key]}")
+        elif self.__verbose > 2:
+            self.print()
 
     def new_round(self, round_number: int) -> None:
         new_data = {
@@ -411,13 +418,18 @@ class History:
         return len(self.__memory) == 0
     
     def to_json(self) -> dict:
-        if self.__memory[-1]["updates"] == 0:
+        if -1 in self.__memory and self.__memory[-1]["updates"] == 0:
             self.__memory.pop(-1)
 
-        mem_clone = self.__memory.copy()
-        for round in mem_clone.values():
-            round["killfeed"] = [record.to_json() for record in round["killfeed"]]
-        return mem_clone
+        out = {}
+        for ridx, round in self.__memory.items():
+            out[ridx] = {}
+            for key, value in round.items():
+                if key == "killfeed":
+                    out[ridx][key] = [record.to_json() for record in round[key]]
+                else:
+                    out[ridx][key] = value
+        return out
 
     def print(self) -> None:
         print(self.__roundn, self.__memory[self.__roundn])
@@ -451,11 +463,10 @@ class Analyser(ABC):
         self.reader = easyocr.Reader(['en'], gpu=not args.cpu)
         self._verbose_print(0, "EasyOCR Reader model loaded")
         
-        self.state = State(False, False, False)
-        self.history = History()
+        self.state = State(False, True, False, False)
+        self.history = History(self.verbose)
         self.current_time = None
 
-        self.check_scoreline = True
         self.defuse_countdown_timer = None
         self.last_kf_seconds = None
         self.end_round_seconds = None
@@ -645,7 +656,7 @@ class InPersonAnalyser(Analyser):
     ## ----- SCORELINE -----
     def _handle_scoreline(self, team1_scoreline: np.ndarray, team2_scoreline: np.ndarray) -> None:
         """Extracts the current scoreline visible and determines when a new rounds starts"""
-        if not self.check_scoreline: return
+        if not self.state.end_round: return
 
         img1 = self._screenshot_preprocess(team1_scoreline, squeeze_width=0.5)
         img2 = self._screenshot_preprocess(team2_scoreline, squeeze_width=0.5)
@@ -658,7 +669,6 @@ class InPersonAnalyser(Analyser):
         
         score1, score2 = map(int, results)
         self._new_round(score1, score2)
-        self.check_scoreline = False
 
 
     ## ----- TIMER FUNCTION -----
@@ -671,9 +681,6 @@ class InPersonAnalyser(Analyser):
 
             self.last_kf_seconds = None
             self.end_round_seconds = None
-
-            if not self.state.in_round:
-                self.state.in_round = True ## might get confused with pick phase timer?
         
         elif self.__is_bomb_countdown(timer_image):
             if self.defuse_countdown_timer is None: ## bomb planted
@@ -683,7 +690,7 @@ class InPersonAnalyser(Analyser):
                 self.state.bomb_planted = True
                 self._verbose_print(0, f"{self.current_time}: BOMB PLANTED")
 
-        elif self.last_kf_seconds is None and self.end_round_seconds is None:
+        elif self.last_kf_seconds is None and self.end_round_seconds is None and self.state.in_round:
             self.last_kf_seconds = time()
             self.end_round_seconds = time()
         
@@ -707,6 +714,7 @@ class InPersonAnalyser(Analyser):
                 seconds = time.group(2).replace(",", "")
                 return f"{time.group(1)}:{seconds}"
             elif (time := search(r"(\d).{1,2}(\d,?\d)", read_time)): ## 9:99-0:00
+                self.state.last_ten = True
                 return f"0:0{time.group(1)}"
         
         return None
@@ -744,19 +752,16 @@ class InPersonAnalyser(Analyser):
             
             if player is None or target is None:
                 continue ## invalid igns
-            
+
             record = KFRecord(player.ign, player.idx, target.ign, target.idx, self.__get_time())
             if record not in self.history.get("killfeed"):
                 self.history.set("killfeed", record)
-                self.ign_matrix.update_team_table(player.idx, target.idx)
-
-                # did_print = self.__verbose_print(1, f"{record.time}: {record.player}/{record.player_idx} -> {record.target}/{record.target_idx}")
-                # if not did_print: self.__verbose_print(0, f"{record.time}: {record.player} -> {record.target}")
+                ##self.ign_matrix.update_team_table(player.idx, target.idx)
 
     def __clean_kf_results(self, results: list[tuple], width: int) -> list[tuple]:
         out = []
         for res in results:
-            if res[2] < 0.3 or len(res[1]) < 3: continue
+            if res[2] < 0.15 or len(res[1]) < 3: continue
 
             rect = bbox_to_rect(res[0])
             if rect[2] > width // 2: continue ## TODO: relook at this, assumed that name-length < image-width/2
@@ -793,20 +798,17 @@ class InPersonAnalyser(Analyser):
         The parameters `score1` and `score2` are the current scores displayed at the start of a new round
         """
         ## infer winner of previous round based on new scoreline
-        if self.history.current_round != -1 and self.history.get("winner") is None:
+        if self.history.get("winner") is None and self.history.get("scoreline") is not None:
             _, _score2 = self.history.get("scoreline")
             self.history.set("winner", int(_score2 < score2)) ## if _score1+1 == score1, return 0
 
-        self.state.last_ten = False
+        self.state = State(True, False, False, False)
 
         new_round = score1 + score2 + 1
         self.history.new_round(new_round)
         self.history.set("scoreline", [score1, score2])
     
     def _end_round(self) -> None:
-        self.check_scoreline = True
-        if self.history.is_empty(): return ## TODO: consider if this is a appropriate clause guard
-
         # if self.state.bomb_planted:
         #     win_con = WinCondition.DISABLED_DEFUSER if self.state.disabled_defuser else WinCondition.DEFUSED_BOMB
         # elif self.current_time == "0:00": ## this could be doubious
@@ -817,9 +819,7 @@ class InPersonAnalyser(Analyser):
 
         # self.__history_set("win_condition", win_con)
         self.history.set("round_end_at", self.current_time)
-
-        self.state.in_round = False
-        self.state.bomb_planted = False
+        self.state = State(False, True, False, False)
 
         if len(self.history) >= self.config["MAX_ROUNDS"] or sum(self.history.get("scoreline"))+1 >= self.config["MAX_ROUNDS"]:
             self._end_game()
