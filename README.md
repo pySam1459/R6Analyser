@@ -18,11 +18,15 @@ To check the regions defined in the configuration file, you can run the followin
 ```bash
 python src\run.py <config file> --check
 ```
+which will save the screenshots of the regions defined into a new `images` directory.</br>
 To run the program, use the following command:
 ```bash
 python src\run.py <config file>
 ```
-which will save the screenshots of the regions defined into a new `images` directory.</br>
+but it is recommended to add a save path to the command:
+```bash
+python src\run.py <config file> --save <save file> --append-save
+```
 Other optional arguments include:
 - `-d` / `--delay`: The delay in seconds before the program starts capturing the game window.
 - `-v` / `--verbose`: Print additional information to the console (0-3).
@@ -46,10 +50,9 @@ These parameters are optional and will default to values in `default.json` if no
 
 - `IGNS`: (RECOMMENDED) A list of strings specifying the in-game names (IGNs) of the players in the game. The first 5 IGNs will be considered team 1. If this is not specified, the program will infer the names from the kill feed.
 
-- `IGN_MODE`: Specifies how the IGNs are processed. There are three modes available:
+- `IGN_MODE`: Specifies how the IGNs are processed. There are two modes available:
   - `fixed`: Will return `None` for all non-fixed IGNs. This mode is used when you have a predefined list of IGNs, and any IGN not in this list will not be considered.
   - `infer`: Will infer the non-fixed IGNs from the OCR's output. Use this mode if you want the program to automatically identify and use IGNs from the game feed.
-  - `opposition`: Will return `OPPOSITION` for non-fixed IGNs. This mode is useful when you are only interested in statistics for one team and want to group all opposing team members under a single identifier.
 - `SPECTATOR`: (true/false) specifying if the game perspective is in spectator mode, compared to in-person (default).
 - `SCREENSHOT_RESIZE_FACTOR`: A number specifying the factor by which the screenshot is resized before processing. This can help in optimizing the OCR performance by adjusting the image size.
 - `SCREENSHOT_PERIOD`: A number specifying the period in seconds between screenshots. This determines how frequently the program captures the game feed for analysis.
