@@ -354,8 +354,8 @@ class SaveFile:
 class State:
     in_round: bool
     end_round: bool
-    last_ten: bool
     bomb_planted: bool
+    last_ten: int
 
 
 class WinCondition(StrEnum):
@@ -372,10 +372,6 @@ class History:
         self.new_round(-1)
 
         self.__verbose = verbose
-    
-    @property
-    def current_round(self) -> int:
-        return self.__roundn
     
     def get(self, key: str):
         return self.__memory[self.__roundn].get(key, None)
@@ -414,9 +410,6 @@ class History:
     def __len__(self) -> int:
         return len(self.__memory)
     
-    def is_empty(self) -> bool:
-        return len(self.__memory) == 0
-    
     def to_json(self) -> dict:
         if -1 in self.__memory and self.__memory[-1]["updates"] == 0:
             self.__memory.pop(-1)
@@ -425,10 +418,13 @@ class History:
         for ridx, round in self.__memory.items():
             out[ridx] = {}
             for key, value in round.items():
-                if key == "killfeed":
-                    out[ridx][key] = [record.to_json() for record in round[key]]
-                else:
-                    out[ridx][key] = value
+                match key:
+                    case "killfeed":
+                        out[ridx][key] = [record.to_json() for record in round[key]]
+                    case "updates":
+                        continue
+                    case _:
+                        out[ridx][key] = value
         return out
 
     def print(self) -> None:
@@ -639,13 +635,10 @@ class InPersonAnalyser(Analyser):
     
     SCREENSHOT_REGIONS = ["TEAM1_SCORE_REGION", "TEAM2_SCORE_REGION", "TIMER_REGION", "KILL_FEED_REGION"]
 
-    RED_THRESHOLD = 0.9    ## Note: avg red_perc for bomb-defuse countdown ~0.93
-
-    RED_HSV_SPACE = np.array([ ## Defines the range for red color in HSV space
-        [0, 120, 70],
-        [10, 255, 255],
-        [170, 170, 70],
-        [180, 255, 255]])
+    RED_THRESHOLD = 0.73
+    RED_RGB_SPACE = np.array([ ## Defines the range for red color in HSV space
+        [240, 10, 10],
+        [255, 35, 35]])
 
     def __init__(self, args) -> None:
         super(InPersonAnalyser, self).__init__(args)
@@ -710,11 +703,12 @@ class InPersonAnalyser(Analyser):
         image = self._screenshot_preprocess(image)
         results = self._readtext(image, prob=0.4)
         for read_time in results:
-            if (time := search(r"([0-2]).{1,2}([0-5],?\d)", read_time)) and not self.state.last_ten: ## 2:59-0:10
+            if (time := search(r"([0-2]).{1,2}([0-5],?\d)", read_time)) and self.state.last_ten < 4: ## 2:59-0:10
+                self.state.last_ten = 0
                 seconds = time.group(2).replace(",", "")
                 return f"{time.group(1)}:{seconds}"
             elif (time := search(r"(\d).{1,2}(\d,?\d)", read_time)): ## 9:99-0:00
-                self.state.last_ten = True
+                self.state.last_ten += 1
                 return f"0:0{time.group(1)}"
         
         return None
@@ -724,17 +718,12 @@ class InPersonAnalyser(Analyser):
         When a bomb is planted, the timer is replaced with a majority red circular countdown
         This method detects when the bomb defuse countdown is shown using a majority red threshold
         """
-        hsv = cv2.cvtColor(image, cv2.COLOR_RGB2HSV)
-
-        # Create masks for red color
-        mask1 = cv2.inRange(hsv, InPersonAnalyser.RED_HSV_SPACE[0], InPersonAnalyser.RED_HSV_SPACE[1])
-        mask2 = cv2.inRange(hsv, InPersonAnalyser.RED_HSV_SPACE[2], InPersonAnalyser.RED_HSV_SPACE[3])
-        red_mask = cv2.bitwise_or(mask1, mask2)
+        mask = cv2.inRange(image, InPersonAnalyser.RED_RGB_SPACE[0], InPersonAnalyser.RED_RGB_SPACE[1])
 
         # Calculate the percentage of red in the image
-        red_percentage = np.sum(red_mask > 0) / red_mask.size
+        red_percentage = np.sum(mask > 0) / mask.size
         self._debug_print(f"{red_percentage=}")
-        return 0.97 > red_percentage > InPersonAnalyser.RED_THRESHOLD
+        return red_percentage > InPersonAnalyser.RED_THRESHOLD
 
 
     ## ----- KILL FEED -----
@@ -802,7 +791,7 @@ class InPersonAnalyser(Analyser):
             _, _score2 = self.history.get("scoreline")
             self.history.set("winner", int(_score2 < score2)) ## if _score1+1 == score1, return 0
 
-        self.state = State(True, False, False, False)
+        self.state = State(True, False, False, 0)
 
         new_round = score1 + score2 + 1
         self.history.new_round(new_round)
@@ -819,7 +808,7 @@ class InPersonAnalyser(Analyser):
 
         # self.__history_set("win_condition", win_con)
         self.history.set("round_end_at", self.current_time)
-        self.state = State(False, True, False, False)
+        self.state = State(False, True, False, 0)
 
         if len(self.history) >= self.config["MAX_ROUNDS"] or sum(self.history.get("scoreline"))+1 >= self.config["MAX_ROUNDS"]:
             self._end_game()
