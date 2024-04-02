@@ -5,6 +5,7 @@ saves/
 images/
 test/
 
+.env
 configs/*.json
 !example.json
 

@@ -15,6 +15,7 @@ from enum import Enum
 from PIL import Image
 from Levenshtein import ratio as leven_ratio
 from openpyxl import load_workbook, Workbook
+from typing import TypeAlias
 
 
 class StrEnum(Enum):
@@ -290,7 +291,26 @@ class IGNMatrixInfer(IGNMatrix):
             tidx_team = self.get_team(tidx)
             self.__team_table[pidx][tidx_team] += 1  
 """
-            
+
+@dataclass
+class Timestamp:
+    minutes: int
+    seconds: int
+
+    def __str__(self) -> str:
+        return f"{self.minutes}:{self.seconds:02}"
+    
+    def to_int(self) -> int:
+        return self.minutes * 60 + self.seconds
+
+    @staticmethod
+    def from_int(num: int) -> 'Timestamp':
+        if num < 0:
+            return Timestamp(0, num)
+        else:
+            return Timestamp(*divmod(num, 60))
+
+
 
 @dataclass
 class KFRecord:
@@ -617,7 +637,7 @@ class Analyser(ABC):
         self.history = History(self.verbose)
         self.save_manager = SaveManager(self.prog_args.save, self.history, self.ign_matrix)
 
-        self.current_time = None
+        self.current_time: Timestamp = None
         self.defuse_countdown_timer = None
 
 
@@ -634,7 +654,7 @@ class Analyser(ABC):
         for region_name, region_image in zip(self._get_ss_region_keys(), regions):
             if region_name == "KILL_FEED_REGION":
                 region_image = self._killfeed_preprocess(region_image)
-            Image.fromarray(region_image).save(join("images", f"{region_name}.png"))
+            Image.fromarray(region_image).save(join("images", f"{region_name}.jpg"))
 
 
     @abstractmethod
@@ -669,19 +689,20 @@ class Analyser(ABC):
             self._handle_scoreline(team1_scoreline, team2_scoreline)
             self._handle_timer(timer)
             self._read_feed(feed)
+            # self._test_timer(timer)
 
             self._debug_print(f"Inference time {time()-__inference_start:.2f}s")
             self.timer = time()
     
     ## ----- OCR -----
     def _killfeed_preprocess(self, image: np.ndarray) -> np.ndarray:
-        image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        # image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
         image = cv2.fastNlMeansDenoising(image, None, 5, 7, 21)
     
         # image = cv2.filter2D(image, -1, Analyser.SHARPEN_KERNEL)
         sf = self.config.get("SCREENSHOT_RESIZE_FACTOR", 2)
-        new_width = int(image.shape[1] * sf)
+        new_width = int(image.shape[1] * sf * 0.75)
         new_height = int(image.shape[0] * sf)
         
         image = cv2.resize(image, (new_width, new_height), interpolation=cv2.INTER_LINEAR)
@@ -689,7 +710,6 @@ class Analyser(ABC):
 
     def _screenshot_preprocess(self, image: np.ndarray,
                                 to_gray: bool = True,
-                                sharpen: bool = False,
                                 squeeze_width: float = -1) -> np.ndarray:
         """
         To increase the accuracy of the EasyOCR readtext function, a few preprocessing techniques are used
@@ -707,18 +727,14 @@ class Analyser(ABC):
         new_height = int(image.shape[0] * sf_h)
         
         image = cv2.resize(image, (new_width, new_height), interpolation=cv2.INTER_LINEAR)
-        if sharpen:
-            image = cv2.filter2D(image, -1, Analyser.SHARPEN_KERNEL)
-        
         if to_gray:
             image = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
 
         return image
 
-    def _readtext(self, image: np.ndarray, prob: float=PROB_THRESHOLD, out: bool=False) -> list[str]:
+    def _readtext(self, image: np.ndarray, prob: float=PROB_THRESHOLD, allowlist: str | None = None) -> list[str]:
         """Performs the EasyOCR inference and cleans the output based on the model's assigned probabilities and a threshold"""
-        results = self.reader.readtext(image)
-        if out: print(results)
+        results = self.reader.readtext(image, allowlist=allowlist)
         return [out[1] for out in results if out[2] > prob]
 
 
@@ -796,7 +812,8 @@ class InPersonAnalyser(Analyser):
         img1 = self._screenshot_preprocess(team1_scoreline, squeeze_width=0.5)
         img2 = self._screenshot_preprocess(team2_scoreline, squeeze_width=0.5)
 
-        results = self._readtext(img1) + self._readtext(img2)
+        allowlist = "0123456789"
+        results = self._readtext(img1, allowlist=allowlist) + self._readtext(img2, allowlist=allowlist)
         if len(results) != 2:
             return
         if not fullmatch(r"^\d+$", results[0]) or not fullmatch(r"^\d+$", results[1]):
@@ -820,10 +837,12 @@ class InPersonAnalyser(Analyser):
         elif self.__is_bomb_countdown(timer_image):
             if self.defuse_countdown_timer is None: ## bomb planted
                 self.defuse_countdown_timer = time()
-                self.history.set("bomb_planted_at", self.current_time)
+                self.history.set("bomb_planted_at", str(self.current_time))
 
                 self.state.bomb_planted = True
                 self._verbose_print(0, f"{self.current_time}: BOMB PLANTED")
+            else:
+                self.current_time = Timestamp.from_int(self.current_time.to_int() - int(time() - self.defuse_countdown_timer))
 
         elif self.last_kf_seconds is None and self.end_round_seconds is None and self.state.in_round:
             self.last_kf_seconds = time()
@@ -837,22 +856,23 @@ class InPersonAnalyser(Analyser):
             self.end_round_seconds = None
 
     
-    def __read_timer(self, image: np.ndarray) -> str | None:
+    def __read_timer(self, image: np.ndarray) -> Timestamp | None:
         """
         Reads the current time displayed in the region `TIMER_REGION`
         If the timer is not present, None is returned
         """
         image = self._screenshot_preprocess(image)
-        results = self._readtext(image, prob=0.4)
-        for read_time in results:
-            if (time := search(r"([0-2]).{1,2}([0-5],?\d)", read_time)) and self.state.last_ten < 4: ## 2:59-0:10
-                self.state.last_ten = 0
-                seconds = time.group(2).replace(",", "")
-                return f"{time.group(1)}:{seconds}"
-            elif (time := search(r"(\d).{1,2}(\d,?\d)", read_time)): ## 9:99-0:00
-                self.state.last_ten += 1
-                return f"0:0{time.group(1)}"
-        
+        results = self._readtext(image, prob=0.4, allowlist="0123456789:")
+        if len(results) == 0: return None
+
+        result = results[0] if len(results) == 1 else "".join(results)
+        if (time := search(r"([0-2]):?([0-5]\d)", result)) and self.state.last_ten < 4:
+            self.state.last_ten = 0
+            return Timestamp(int(time.group(1)), int(time.group(2)))
+        elif (time := search(r"(\d):?\d\d", result)):
+            self.state.last_ten += 1
+            return Timestamp(0, int(time.group(1)))
+
         return None
     
     def __is_bomb_countdown(self, image: np.ndarray) -> bool:
@@ -874,12 +894,12 @@ class InPersonAnalyser(Analyser):
 
         image = self._killfeed_preprocess(image) ## remember, image has been resized
         ocr_results = self.reader.readtext(image)
-        cleaned_results = self.__clean_kf_results(ocr_results, image.shape[1])
+        cleaned_results = self.__clean_kf_results(ocr_results)
         pairs = self.__get_kf_pairs(cleaned_results)
 
         for left, right in pairs:
-            player = self.ign_matrix.get(left, 0.65)
-            target = self.ign_matrix.get(right, 0.65)
+            player = self.ign_matrix.get(left, 0.75)
+            target = self.ign_matrix.get(right, 0.75)
             
             if player is None or target is None:
                 continue ## invalid igns
@@ -889,16 +909,18 @@ class InPersonAnalyser(Analyser):
                 self.history.set("killfeed", record)
                 ##self.ign_matrix.update_team_table(player.idx, target.idx)
 
-    def __clean_kf_results(self, results: list[tuple], width: int) -> list[tuple]:
-        out = []
-        for res in results:
-            if res[2] < 0.15 or len(res[1]) < 3: continue
+    def __clean_kf_results(self, results: list[tuple]) -> list[tuple]:
+        results = [res for res in results if res[2] > 0.15]
+        new_results = []
+        for res1 in results:
+            for res2 in results:
+                if res1 is not res2 and box_collision(res1[0], res2[0]):
+                    new_results.append(join_results(res1, res2))
+                    break
+            else:
+                new_results.append(res1)
 
-            rect = bbox_to_rect(res[0])
-            if rect[2] > width // 2: continue ## TODO: relook at this, assumed that name-length < image-width/2
-
-            out.append(res)
-        return out
+        return new_results
 
     def __get_kf_pairs(self, results: list[tuple]) -> list[tuple[str, str]]:
         """
@@ -928,7 +950,7 @@ class InPersonAnalyser(Analyser):
 
     def __get_time(self) -> str:
         if self.defuse_countdown_timer is None:
-            return self.current_time
+            return str(self.current_time)
         else:
             time_past = time() - self.defuse_countdown_timer
             return f"!0:{int(45-time_past)}"
@@ -951,7 +973,7 @@ class InPersonAnalyser(Analyser):
     
     def _end_round(self) -> None:
         # self.history.set("win_condition", self._get_wincon())
-        self.history.set("round_end_at", self.current_time)
+        self.history.set("round_end_at", str(self.current_time))
         self.state = State(False, True, False, 0)
 
         if self.history.roundn >= self.config["MAX_ROUNDS"]:
@@ -1004,9 +1026,28 @@ class SpectatorAnalyser(Analyser):
         ...    
 
 
-def bbox_to_rect(bbox: list[int]) -> list[int]:
+def bbox_to_rect(bbox: list[list[int]]) -> list[int]:
     tl, tr, _, bl = bbox
     return [tl[0], tl[1], tr[0]-tl[0], bl[1]-tl[1]]
+
+
+def box_collision(b1: list[int], b2: list[int]) -> bool:
+    return b1[0] <= b2[0]+b2[2] and b1[1] <= b2[1]+b2[3] \
+            and b2[0] <= b1[0]+b1[2] and b2[1] <= b1[1]+b1[3]
+
+
+Result_t: TypeAlias = tuple[list[list[int]],str,float]
+def join_results(res1: Result_t, res2: Result_t, sep: str = "_"):
+    if res2[0][0][0] < res1[0][0][0]: res1, res2 = res2, res1 ## make res1 the left most result
+
+    box1, box2 = bbox_to_rect(res1[0]), bbox_to_rect(res2[0])
+    x, y = min(box1[0], box2[0]), min(box1[1], box2[1])
+    x2, y2 = max(box1[0]+box1[2], box2[0]+box2[2]), max(box1[1]+box1[3], box2[1]+box2[3])
+    join_box = [[x, y], [x2, y], [x2, y2], [x, y2]]
+
+    join_str  = res1[1] + sep + res2[1]
+    join_prob = min(res1[2], res2[2])
+    return (join_box, join_str, join_prob)
 
 
 def transpose(matrix: list[list]) -> list[list]:
