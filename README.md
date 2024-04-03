@@ -6,6 +6,7 @@ The following information gathered per round includes:
 - **Kill Feed**
 - **Bomb Plant At**
 - **Round End At**
+- **Win Condition**
 
 ## How to run
 To run the program, you will need to have Python (3.10>=) installed on your system. You can download Python from the [official website](https://www.python.org/downloads/). A Nvidia GPU and [CUDA](https://developer.nvidia.com/cuda-toolkit) is also recommended for real-time data extraction, although this program does provide a CPU-only option.</br>
@@ -23,16 +24,17 @@ To run the program, use the following command:
 ```bash
 python src\run.py <config file>
 ```
-but it is recommended to add a save path to the command:
+and it is recommended to add a save path, where to save the game data to a JSON or XLSX file:
 ```bash
-python src\run.py <config file> --save <save file> --append-save
+python src\run.py <config file> --save <save file>
 ```
 Other optional arguments include:
-- `-d` / `--delay`: The delay in seconds before the program starts capturing the game window.
 - `-v` / `--verbose`: Print additional information to the console (0-3).
+- `-d` / `--delay`: The delay in seconds before the program starts capturing the game window.
 - `-s` / `--save`: File to save the game data, either a JSON or XLSX file.
-- `--append-save`: Append each round data to an existing save file ad hoc.
+- `--append-save`: Whether to append the game data to the save file or overwrite it.
 - `--upload-save`: (WIP) Uploads the round data to a Google Sheet.
+- `--test`: (Debugging) Runs the OCR engine for a single instance of each region and prints the output to the console.
 - `--cpu`: (NOT recommended) Use the CPU for OCR instead of the GPU.
 
 
@@ -43,25 +45,27 @@ To use R6Analyser, a configuration JSON is required to specify regions of the ga
 These parameters must be specified for the program to function correctly; `REGION` parameters can be found using `src\region-tool.py`:
 - `SCRIM`: A boolean (true/false) specifying whether the game is a scrim or not.
 - `TIMER_REGION`: A list of 4 integers specifying the region of the game window where the timer is located.
-- `KILL_FEED_REGION`: A list of 4 integers specifying the region of the game window where the kill feed is located.
+- `KILLFEED_REGION`: A list of 4 integers specifying the region of the game window where the kill feed is located.
 
 ### Optional Parameters
 These parameters are optional and will default to values in `default.json` if not specified:
 
-- `IGNS`: (RECOMMENDED) A list of strings specifying the in-game names (IGNs) of the players in the game. The first 5 IGNs will be considered team 1. If this is not specified, the program will infer the names from the kill feed.
+- `IGNS`: (RECOMMENDED) A list of strings/text specifying the in-game names (IGNs) of the players in the game. The first 5 IGNs will be considered team 1. If this parameter is not specified, the program will infer the names from the kill feed.
 
 - `IGN_MODE`: Specifies how the IGNs are processed. There are two modes available:
   - `fixed`: Will return `None` for all non-fixed IGNs. This mode is used when you have a predefined list of IGNs, and any IGN not in this list will not be considered.
   - `infer`: Will infer the non-fixed IGNs from the OCR's output. Use this mode if you want the program to automatically identify and use IGNs from the game feed.
-- `SPECTATOR`: (true/false) specifying if the game perspective is in spectator mode, compared to in-person (default).
-- `SCREENSHOT_RESIZE_FACTOR`: A number specifying the factor by which the screenshot is resized before processing. This can help in optimizing the OCR performance by adjusting the image size.
-- `SCREENSHOT_PERIOD`: A number specifying the period in seconds between screenshots. This determines how frequently the program captures the game feed for analysis.
+- `SPECTATOR`: (`true`/`false`) specifying if the game perspective is in spectator mode, compared to in-person (default).
+- `SCREENSHOT_RESIZE`: A number specifying the factor by which the screenshot is resized before OCR-processing.
+- `SCREENSHOT_PERIOD`: This number determines how frequently the program captures the game feed for analysis, the period in seconds between screenshots
 
 ### Inferred Parameters
 These parameters are optional and will be inferred by the program if not explicitly specified:
 - `MAX_ROUNDS`: The maximum number of rounds in the game. If scrim is set to true, this will default to 12; otherwise, it will default to 15.
 - `TEAM1_SCORE_REGION`: Specifies the region of the game window where team 1's score is displayed.
 - `TEAM2_SCORE_REGION`: Specifies the region of the game window where team 2's score is displayed.
+- `TEAM1_SIDE_REGION`: Specifies the region of the game window where team 1's side icon is displayed.
+- `TEAM2_SIDE_REGION`: Specifies the region of the game window where team 2's side icon is displayed.
 
 ### Config File Example
 Below is an example configuration file that specifies these parameters:
@@ -69,7 +73,7 @@ Below is an example configuration file that specifies these parameters:
 {
   "SCRIM": true,
   "TIMER_REGION": [1210, 110, 140, 65],
-  "KILL_FEED_REGION": [1640, 310, 565, 140],
+  "KILLFEED_REGION": [1640, 310, 565, 140],
   "IGNS": [
     "Player1",
     "Player2",
@@ -77,16 +81,20 @@ Below is an example configuration file that specifies these parameters:
     "Player10"
   ],
   "IGN_MODE": "fixed",
-  "SPECTATOR": false
+  "SPECTATOR": false,
+  "MAX_ROUNDS": 12
 }
 ```
 
 ## Process
-The program works by taking screenshots of the game window at regular intervals `SCREENSHOT_PERIOD` and using OCR to extract the necessary information. Currently, 4 regions of the screenshot are used for OCR:
+The program works by taking screenshots of the game window at regular intervals `SCREENSHOT_PERIOD` and using OCR to extract the necessary information. Currently, 6 regions of the screenshot are used for OCR:
 - **Timer Region**: Used to extract the round timer.
 - **Kill Feed Region**: Used to extract the kill feed.
 - **Team 1 Score Region**: Used to extract team 1's score.
 - **Team 2 Score Region**: Used to extract team 2's score.
+- **Team 1 Side Region**: Used to extract team 1's side.
+- **Team 2 Side Region**: Used to extract team 2's side.
+Although, only the Timer and Kill Feed regions are used every inference cycle, the other regions are used to infer the game state and are only used when a new round is detected.
 
 ### New Round
 A new round is detected when the score line changes, determines using the score regions. When this occurs, the program will call `__new_round` which will:
@@ -110,7 +118,9 @@ When the `__end_game` method is called, the program will save the recorded game 
 
 ## Requirements
 This program uses:
+- [Python](https://www.python.org/)
 - [EasyOCR](https://github.com/JaidedAI/EasyOCR) to perform the necessary OCR for information gathering.
+- [Cuda](https://developer.nvidia.com/cuda-toolkit) for GPU acceleration.
 - [OpenCV](https://opencv.org/) for other computer vision tasks.
 - [PyAutoGui](https://pyautogui.readthedocs.io/en/latest/) to take screenshots of the game window.
 - [Numpy](https://numpy.org/) for matrix operations.

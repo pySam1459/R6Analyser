@@ -18,6 +18,12 @@ def __infer_key(config: dict, key: str) -> None:
         case "TEAM2_SCORE_REGION":
             tr = config["TIMER_REGION"]
             config["TEAM2_SCORE_REGION"] = [tr[0] + tr[2], tr[1], tr[2]//2, tr[3]]
+        case "TEAM1_SIDE_REGION":
+            tr = config["TIMER_REGION"]
+            config["TEAM1_SIDE_REGION"]  = [tr[0] - int(tr[2]*0.95), tr[1], tr[2]//2, tr[3]]
+        case "TEAM2_SIDE_REGION":
+            tr = config["TIMER_REGION"]
+            config["TEAM2_SIDE_REGION"]  = [tr[0] + int(tr[2]*1.45), tr[1], tr[2]//2, tr[3]]
         case "MAX_ROUNDS":
             config["MAX_ROUNDS"] = 12 if config["SCRIM"] else 15
         case _:
@@ -70,24 +76,26 @@ def __cparse_IGNS(arg) -> list[str]:
 
 
 ## config keys
-REQUIRED_CONFIG_KEYS = ["SCRIM", "TIMER_REGION", "KILL_FEED_REGION"]
-OPTIONAL_CONFIG_KEYS = ["SCREENSHOT_RESIZE_FACTOR", "SCREENSHOT_PERIOD", "IGNS", "IGN_MODE", "SPECTATOR"]
-INFER_CONFIG_KEYS    = ["TEAM1_SCORE_REGION", "TEAM2_SCORE_REGION", "MAX_ROUNDS"]
+REQUIRED_CONFIG_KEYS = ["SCRIM", "TIMER_REGION", "KILLFEED_REGION"]
+OPTIONAL_CONFIG_KEYS = ["SCREENSHOT_RESIZE", "SCREENSHOT_PERIOD", "IGNS", "IGN_MODE", "SPECTATOR"]
+INFER_CONFIG_KEYS    = ["TEAM1_SCORE_REGION", "TEAM2_SCORE_REGION", "TEAM1_SIDE_REGION", "TEAM2_SIDE_REGION", "MAX_ROUNDS"]
 DEFAULT_CONFIG_FILENAME = "defaults.json"
 
 ## config parse function for each configuration variable
 __cparse_functions = {
-    "TIMER_REGION":     lambda arg: __cparse_bounding_box(arg, "TIMER_REGION"),
-    "KILL_FEED_REGION": lambda arg: __cparse_bounding_box(arg, "KILL_FEED_REGION"),
-    "SCRIM":            lambda arg: __cparse_bool(arg, "SCRIM"),
-    "MAX_ROUNDS":       lambda arg: __cparse_type_range(arg, int, "MAX_ROUNDS", 1, 15),
-    "SPECTATOR":        lambda arg: __cparse_bool(arg, "SPECTATOR"),
-    "IGNS":             lambda arg: __cparse_IGNS(arg),
-    "IGN_MODE":         lambda arg: __cparse_enum(arg, "IGN_MODE", IGNMatrixMode),
-    "SCREENSHOT_RESIZE_FACTOR": lambda arg: __cparse_type_range(arg, [int, float], "SCREENSHOT_RESIZE_FACTOR", 1, 8),
+    "TIMER_REGION":       lambda arg: __cparse_bounding_box(arg, "TIMER_REGION"),
+    "KILLFEED_REGION":    lambda arg: __cparse_bounding_box(arg, "KILLFEED_REGION"),
+    "SCRIM":              lambda arg: __cparse_bool(arg, "SCRIM"),
+    "MAX_ROUNDS":         lambda arg: __cparse_type_range(arg, int, "MAX_ROUNDS", 1, 15),
+    "SPECTATOR":          lambda arg: __cparse_bool(arg, "SPECTATOR"),
+    "IGNS":               lambda arg: __cparse_IGNS(arg),
+    "IGN_MODE":           lambda arg: __cparse_enum(arg, "IGN_MODE", IGNMatrixMode),
+    "SCREENSHOT_RESIZE":  lambda arg: __cparse_type_range(arg, [int, float], "SCREENSHOT_RESIZE", 1, 8),
     "SCREENSHOT_PERIOD":  lambda arg: __cparse_type_range(arg, [int, float], "SCREENSHOT_PERIOD", 0.25, 2),
     "TEAM1_SCORE_REGION": lambda arg: __cparse_bounding_box(arg, "TEAM1_SCORE_REGION"),
     "TEAM2_SCORE_REGION": lambda arg: __cparse_bounding_box(arg, "TEAM2_SCORE_REGION"),
+    "TEAM1_SIDE_REGION":  lambda arg: __cparse_bounding_box(arg, "TEAM1_SIDE_REGION"),
+    "TEAM2_SIDE_REGION":  lambda arg: __cparse_bounding_box(arg, "TEAM2_SIDE_REGION"),
 }
 
 def __parse_config(arg: str) -> dict:
@@ -133,7 +141,7 @@ def __parse_config(arg: str) -> dict:
     
     to_add = [key for key in INFER_CONFIG_KEYS if key not in config]
     if len(to_add) > 0:
-        for key in INFER_CONFIG_KEYS:
+        for key in to_add:
             __infer_key(config, key)
 
     ## final checks, in-case default.json was tampered with
@@ -199,6 +207,9 @@ if __name__ == "__main__":
     parser.add_argument("--check", 
                         action="store_true",
                         help="Does not perform data extract but saves the regions of interest as images for quality check")
+    parser.add_argument("--test",
+                        action="store_true",
+                        help="Performs data extract for the instance when the program is run")
     parser.add_argument("--cpu",
                         action="store_true",
                         help="Flag for only cpu execution, if your machine does not support gpu acceleration")
@@ -209,7 +220,12 @@ if __name__ == "__main__":
 
     if args.config.get("SPECTATOR", False):
         print("In Spectator Mode")
-        SpectatorAnalyser(args).run()
+        analyser = SpectatorAnalyser(args)
     else:
         print("In Person Mode")
-        InPersonAnalyser(args).run()
+        analyser = InPersonAnalyser(args)
+
+    if args.test:
+        analyser.test()
+    else:
+        analyser.run()

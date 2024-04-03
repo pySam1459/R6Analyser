@@ -3,6 +3,6 @@ opencv-python >= 4.9.0
 pyautogui
 numpy
 pillow
-python-Levenshtein
+levenshtein
 screeninfo
 openpyxl

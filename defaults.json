@@ -1,8 +1,8 @@
 {
     "SCRIM": true,
     "MAX_ROUNDS": 15,
-    "SCREENSHOT_RESIZE_FACTOR": 4,
-    "SCREENSHOT_PERIOD": 0.75,
+    "SCREENSHOT_RESIZE": 4,
+    "SCREENSHOT_PERIOD": 0.5,
     "IGNS": [],
     "IGN_MODE": "infer",
     "SPECTATOR": false
