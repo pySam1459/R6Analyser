@@ -277,6 +277,7 @@ class WinCondition(StrEnum):
     TIME             = "Time"
     DEFUSED_BOMB     = "DefusedBomb"
     DISABLED_DEFUSER = "DisabledDefuser"
+    UNKNOWN          = "Unknown"
 
 
 @dataclass
@@ -342,29 +343,34 @@ class KFRecord:
 class History(dict):
     def __init__(self, verbose: int) -> None:
         self.__roundn = -1
-        self.new_round(-1)
-
         self.__verbose = verbose
     
-    def get(self, key: str):
-        return self[self.__roundn].get(key, None)
+    @property
+    def is_ready(self) -> bool:
+        return self.__roundn > 0
     
     @property
     def roundn(self) -> int:
         return self.__roundn
     
-    def get_round(self, roundn: Optional[int] = None) -> dict:
+    def get(self, key: str):
+        if self.__roundn <= 0: return None
+        return self[self.__roundn].get(key, None)
+    
+    def get_round(self, roundn: Optional[int] = None) -> Optional[dict]:
         if roundn is None: roundn = self.__roundn
+        if roundn not in self: return None
         return self[roundn]
     
     def set(self, key: str, value) -> None:
         """Sets the values of elements in the history attributes; appending values to the `killfeed` element"""
-        APPEND_KEYS = ["killfeed"]
+        if not self.is_ready: return
+
+        APPEND_KEYS = ["killfeed", "deaths"]
         if key in APPEND_KEYS:
             self[self.__roundn][key].append(value)
         else:
             self[self.__roundn][key] = value
-        self[self.__roundn]["updates"] += 1
 
         if self.__verbose > 1:
             print(f"{self.__roundn}|{key}: {self[self.__roundn][key]}")
@@ -378,18 +384,15 @@ class History(dict):
             "scoreline": None,
             "atk_side": None,
             "bomb_planted_at": None,
-            "bomb_defused_at": None,
+            "defuser_disabled_at": None,
             "round_end_at": None,
             "win_condition": None,
             "winner": None,
             "killfeed": [],
-            "updates": 0
+            "deaths": []
         }
         
     def to_json(self) -> dict:
-        if -1 in self and self[-1]["updates"] == 0:
-            self.pop(-1)
-
         out = {}
         for ridx, round in self.items():
             out[ridx] = {}
@@ -401,14 +404,14 @@ class History(dict):
                 match key:
                     case "killfeed":
                         out[ridx][key] = [record.to_json() for record in round[key]]
-                    case "updates":
+                    case "deaths":
                         continue
                     case _:
                         out[ridx][key] = value
         return out
 
     def print(self) -> None:
-        print(self.__roundn, self[self.__roundn])
+        print(self.__roundn, self.get_round())
 
 
 @dataclass
@@ -466,9 +469,6 @@ class SaveManager:
         ## remove default worksheet
         if "Sheet" in workbook.sheetnames:
             del workbook["Sheet"]
-        
-        if -1 in self.__history and self.__history[-1]["updates"] == 0:
-            self.__history.pop(-1)
 
         self.__players = self.__ignmat.get_players()
         rounds = [self.__history.roundn] if append else list(self.__history.keys())
@@ -515,8 +515,8 @@ class SaveManager:
     def __get_xlsx_rounds(self, round_nums: list[int]) -> dict:
         data = {}
         for rn in round_nums:
-            round = self.__history.get_round(rn)
-            data[f"Round {rn}"] = self.__get_xlsx_rdata(round)
+            if (round := self.__history.get_round(rn)) is not None:
+                data[f"Round {rn}"] = self.__get_xlsx_rdata(round)
         
         return data
 
@@ -543,7 +543,6 @@ class SaveManager:
                         break
                 onevx_count += deaths[(1-w)*5:(2-w)*5].count(False)
 
-
         for pl in self.__players: ## TODO: may have to change pl.idx to i, pl enumerated
             onevx_pl = 0 if pl.idx != onevx else onevx_count
             rdata.append([pl.ign, self.__ignmat.get_team(pl.idx), kills[pl.idx], deaths[pl.idx], "", "", "", onevx_pl, ""])
@@ -564,7 +563,7 @@ class SaveManager:
             ["Opening kill", opening_kd.player, opening_kd.time],
             ["Opening death", opening_kd.target, opening_kd.time],
             ["Planted at", round["bomb_planted_at"]],
-            ["Defused at", round["bomb_defused_at"]]
+            ["Defused at", round["defuser_disabled_at"]]
         ])
 
         ## Kill/death feed
@@ -872,9 +871,11 @@ class InPersonAnalyser(Analyser):
     def _handle_timer(self, regions: Analyser.Regions_t) -> None:
         """
         """
+        if not self.history.is_ready: return
+
         timer_image = regions["TIMER_REGION"]
         new_time = self.__read_timer(timer_image)
-        
+
         if new_time is not None: ## timer is showing
             self.current_time = new_time
             self.defuse_countdown_timer = None
@@ -940,6 +941,7 @@ class InPersonAnalyser(Analyser):
     def _handle_feed(self, regions: Analyser.Regions_t) -> None:
         """
         """
+        if not self.history.is_ready: return
         if not self.state.in_round and self.last_kf_seconds is None: return
 
         image = regions["KILLFEED_REGION"]
@@ -953,6 +955,7 @@ class InPersonAnalyser(Analyser):
             record = KFRecord(player.ign, player.idx, target.ign, target.idx, self.current_time)
             if record not in self.history.get("killfeed"):
                 self.history.set("killfeed", record)
+                self.history.set("deaths", target.idx)
                 ##self.ign_matrix.update_team_table(player.idx, target.idx)
     
     def __read_feed(self, image: np.ndarray) -> list[tuple[str, str]]:
@@ -1026,16 +1029,19 @@ class InPersonAnalyser(Analyser):
                 cv2.rectangle(rect_img, right[:2], [right[0]+right[2], right[1]+right[3]], (0, 255, 0), 3)
             cv2.imwrite("images/TEST_KF_BOXES.jpg", rect_img)
 
-
     def _new_round(self, score1: int, score2: int) -> None:
         """
         When a new round starts, this method is called, initialising a new round history
         The parameters `score1` and `score2` are the current scores displayed at the start of a new round
         """
-        ## infer winner of previous round based on new scoreline
-        if self.history.get("winner") is None and self.history.get("scoreline") is not None:
-            _, _score2 = self.history.get("scoreline")
-            self.history.set("winner", int(_score2 < score2)) ## if _score1+1 == score1, return 0
+        if score1+score2+1 in self.history: return
+
+        if len(self.history) > 0:
+            ## infer winner of previous round based on new scoreline
+            if self.history.get("winner") is None and self.history.get("scoreline") is not None:
+                _, _score2 = self.history.get("scoreline")
+                self.history.set("winner", int(_score2 < score2)) ## if _score1+1 == score1, return 0
+            self.history.set("win_condition", self._get_wincon())
 
         self.state = State(True, False, False, 0)
 
@@ -1044,7 +1050,6 @@ class InPersonAnalyser(Analyser):
         self.history.set("scoreline", [score1, score2])
     
     def _end_round(self) -> None:
-        # self.history.set("win_condition", self._get_wincon())
         self.history.set("round_end_at", self.current_time)
         self.state = State(False, True, False, 0)
 
@@ -1057,16 +1062,31 @@ class InPersonAnalyser(Analyser):
             self.save_manager.save(append=self.prog_args.append_save)
     
     def _get_wincon(self) -> WinCondition:
-        # if self.state.bomb_planted:
-        #     win_con = WinCondition.DISABLED_DEFUSER if self.state.disabled_defuser else WinCondition.DEFUSED_BOMB
-        # elif self.current_time == "0:00": ## this could be doubious
-        #     win_con = WinCondition.TIME
-        #     ## self.__history_set("winner", )
-        # else: ## killed opps
-        #     ...
+        bpat    = self.history.get("bomb_planted_at")
+        winner  = self.history.get("winner")
+        atkside = self.history.get("atk_side")
 
-        # self.__history_set("win_condition", win_con)
-        return WinCondition.KILLED_OPPONENTS
+        if bpat is not None and winner == atkside:
+            return WinCondition.DISABLED_DEFUSER
+        elif bpat is not None:
+            return WinCondition.DEFUSED_BOMB
+
+        elif 0 <= self.current_time.to_int() <= 1 \
+                and winner == 1-atkside \
+                and self.__wincon_alive_count(1-atkside) > 0:
+            return WinCondition.TIME
+
+        elif self.__wincon_alive_count(1-winner) == 0:
+            return WinCondition.KILLED_OPPONENTS
+        
+        return WinCondition.UNKNOWN
+    
+    def __wincon_alive_count(self, side: int) -> bool:
+        alive = 5 ## TODO: history, ign matrix team count
+        for d_idx in self.history.get("deaths"):
+            if self.ign_matrix.get_team(d_idx) == side:
+                alive -= 1
+        return alive
 
 
 class SpectatorAnalyser(Analyser):
