@@ -298,7 +298,7 @@ class Timestamp:
         return Timestamp(m, s)
     
     def __str__(self) -> str:
-        if self.seconds < 0: return f"0:{self.seconds:02}"
+        if self.seconds < 0: return f"{self.minutes}:{self.seconds:03}"
         else: return f"{self.minutes}:{self.seconds:02}"
 
     __repr__ = __str__
@@ -353,6 +353,10 @@ class History(dict):
     def roundn(self) -> int:
         return self.__roundn
     
+    def set_roundn(self, roundn: int) -> None:
+        """This method should only be used if something has gone wrong, `roundn` should be coupled to `new_round` function """
+        self.__roundn = roundn
+    
     def get(self, key: str):
         if self.__roundn <= 0: return None
         return self[self.__roundn].get(key, None)
@@ -372,7 +376,8 @@ class History(dict):
         else:
             self[self.__roundn][key] = value
 
-        if self.__verbose > 1:
+        EXCLUDE_PRINT = ["deaths"]
+        if self.__verbose > 1 and key not in EXCLUDE_PRINT:
             print(f"{self.__roundn}|{key}: {self[self.__roundn][key]}")
         elif self.__verbose > 2:
             self.print()
@@ -384,7 +389,7 @@ class History(dict):
             "scoreline": None,
             "atk_side": None,
             "bomb_planted_at": None,
-            "defuser_disabled_at": None,
+            "disabled_defuser_at": None,
             "round_end_at": None,
             "win_condition": None,
             "winner": None,
@@ -404,6 +409,8 @@ class History(dict):
                 match key:
                     case "killfeed":
                         out[ridx][key] = [record.to_json() for record in round[key]]
+                    case "win_condition":
+                        out[ridx][key] = value.value
                     case "deaths":
                         continue
                     case _:
@@ -449,6 +456,10 @@ class SaveManager:
         with open(join("saves", str(self.__savefile)), "w") as f_out:
             json.dump(self.__history.to_json(), f_out, indent=4)
     
+    def __make_tempfile(self) -> str:
+        temp_savefile = self.__savefile.copy()
+        temp_savefile.filename += " - Copy"
+        return join("saves", str(temp_savefile))
 
     def _save_xlsx(self, append: bool = False) -> None:
         # Create a new workbook
@@ -459,9 +470,7 @@ class SaveManager:
             except PermissionError:
                 print(f"ERROR: Permission Denied! Cannot open save file {savepath}, file may already be open. Defaulting to append-save=False")
                 workbook = Workbook()
-                temp_savefile = self.__savefile.copy()
-                temp_savefile.filename += " - Copy"
-                savepath = join("saves", str(self.__savefile))
+                savepath = self.__make_tempfile()
                 append = False
         else:
             workbook = Workbook()
@@ -484,7 +493,12 @@ class SaveManager:
                 sheet.append(row)
 
         # Save the new workbook
-        workbook.save(savepath)
+        try:
+            workbook.save(savepath)
+        except PermissionError:
+            new_savepath = self.__make_tempfile()
+            print(f"ERROR: Permission Denied! Cannot save to {savepath}, file may already be open. Saving to {new_savepath}")
+            workbook.save(new_savepath)
 
     
     def __get_xlsx_match(self) -> dict:
@@ -553,17 +567,19 @@ class SaveManager:
         else:
             opening_kd = round["killfeed"][0]
 
+        bpat = round["bomb_planted_at"]
+        ddat = round["disabled_defuser_at"]
         rdata.extend([
             [],
             ["Round Info"],
             ["Name", "Value", "Time"],
             ["Site"],
             ["Winning team", f"[{round['winner']}]"],
-            ["Win condition", round["win_condition"]],
-            ["Opening kill", opening_kd.player, opening_kd.time],
-            ["Opening death", opening_kd.target, opening_kd.time],
-            ["Planted at", round["bomb_planted_at"]],
-            ["Defused at", round["defuser_disabled_at"]]
+            ["Win condition", round["win_condition"].value],
+            ["Opening kill", opening_kd.player, str(opening_kd.time)],
+            ["Opening death", opening_kd.target, str(opening_kd.time)],
+            ["Planted at", str(bpat) if bpat is not None else ""],
+            ["Defused at", str(ddat) if ddat is not None else ""]
         ])
 
         ## Kill/death feed
@@ -577,7 +593,7 @@ class SaveManager:
             record: KFRecord
             n = len(round["killfeed"])
             if i+1 == n:
-                rdata.append([record.player, record.target, record.time, False, False, i in refragged_kills])
+                rdata.append([record.player, record.target, str(record.time), False, False, i in refragged_kills])
                 break
 
             traded = i+1 < n \
@@ -588,7 +604,7 @@ class SaveManager:
             for j, r2 in enumerate(round["killfeed"][i+1:], start=i+1):
                 r2: KFRecord
                 if record.time - r2.time > 6: break
-                if record.player_idx == r2.target:
+                if record.player_idx == r2.target_idx:
                     refragged_death = True
                     refragged_kills.append(j)
 
@@ -745,16 +761,18 @@ class Analyser(ABC):
 
     @abstractmethod
     def _end_round(self) -> None:
+        ...
+
+    @abstractmethod
+    def _fix_state(self, roundn: int) -> None:
         ...    
 
     # ----- ENG OF PROGRAM / SAVING -----
+    @abstractmethod
     def _end_game(self) -> None:
-        self.history.set("winner", self.__ask_winner())
-        self.save_manager.save()
-        print(f"Data Saved to {self.prog_args.save}, program terminated.")
-        sys_exit()
+        ...
     
-    def __ask_winner(self) -> int:
+    def _ask_winner(self) -> int:
         while (winner := input("Who won the last round? (0/1) >> ")) not in "01":
             print("Invalid option, pick either 0 or 1")
             continue
@@ -825,8 +843,12 @@ class InPersonAnalyser(Analyser):
         """Extracts the current scoreline visible and determines when a new rounds starts"""
         if not self.state.end_round: return
 
-        scores  = self.__read_scoreline(regions["TEAM1_SCORE_REGION"], regions["TEAM2_SCORE_REGION"])
+        scores = self.__read_scoreline(regions["TEAM1_SCORE_REGION"], regions["TEAM2_SCORE_REGION"])
         if not scores: return
+
+        new_roundn = sum(scores)+1
+        if new_roundn in self.history:
+            self._fix_state(new_roundn)
 
         self._new_round(*scores)
 
@@ -900,7 +922,8 @@ class InPersonAnalyser(Analyser):
         if self.last_kf_seconds is not None and self.last_kf_seconds + InPersonAnalyser.NUM_LAST_SECONDS < time():
             self.last_kf_seconds = None
 
-        if self.end_round_seconds is not None and self.end_round_seconds + InPersonAnalyser.END_ROUND_SECONDS < time():
+        if self.end_round_seconds is not None and self.end_round_seconds + InPersonAnalyser.END_ROUND_SECONDS < time() \
+                and self.__read_scoreline(regions["TEAM1_SCORE_REGION"], regions["TEAM2_SCORE_REGION"]) is None:
             self._end_round()
             self.end_round_seconds = None
 
@@ -1029,23 +1052,39 @@ class InPersonAnalyser(Analyser):
                 cv2.rectangle(rect_img, right[:2], [right[0]+right[2], right[1]+right[3]], (0, 255, 0), 3)
             cv2.imwrite("images/TEST_KF_BOXES.jpg", rect_img)
 
+    # ----- GAME STATE -----
+    def __pre_new_round(self, score2: int, save: bool = True) -> None:
+        if len(self.history) == 0: return
+
+        ## infer winner of previous round based on new scoreline
+        if self.history.get("winner") is None and self.history.get("scoreline") is not None:
+            _, _score2 = self.history.get("scoreline")
+            self.history.set("winner", int(_score2 < score2)) ## if _score1+1 == score1, return 0
+
+        win_con = self._get_wincon()
+        self.history.set("win_condition", win_con)
+
+        if win_con == WinCondition.DISABLED_DEFUSER:
+            self.history.set("disabled_defuser_at", self.history.get("round_end_at"))
+
+        if not save: return
+        ## Save round data once all data can be extracted
+        if self.prog_args.upload_save:
+            self.save_manager.upload_save()
+        else:
+            self.save_manager.save(append=self.prog_args.append_save)
+
     def _new_round(self, score1: int, score2: int) -> None:
         """
         When a new round starts, this method is called, initialising a new round history
         The parameters `score1` and `score2` are the current scores displayed at the start of a new round
         """
-        if score1+score2+1 in self.history: return
+        new_round = score1 + score2 + 1
+        if new_round in self.history: return
 
-        if len(self.history) > 0:
-            ## infer winner of previous round based on new scoreline
-            if self.history.get("winner") is None and self.history.get("scoreline") is not None:
-                _, _score2 = self.history.get("scoreline")
-                self.history.set("winner", int(_score2 < score2)) ## if _score1+1 == score1, return 0
-            self.history.set("win_condition", self._get_wincon())
-
+        self.__pre_new_round(score2, save=True)
         self.state = State(True, False, False, 0)
 
-        new_round = score1 + score2 + 1
         self.history.new_round(new_round)
         self.history.set("scoreline", [score1, score2])
     
@@ -1056,24 +1095,20 @@ class InPersonAnalyser(Analyser):
         mxrnd = self.config["MAX_ROUNDS"]
         if self.history.roundn >= mxrnd or (not self.config["SCRIM"] and max(self.history.get("scoreline", 0)) == (mxrnd+1)/2):
             self._end_game()
-        elif self.prog_args.upload_save:
-            self.save_manager.upload_save()
-        else:
-            self.save_manager.save(append=self.prog_args.append_save)
     
     def _get_wincon(self) -> WinCondition:
-        bpat    = self.history.get("bomb_planted_at")
-        winner  = self.history.get("winner")
-        atkside = self.history.get("atk_side")
+        bpat    =   self.history.get("bomb_planted_at")
+        winner  =   self.history.get("winner")
+        defside = 1-self.history.get("atk_side")
 
-        if bpat is not None and winner == atkside:
+        if bpat is not None and winner == defside:
             return WinCondition.DISABLED_DEFUSER
         elif bpat is not None:
             return WinCondition.DEFUSED_BOMB
 
         elif 0 <= self.current_time.to_int() <= 1 \
-                and winner == 1-atkside \
-                and self.__wincon_alive_count(1-atkside) > 0:
+                and winner == defside \
+                and self.__wincon_alive_count(defside) > 0:
             return WinCondition.TIME
 
         elif self.__wincon_alive_count(1-winner) == 0:
@@ -1087,6 +1122,33 @@ class InPersonAnalyser(Analyser):
             if self.ign_matrix.get_team(d_idx) == side:
                 alive -= 1
         return alive
+    
+    def _end_game(self) -> None:
+        winner = self._ask_winner()
+        self.history.set("winner", winner)
+        scoreline = self.history.get("scoreline")[:]
+        scoreline[winner] += 1
+        self.__pre_new_round(scoreline, save=False)
+
+        self.save_manager.save()
+        print(f"Data Saved to {self.prog_args.save}, program terminated.")
+        sys_exit()
+    
+    def _fix_state(self, roundn: int) -> None:
+        """
+        Hard reset of state in rare occassions when state is wrong,
+          should be called when known to be in round
+        """
+        self.state.in_round = True
+        self.state.end_round = False
+
+        timer_region = self._get_ss_regions(["TIMER_REGION"])[0]
+        self.state.bomb_planted = self.__is_bomb_countdown(timer_region)
+
+        ct = self.current_time.to_int()
+        if ct < 10:
+            self.state.last_ten = 10-ct
+        self.history.set_roundn(roundn)
 
 
 class SpectatorAnalyser(Analyser):
@@ -1120,6 +1182,12 @@ class SpectatorAnalyser(Analyser):
 
     def _end_round(self) -> None:
         ...    
+    
+    def _end_game(self) -> None:
+        ...
+    
+    def _fix_state(self, roundn: int) -> None:
+        ...
 
 
 # ----- HELPER FUNCTIONS -----

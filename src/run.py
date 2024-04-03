@@ -219,10 +219,10 @@ if __name__ == "__main__":
         sleep(args.delay)
 
     if args.config.get("SPECTATOR", False):
-        print("In Spectator Mode")
+        print("Info: In Spectator Mode")
         analyser = SpectatorAnalyser(args)
     else:
-        print("In Person Mode")
+        print("Info: In Person Mode")
         analyser = InPersonAnalyser(args)
 
     if args.test:
