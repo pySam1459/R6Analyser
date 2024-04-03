@@ -97,24 +97,25 @@ The program works by taking screenshots of the game window at regular intervals 
 Although, only the Timer and Kill Feed regions are used every inference cycle, the other regions are used to infer the game state and are only used when a new round is detected.
 
 ### New Round
-A new round is detected when the score line changes, determines using the score regions. When this occurs, the program will call `__new_round` which will:
+A new round is detected when the score line changes, determines using the score regions. When this occurs, the program will call `_new_round` which will:
 - Set the winner of the previous round.
 - Update the score line.
+- Update the attack side.
 - Create a new record for the new round, including new kill feed, win conditions, and timer information.
 
 ### Mid Round
 During a round, the program will continuously screenshot the game window, reading the timer and kill feed. When a new kill is detected, the program will record the `player` (killer), `target` (dead) and `time` at which the kill occurred.</br>
-If the defuser is planted, the program will record the time and will update how the time is displayed: `!0:[45-0]`, using a `!` to indicate the defuser is planted.
+If the defuser is planted, the program will continue to record the time using an internal clock (any video skips will interfere with this internal clock). If the time passes `0:00`, the timer will go into the negative, e.g. `0:-12`.
 
 ### End Round
-A round ends when the program cannot read the timer, the red bomb countdown indicator is not showing, and `END_ROUND_SECONDS = 12` have passed. When this occurs, the program will call `__end_round` which will:
+A round ends when the program cannot read the timer, the red bomb countdown indicator is not showing, and `END_ROUND_SECONDS = 12` have passed. When this occurs, the program will call `_end_round` which will:
 - Set the win condition for the current round.
 - Set the round end at time.
-- Check if the game has ended (currently detected by the number of rounds passed), and if so, call `__end_game`.
+- Check if the game has ended (currently detected by the number of rounds passed), and if so, call `_end_game`.
 - Otherwise, reset the state of the program for the next round.
 
 ### End Game
-When the `__end_game` method is called, the program will save the recorded game data to a JSON or XLSX file, which can be specified using the `-s` / `--save` argument. (Currently only JSON is supported)
+When the `_end_game` method is called, the program will save the recorded game data to a JSON or XLSX file, which can be specified using the `-s` / `--save` argument. (Currently only JSON is supported)
 
 ## Requirements
 This program uses:
