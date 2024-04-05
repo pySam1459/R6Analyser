@@ -26,6 +26,8 @@ def __infer_key(config: dict, key: str) -> None:
             config["TEAM2_SIDE_REGION"]  = [tr[0] + int(tr[2]*1.45), tr[1], tr[2]//2, tr[3]]
         case "MAX_ROUNDS":
             config["MAX_ROUNDS"] = 12 if config["SCRIM"] else 15
+        case "ROUNDS_PER_SIDE":
+            config["ROUNDS_PER_SIDE"] = (config["MAX_ROUNDS"]-3)/2
         case _:
             ...
 
@@ -76,9 +78,10 @@ def __cparse_IGNS(arg) -> list[str]:
 
 
 ## config keys
+#    note: MAX_ROUNDS must be inferred before ROUNDS_PER_SIDE
 REQUIRED_CONFIG_KEYS = ["SCRIM", "TIMER_REGION", "KILLFEED_REGION"]
+INFER_CONFIG_KEYS    = ["TEAM1_SCORE_REGION", "TEAM2_SCORE_REGION", "TEAM1_SIDE_REGION", "TEAM2_SIDE_REGION", "MAX_ROUNDS", "ROUNDS_PER_SIDE"]
 OPTIONAL_CONFIG_KEYS = ["SCREENSHOT_RESIZE", "SCREENSHOT_PERIOD", "IGNS", "IGN_MODE", "SPECTATOR"]
-INFER_CONFIG_KEYS    = ["TEAM1_SCORE_REGION", "TEAM2_SCORE_REGION", "TEAM1_SIDE_REGION", "TEAM2_SIDE_REGION", "MAX_ROUNDS"]
 DEFAULT_CONFIG_FILENAME = "defaults.json"
 
 ## config parse function for each configuration variable
@@ -87,6 +90,7 @@ __cparse_functions = {
     "KILLFEED_REGION":    lambda arg: __cparse_bounding_box(arg, "KILLFEED_REGION"),
     "SCRIM":              lambda arg: __cparse_bool(arg, "SCRIM"),
     "MAX_ROUNDS":         lambda arg: __cparse_type_range(arg, int, "MAX_ROUNDS", 1, 15),
+    "ROUNDS_PER_SIDE":    lambda arg: __cparse_type_range(arg, int, "ROUNDS_PER_SIDE", 1, 6),
     "SPECTATOR":          lambda arg: __cparse_bool(arg, "SPECTATOR"),
     "IGNS":               lambda arg: __cparse_IGNS(arg),
     "IGN_MODE":           lambda arg: __cparse_enum(arg, "IGN_MODE", IGNMatrixMode),
@@ -121,6 +125,11 @@ def __parse_config(arg: str) -> dict:
         validated_keys.append(key)
         
     print(f"Info: Loaded configuration file '{arg}'") 
+    to_add = [key for key in INFER_CONFIG_KEYS if key not in config]
+    if len(to_add) > 0:
+        for key in to_add:
+            __infer_key(config, key)
+
     ## if the optional keys weren't provided, use defaults from default.json
     to_add = [key for key in OPTIONAL_CONFIG_KEYS if key not in config]
     if len(to_add) > 0:
@@ -129,20 +138,15 @@ def __parse_config(arg: str) -> dict:
 
         with open(DEFAULT_CONFIG_FILENAME, "r", encoding="utf-8") as f_in:
             default_config = json_load(f_in)
-        
+
         __log = ""
         for key in to_add:
             if key not in default_config:
                 raise Exception(f"defaults.json has been modified, key '{key}' has been removed!")
-            
+
             config[key] = default_config[key]
             __log += f"{key}, "
         print(f"Info: Loaded default config keys {__log}")
-    
-    to_add = [key for key in INFER_CONFIG_KEYS if key not in config]
-    if len(to_add) > 0:
-        for key in to_add:
-            __infer_key(config, key)
 
     ## final checks, in-case default.json was tampered with
     for key, func in __cparse_functions.items():

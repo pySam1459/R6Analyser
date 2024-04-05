@@ -1,6 +1,7 @@
 {
     "SCRIM": true,
     "MAX_ROUNDS": 15,
+    "ROUNDS_PER_SIDE": 6,
     "SCREENSHOT_RESIZE": 4,
     "SCREENSHOT_PERIOD": 0.5,
     "IGNS": [],

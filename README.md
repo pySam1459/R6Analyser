@@ -62,6 +62,7 @@ These parameters are optional and will default to values in `default.json` if no
 ### Inferred Parameters
 These parameters are optional and will be inferred by the program if not explicitly specified:
 - `MAX_ROUNDS`: The maximum number of rounds in the game. If scrim is set to true, this will default to 12; otherwise, it will default to 15.
+- `ROUNDS_PER_SIDE`: The number of rounds per atk/def side. Inferred to be (MAX_ROUNDS-3) / 2
 - `TEAM1_SCORE_REGION`: Specifies the region of the game window where team 1's score is displayed.
 - `TEAM2_SCORE_REGION`: Specifies the region of the game window where team 2's score is displayed.
 - `TEAM1_SIDE_REGION`: Specifies the region of the game window where team 1's side icon is displayed.
