@@ -10,8 +10,19 @@ from analyser import InPersonAnalyser, SpectatorAnalyser, SaveFile, IGNMatrixMod
 
 
 ## ----- HELPER FUNCTIONS -----
+## Config Parser helper function
+def arg_error(name: str, reason: str) -> argparse.ArgumentError:
+    print(f"CONFIG ERROR: Invalid `{name}` argument, {reason}")
+    exit()
+
 def __infer_key(config: dict, key: str) -> None:
     match key:
+        case "MAX_ROUNDS":
+            config["MAX_ROUNDS"] = 12 if config["SCRIM"] else 15
+        case "ROUNDS_PER_SIDE":
+            config["ROUNDS_PER_SIDE"] = (config["MAX_ROUNDS"]-3)/2
+        case "IGN_MODE":
+            config["IGN_MODE"] = IGNMatrixMode.FIXED if len(config["IGNS"]) == 10 else IGNMatrixMode.INFER
         case "TEAM1_SCORE_REGION":
             tr = config["TIMER_REGION"]
             config["TEAM1_SCORE_REGION"] = [tr[0] - tr[2]//2, tr[1], tr[2]//2, tr[3]]
@@ -24,21 +35,13 @@ def __infer_key(config: dict, key: str) -> None:
         case "TEAM2_SIDE_REGION":
             tr = config["TIMER_REGION"]
             config["TEAM2_SIDE_REGION"]  = [tr[0] + int(tr[2]*1.45), tr[1], tr[2]//2, tr[3]]
-        case "MAX_ROUNDS":
-            config["MAX_ROUNDS"] = 12 if config["SCRIM"] else 15
-        case "ROUNDS_PER_SIDE":
-            config["ROUNDS_PER_SIDE"] = (config["MAX_ROUNDS"]-3)/2
         case _:
             ...
 
-## Config Parser helper function
-def arg_error(name: str, reason: str) -> argparse.ArgumentError:
-    print(f"CONFIG ERROR: Invalid `{name}` argument, {reason}")
-    exit()
-
+## The following _cparse_ functions parse and validate different configuration arguments
 def __cparse_bool(arg, name: str) -> bool:
     if type(arg) != bool:
-        arg_error(name, "only Boolean (true/false)")
+        arg_error(name, "only Boolean true/false, (no quotation \"\\' marks)")
     return arg
 
 T = TypeVar("T")
@@ -61,6 +64,8 @@ def __cparse_bounding_box(arg, name: str) -> list[int]:
 
 E = TypeVar('E', bound=Enum)
 def __cparse_enum(arg, name: str, enum: Type[E]) -> E:
+    if type(arg) == enum: return arg
+
     for enum_member in enum:
         if enum_member.value == arg:
             return enum_member
@@ -73,85 +78,96 @@ def __cparse_IGNS(arg) -> list[str]:
         arg_error("IGNS", "list must have a length of [0-10]")
     if not all([type(el) == str for el in arg]):
         arg_error("IGNS", "not a list of strings")
-    
+    if not all([1 < len(el) <= 18 for el in arg]): ## max length of an ign is 18?
+        arg_error("IGNS", "list contains an invalid IGN")
     return arg
 
 
 ## config keys
 #    note: MAX_ROUNDS must be inferred before ROUNDS_PER_SIDE
-REQUIRED_CONFIG_KEYS = ["SCRIM", "TIMER_REGION", "KILLFEED_REGION"]
-INFER_CONFIG_KEYS    = ["TEAM1_SCORE_REGION", "TEAM2_SCORE_REGION", "TEAM1_SIDE_REGION", "TEAM2_SIDE_REGION", "MAX_ROUNDS", "ROUNDS_PER_SIDE"]
-OPTIONAL_CONFIG_KEYS = ["SCREENSHOT_RESIZE", "SCREENSHOT_PERIOD", "IGNS", "IGN_MODE", "SPECTATOR"]
+REQUIRED_CONFIG_KEYS = ["SCRIM", "SPECTATOR", "TIMER_REGION", "KILLFEED_REGION", "IGNS"]
+INFER_CONFIG_KEYS    = ["MAX_ROUNDS", "ROUNDS_PER_SIDE", "IGN_MODE", "TEAM1_SCORE_REGION", "TEAM2_SCORE_REGION", "TEAM1_SIDE_REGION", "TEAM2_SIDE_REGION"]
+OPTIONAL_CONFIG_KEYS = ["SCREENSHOT_RESIZE", "SCREENSHOT_PERIOD"]
 DEFAULT_CONFIG_FILENAME = "defaults.json"
 
 ## config parse function for each configuration variable
 __cparse_functions = {
+    ## Required keys
+    "SCRIM":              lambda arg: __cparse_bool(arg, "SCRIM"),
+    "SPECTATOR":          lambda arg: __cparse_bool(arg, "SPECTATOR"),
     "TIMER_REGION":       lambda arg: __cparse_bounding_box(arg, "TIMER_REGION"),
     "KILLFEED_REGION":    lambda arg: __cparse_bounding_box(arg, "KILLFEED_REGION"),
-    "SCRIM":              lambda arg: __cparse_bool(arg, "SCRIM"),
+    "IGNS":               lambda arg: __cparse_IGNS(arg),
+
+    ## Inferred keys
     "MAX_ROUNDS":         lambda arg: __cparse_type_range(arg, int, "MAX_ROUNDS", 1, 15),
     "ROUNDS_PER_SIDE":    lambda arg: __cparse_type_range(arg, int, "ROUNDS_PER_SIDE", 1, 6),
-    "SPECTATOR":          lambda arg: __cparse_bool(arg, "SPECTATOR"),
-    "IGNS":               lambda arg: __cparse_IGNS(arg),
     "IGN_MODE":           lambda arg: __cparse_enum(arg, "IGN_MODE", IGNMatrixMode),
-    "SCREENSHOT_RESIZE":  lambda arg: __cparse_type_range(arg, [int, float], "SCREENSHOT_RESIZE", 1, 8),
-    "SCREENSHOT_PERIOD":  lambda arg: __cparse_type_range(arg, [int, float], "SCREENSHOT_PERIOD", 0.25, 2),
     "TEAM1_SCORE_REGION": lambda arg: __cparse_bounding_box(arg, "TEAM1_SCORE_REGION"),
     "TEAM2_SCORE_REGION": lambda arg: __cparse_bounding_box(arg, "TEAM2_SCORE_REGION"),
     "TEAM1_SIDE_REGION":  lambda arg: __cparse_bounding_box(arg, "TEAM1_SIDE_REGION"),
     "TEAM2_SIDE_REGION":  lambda arg: __cparse_bounding_box(arg, "TEAM2_SIDE_REGION"),
+
+    ## Optional keys
+    "SCREENSHOT_RESIZE":  lambda arg: __cparse_type_range(arg, [int, float], "SCREENSHOT_RESIZE", 1, 8),
+    "SCREENSHOT_PERIOD":  lambda arg: __cparse_type_range(arg, [int, float], "SCREENSHOT_PERIOD", 0.25, 2),
 }
 
-def __parse_config(arg: str) -> dict:
+def __parse_config(config_filepath: str) -> dict:
     ## argument checks
-    if not (exists(arg) or exists(join("configs", arg))):
-        raise argparse.ArgumentError(f"Config file '{arg}' cannot be found!")
+    if not (exists(config_filepath) or exists(join("configs", config_filepath))):
+        raise argparse.ArgumentError(f"Config file '{config_filepath}' cannot be found!")
     
-    if not exists(arg):
-        arg = join("configs", arg)
+    if not exists(config_filepath):
+        config_filepath = join("configs", config_filepath)
 
     ## Load config from json
-    with open(arg, "r", encoding="utf-8") as f_in:
-        config: dict = json_load(f_in)
+    try:
+        with open(config_filepath, "r", encoding="utf-8") as f_in:
+            config: dict = json_load(f_in)
+
+    except Exception as e:
+        print(f"CONFIG ERROR: Could not open {config_filepath}!\n{str(e)}")
 
     ## check if all required keys are contained in config file
     for key in REQUIRED_CONFIG_KEYS:
         if key not in config:
             raise argparse.ArgumentError(f"Config file does not contain key '{key}'!")
     
-    validated_keys = []
+    parsed_keys = []
     for key in config.keys():
         config[key] = __cparse_functions[key](config[key])
-        validated_keys.append(key)
+        parsed_keys.append(key)
         
-    print(f"Info: Loaded configuration file '{arg}'") 
-    to_add = [key for key in INFER_CONFIG_KEYS if key not in config]
-    if len(to_add) > 0:
-        for key in to_add:
+    print(f"Info: Loaded configuration file '{config_filepath}'")
+
+    ## Infer keys not present in config file
+    keys_to_add = [key for key in INFER_CONFIG_KEYS if key not in config]
+    if len(keys_to_add) > 0:
+        for key in keys_to_add:
             __infer_key(config, key)
 
     ## if the optional keys weren't provided, use defaults from default.json
-    to_add = [key for key in OPTIONAL_CONFIG_KEYS if key not in config]
-    if len(to_add) > 0:
+    keys_to_add = [key for key in OPTIONAL_CONFIG_KEYS if key not in config]
+    if len(keys_to_add) > 0:
         if not exists(DEFAULT_CONFIG_FILENAME):
-            raise argparse.ArgumentError("'defaults.json' does not exist!")
+            raise FileNotFoundError(f"'{DEFAULT_CONFIG_FILENAME}' does not exist!")
 
-        with open(DEFAULT_CONFIG_FILENAME, "r", encoding="utf-8") as f_in:
-            default_config = json_load(f_in)
+        try:
+            with open(DEFAULT_CONFIG_FILENAME, "r", encoding="utf-8") as f_in:
+                default_config = json_load(f_in)
+        except Exception as e:
+            print(f"CONFIG ERROR: Could not open {DEFAULT_CONFIG_FILENAME}\n{str(e)}")
 
-        __log = ""
-        for key in to_add:
+        for key in keys_to_add:
             if key not in default_config:
                 raise Exception(f"defaults.json has been modified, key '{key}' has been removed!")
 
             config[key] = default_config[key]
-            __log += f"{key}, "
-        print(f"Info: Loaded default config keys {__log}")
 
     ## final checks, in-case default.json was tampered with
-    for key, func in __cparse_functions.items():
-        if key not in validated_keys:
-            config[key] = func(config[key])
+    for key in __cparse_functions.keys() - parsed_keys:
+        config[key] = __cparse_functions[key](config[key])
 
     return config
 
@@ -161,7 +177,7 @@ def __parse_verbose(arg: str) -> int:
         x = int(arg)
         if 0 <= x <= 3:
             return x
-        raise argparse.ArgumentError("Verbose argument out of range [0,2]")
+        raise argparse.ArgumentError("Verbose argument out of range [0,3]")
 
     except ValueError:
         raise argparse.ArgumentError(f"Invalid Verbose argument {arg}")
@@ -194,7 +210,7 @@ if __name__ == "__main__":
                         type=__parse_verbose,
                         help="Determines how detailed the console output is, 0-nothing, 1-some, 2-all, 3-debug",
                         dest="verbose",
-                        default=1)
+                        default=2)
     parser.add_argument("-s", "--save",
                         type=__parse_save,
                         help="Where to save the output of R6Analyser, only json or xlsx files",
@@ -222,7 +238,7 @@ if __name__ == "__main__":
     if args.delay > 0:
         sleep(args.delay)
 
-    if args.config.get("SPECTATOR", False):
+    if args.config["SPECTATOR"]:
         print("Info: In Spectator Mode")
         analyser = SpectatorAnalyser(args)
     else:

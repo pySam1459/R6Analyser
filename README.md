@@ -32,7 +32,7 @@ Other optional arguments include:
 - `-v` / `--verbose`: Print additional information to the console (0-3).
 - `-d` / `--delay`: The delay in seconds before the program starts capturing the game window.
 - `-s` / `--save`: File to save the game data, either a JSON or XLSX file.
-- `--append-save`: Whether to append the game data to the save file or overwrite it.
+- `--append-save`: Whether to append the game data to an existing save file or overwrite it.
 - `--upload-save`: (WIP) Uploads the round data to a Google Sheet.
 - `--test`: (Debugging) Runs the OCR engine for a single instance of each region and prints the output to the console.
 - `--cpu`: (NOT recommended) Use the CPU for OCR instead of the GPU.
@@ -44,35 +44,35 @@ To use R6Analyser, a configuration JSON is required to specify regions of the ga
 ### Required Parameters
 These parameters must be specified for the program to function correctly; `REGION` parameters can be found using `src\region-tool.py`:
 - `SCRIM`: A boolean (true/false) specifying whether the game is a scrim or not.
+- `SPECTATOR`: (`true`/`false`) specifying if the game perspective is in spectator mode, compared to in-person (default).
 - `TIMER_REGION`: A list of 4 integers specifying the region of the game window where the timer is located.
 - `KILLFEED_REGION`: A list of 4 integers specifying the region of the game window where the kill feed is located.
-
-### Optional Parameters
-These parameters are optional and will default to values in `default.json` if not specified:
-
-- `IGNS`: (RECOMMENDED) A list of strings/text specifying the in-game names (IGNs) of the players in the game. The first 5 IGNs will be considered team 1. If this parameter is not specified, the program will infer the names from the kill feed.
-
-- `IGN_MODE`: Specifies how the IGNs are processed. There are two modes available:
-  - `fixed`: Will return `None` for all non-fixed IGNs. This mode is used when you have a predefined list of IGNs, and any IGN not in this list will not be considered.
-  - `infer`: Will infer the non-fixed IGNs from the OCR's output. Use this mode if you want the program to automatically identify and use IGNs from the game feed.
-- `SPECTATOR`: (`true`/`false`) specifying if the game perspective is in spectator mode, compared to in-person (default).
-- `SCREENSHOT_RESIZE`: A number specifying the factor by which the screenshot is resized before OCR-processing.
-- `SCREENSHOT_PERIOD`: This number determines how frequently the program captures the game feed for analysis, the period in seconds between screenshots
+- `IGNS`: A list of 0-10 strings specifying the in-game names (IGNs) of the players in the game. It is recommended to specify all 10 IGNs to maximise the accuracy of the program. First 5 IGNs are 1 team, last 5 are the other team.
 
 ### Inferred Parameters
 These parameters are optional and will be inferred by the program if not explicitly specified:
 - `MAX_ROUNDS`: The maximum number of rounds in the game. If scrim is set to true, this will default to 12; otherwise, it will default to 15.
 - `ROUNDS_PER_SIDE`: The number of rounds per atk/def side. Inferred to be (MAX_ROUNDS-3) / 2
+- `IGN_MODE`: Specifies how the IGNs are processed. There are two modes available:
+  - `fixed`: This mode is used when you have a predefined list of IGNs, and any IGN not in this list will not be considered, returned as `None`.
+  - `infer`: Use this mode if you want the program to automatically identify and use IGNs from the game feed. If 10 IGNs are already provided, the mode will default to `fixed`. 
 - `TEAM1_SCORE_REGION`: Specifies the region of the game window where team 1's score is displayed.
 - `TEAM2_SCORE_REGION`: Specifies the region of the game window where team 2's score is displayed.
 - `TEAM1_SIDE_REGION`: Specifies the region of the game window where team 1's side icon is displayed.
 - `TEAM2_SIDE_REGION`: Specifies the region of the game window where team 2's side icon is displayed.
+
+### Optional Parameters
+These parameters are optional and will default to values in `default.json` if not specified:
+- `SCREENSHOT_RESIZE`: (default=4) A number specifying the factor by which the screenshot is resized before OCR-processing.
+- `SCREENSHOT_PERIOD`: (default=0.5) This number determines how frequently the program captures the game feed for analysis, the period in seconds between screenshots
+
 
 ### Config File Example
 Below is an example configuration file that specifies these parameters:
 ```json
 {
   "SCRIM": true,
+  "SPECTATOR": false,
   "TIMER_REGION": [1210, 110, 140, 65],
   "KILLFEED_REGION": [1640, 310, 565, 140],
   "IGNS": [
@@ -82,7 +82,6 @@ Below is an example configuration file that specifies these parameters:
     "Player10"
   ],
   "IGN_MODE": "fixed",
-  "SPECTATOR": false,
   "MAX_ROUNDS": 12
 }
 ```
