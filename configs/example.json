@@ -1,11 +1,15 @@
 {
-    "SCRIM": false,
-    "MAX_ROUNDS": 9,
+    "SCRIM": true,
+    "SPECTATOR": false,
     "TIMER_REGION": [1210, 110, 140, 65],
     "KILLFEED_REGION": [1640, 310, 565, 140],
     "IGNS": [
-        "Samba."
+        "Samba.",
+        "Player2",
+        "Player3",
+        "Player4",
+        "Player5"
     ],
-    "IGN_MODE": "infer",
-    "SPECTATOR": false
+    "MAX_ROUNDS": 12,
+    "SCREENSHOT_PERIOD": 0.75
 }
