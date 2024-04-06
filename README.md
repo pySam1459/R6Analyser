@@ -1,25 +1,27 @@
 # R6Analyser
 
-This program performs real-time data extraction from a [Rainbow Six Siege](https://www.ubisoft.com/en-gb/game/rainbow-six/siege) game for statistical analysis.</br>
+This program performs real-time data extraction from a [Rainbow Six Siege](https://www.ubisoft.com/en-gb/game/rainbow-six/siege) VOD or live game for statistical analysis.</br>
 The following information gathered per round includes:
 - **Score Line**
-- **Kill Feed**
-- **Bomb Plant At**
+- **Kill Feed**, **Trades**, **Refragged Kills**, **Refragged Deaths**
+- **Bomb Plant At**, **Defused At**
 - **Round End At**
 - **Win Condition**
+- **Opening Kill**, **Opening Death**
+- **Atk/Def Side**
 
 ## How to run
-To run the program, you will need to have Python (3.10>=) installed on your system. You can download Python from the [official website](https://www.python.org/downloads/). A Nvidia GPU and [CUDA](https://developer.nvidia.com/cuda-toolkit) is also recommended for real-time data extraction, although this program does provide a CPU-only option.</br>
+To run the program, you will need to have Python (3.10>=) installed on your system. You can download Python from the [official website](https://www.python.org/downloads/). A Nvidia GPU and [CUDA](https://developer.nvidia.com/cuda-toolkit) is also recommended for real-time data extraction, although this program does provide a CPU-only option (NOT RECOMMENDED).</br>
 Before running the program, you will need to install the required packages using the following command:
 ```bash
 pip install -r requirements.txt
 ```
-You must also have made a configuration file (see below) to specify the regions of the game window and other parameters. 
+You must also have made a configuration file (see below) to specify certain regions of the game window and other parameters. 
 To check the regions defined in the configuration file, you can run the following command:
 ```bash
 python src\run.py <config file> --check
 ```
-which will save the screenshots of the regions defined into a new `images` directory.</br>
+which will save the screenshots of the regions defined into a new `images` directory. If these screenshot's do not contain the relevant information, they should be re-defined.</br>
 To run the program, use the following command:
 ```bash
 python src\run.py <config file>
@@ -33,25 +35,27 @@ Other optional arguments include:
 - `-d` / `--delay`: The delay in seconds before the program starts capturing the game window.
 - `-s` / `--save`: File to save the game data, either a JSON or XLSX file.
 - `--append-save`: Whether to append the game data to an existing save file or overwrite it.
-- `--upload-save`: (WIP) Uploads the round data to a Google Sheet.
 - `--test`: (Debugging) Runs the OCR engine for a single instance of each region and prints the output to the console.
 - `--cpu`: (NOT recommended) Use the CPU for OCR instead of the GPU.
 
+## How to use
+This program uses OCR to extract text information from the game window, so it is important to have a good quality video and high resolution. If you cannot read the text on the screen, the program will not be able to either. That being said, the program can handle relatively low quality (720p).</br>
+tl;dr The better the quality of the video/game, the more accurate the program will be.</br>
 
 ## Config
-To use R6Analyser, a configuration JSON is required to specify regions of the game window and other program parameters. The following outlines the required and optional paremeters of this configuration file:
+To use R6Analyser, a configuration JSON is required to specify regions of the game window and other program parameters. An example config file can be found at `configs/example.json` and below; `_REGION` parameters can be created using `src\region-tool.py`. The following outlines the required and optional paremeters of a config file:
 
 ### Required Parameters
-These parameters must be specified for the program to function correctly; `REGION` parameters can be found using `src\region-tool.py`:
-- `SCRIM`: A boolean (true/false) specifying whether the game is a scrim or not.
-- `SPECTATOR`: (`true`/`false`) specifying if the game perspective is in spectator mode, compared to in-person (default).
+These parameters must be specified:
+- `SCRIM`: `true`/`false` specifying whether the game is a scrim or not.
+- `SPECTATOR`: `true`/`false` specifying if the game perspective is in spectator mode or in-person.
 - `TIMER_REGION`: A list of 4 integers specifying the region of the game window where the timer is located.
 - `KILLFEED_REGION`: A list of 4 integers specifying the region of the game window where the kill feed is located.
-- `IGNS`: A list of 0-10 strings specifying the in-game names (IGNs) of the players in the game. It is recommended to specify all 10 IGNs to maximise the accuracy of the program. First 5 IGNs are 1 team, last 5 are the other team.
+- `IGNS`: A list of 0-10 strings specifying the in-game names (IGNs) of the players in the game. IGNs 1-5 will be considered as one team, with IGNs 6-10 as the other team. It is recommended to specify all 10 IGNs to maximise the accuracy of the program, with a minimum recommendation of 5 IGNs (your team).
 
 ### Inferred Parameters
 These parameters are optional and will be inferred by the program if not explicitly specified:
-- `MAX_ROUNDS`: The maximum number of rounds in the game. If scrim is set to true, this will default to 12; otherwise, it will default to 15.
+- `MAX_ROUNDS`: The maximum number of rounds in the game. If scrim is set to true, this will default to 12; otherwise, it will default to 15. (Infinite OT is not supported yet)
 - `ROUNDS_PER_SIDE`: The number of rounds per atk/def side. Inferred to be (MAX_ROUNDS-3) / 2
 - `IGN_MODE`: Specifies how the IGNs are processed. There are two modes available:
   - `fixed`: This mode is used when you have a predefined list of IGNs, and any IGN not in this list will not be considered, returned as `None`.
@@ -68,23 +72,25 @@ These parameters are optional and will default to values in `default.json` if no
 
 
 ### Config File Example
-Below is an example configuration file that specifies these parameters:
+Below is an example configuration file that specifies a set of possible parameters for a standard game:
 ```json
 {
-  "SCRIM": true,
+  "SCRIM": false,
   "SPECTATOR": false,
   "TIMER_REGION": [1210, 110, 140, 65],
   "KILLFEED_REGION": [1640, 310, 565, 140],
   "IGNS": [
-    "Player1",
+    "Samba.",
     "Player2",
-    "...",
-    "Player10"
+    "Player3",
+    "Player4",
+    "Player5"
   ],
-  "IGN_MODE": "fixed",
-  "MAX_ROUNDS": 12
+  "MAX_ROUNDS": 7,
+  "ROUNDS_PER_SIDE": 3,
 }
 ```
+With this config file, the remaining 5 player IGNs will be inferred from the game feed. Since standard only has 1 round of overtime, the `MAX_ROUNDS` and `ROUNDS_PER_SIDE` needed to be specified as the inferred `(MAX_ROUNDS-3) / 2` assumes a normal 3 round overtime.
 
 ## Process
 The program works by taking screenshots of the game window at regular intervals `SCREENSHOT_PERIOD` and using OCR to extract the necessary information. Currently, 6 regions of the screenshot are used for OCR:

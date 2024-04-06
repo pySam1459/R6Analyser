@@ -15,6 +15,7 @@ from abc import ABC, abstractmethod
 from enum import Enum
 from Levenshtein import ratio as leven_ratio
 from openpyxl import load_workbook, Workbook
+from openpyxl.worksheet.worksheet import Worksheet
 from typing import TypeAlias, Optional
 
 
@@ -39,6 +40,7 @@ class IGNMatrixMode(StrEnum):
 class Player:
     idx: int
     ign: str
+    team: None | int = None
 
 
 class IGNMatrix(ABC):
@@ -52,8 +54,13 @@ class IGNMatrix(ABC):
     The matrix uses Levenshtein distance to determine whether two IGNs are the same (could be improved?)
     """
 
+    @property
     @abstractmethod
-    def get(self, pseudoIGN: str, threshold: float) -> Optional[Player]:
+    def mode(self) -> IGNMatrixMode:
+        ...
+
+    @abstractmethod
+    def get(self, pseudoIGN: str, threshold: float = 0.75) -> Optional[Player]:
         ...
     
     @abstractmethod
@@ -61,18 +68,19 @@ class IGNMatrix(ABC):
         ...
     
     @abstractmethod
-    def get_team(self, ign: str | int) -> int:
-        ...
-    
-    def update_team_table(self, player: str | int, target: str | int) -> None:
+    def get_team_from_idx(self, idx: int) -> Optional[int]:
         ...
     
     @abstractmethod
-    def get_players(self, flip: bool = False) -> list[Player]:
+    def get_players(self) -> list[Player]:
+        """Returns a list of 10 Player objects where each team are grouped in team 0: 0-4 | team 1: 5-9"""
         ...
     
     @abstractmethod
     def evaluate(self, pign: str) -> float:
+        ...
+    
+    def update_team_table(self, pidx: int, tidx: int) -> None:
         ...
     
     @staticmethod
@@ -88,15 +96,15 @@ class IGNMatrix(ABC):
                 raise ValueError(f"Unknown IGNMatrixMode {mode}")
 
     @staticmethod
-    def _compare_names(name1: str, name2: str) -> float:
+    def compare_names(name1: str, name2: str) -> float:
         """Compares two IGN's (pseudo/non-pseudo) using Levenshtein distance, output in the range [0-1]"""
         return leven_ratio(name1.lower(), name2.lower())
     
     @staticmethod
     def _check_fixed(ign_list: list[str], pign: str, threshold: float) -> Optional[Player]:
         for i, ign in enumerate(ign_list):
-            if ign == pign or IGNMatrix._compare_names(pign, ign) >= threshold:
-                return Player(i, ign)
+            if ign == pign or IGNMatrix.compare_names(pign, ign) >= threshold:
+                return Player(i, ign, int(i >= 5))
         return None
 
 
@@ -108,33 +116,32 @@ class IGNMatrixFixed(IGNMatrix):
     VALID_THRESHOLD = 0.6 ## threshold for Levenshtein distance to determine equality
 
     def __init__(self, igns: list[str]) -> None:
-        self.__matrix = igns
+        self.__fixmat = igns
+    
+    @property
+    def mode(self) -> IGNMatrixMode:
+        return IGNMatrixMode.FIXED
     
     def get(self, pign: str, threshold: float = VALID_THRESHOLD) -> Optional[Player]:
         """This method is used to request the index/ID and true/most-seen IGN from the pseudoIGN argument."""
-        return IGNMatrix._check_fixed(self.__matrix, pign, threshold)
+        return IGNMatrix._check_fixed(self.__fixmat, pign, threshold)
 
     def from_idx(self, idx: int) -> Optional[Player]:
         if 0 <= idx <= 10:
-            return Player(idx, self.__matrix[idx])
+            return Player(idx, self.__fixmat[idx])
 
         return None
     
-    def get_team(self, ign: str | int) -> Optional[int]:
-        if type(ign) == str and ((pl := self.get(ign)) is not None):
-            return int(pl.idx >= 5)
-        elif type(ign) == int and 0 <= ign < 10:
-            return int(ign >= 5)
+    def get_team_from_idx(self, idx: int) -> Optional[int]:
+        return int(idx >= 5)
 
-        return None
+    def get_players(self) -> list[Player]:
+        return [Player(i, ign, int(i >= 5)) for i, ign in enumerate(self.__fixmat)]
 
-    def get_players(self, flip: bool = False) -> list[Player]:
-        players = [Player(i, ign) for i, ign in enumerate(self.__matrix)]
-        return players  if not flip  else  players[5:] + players[:5]
-    
+    ## worth adding an cache?
     def evaluate(self, pign: str) -> float:
-        if pign in self.__matrix: return 1.0
-        return max([IGNMatrix._compare_names(pign, name) for name in self.__matrix])
+        if pign in self.__fixmat: return 1.0
+        return max([IGNMatrix.compare_names(pign, name) for name in self.__fixmat])
 
     @staticmethod
     def new(igns: list[str]) -> 'IGNMatrixFixed':
@@ -156,8 +163,10 @@ class IGNMatrixInfer(IGNMatrix):
     Once len(Fixed) + len(Semi-Fixed) == 10, no more psuedoIGN names-dict can be promoted and assumed to be invalid IGNs
     A `names-dict: dict[str, int]` is a dictionary containing the occurrency count for each pseudoIGN of an unknown true IGN
     """
-    VALID_THRESHOLD = 0.75   ## threshold for Levenshtein distance to determine equality
-    ASSIMILATE_THRESHOLD = 5 ## how many times a pseudoIGN has to be seen before adding to 'semi-fixed' list
+    VALID_THRESHOLD = 0.75     ## threshold for Levenshtein distance to determine equality
+    ASSIMILATE_THRESHOLD = 7   ## how many times a pseudoIGN has to be seen before adding to 'semi-fixed' list
+    KD_DIFF_THRESHOLD = 4      ## how many times player on team 'A' but kill/be killed by a player on team 'B' before setting team
+    NO_TEAN_HIST_THRESHOLD = 3 ## how many history records to declare teams, if no team indices are known
     EVAL_DECAY = 0.95
 
     def __init__(self, igns: list[str]) -> None:
@@ -168,6 +177,14 @@ class IGNMatrixInfer(IGNMatrix):
         self.__matrix:      dict[int,dict[str,int]] = {}
         self.__semi_fixlen = 0
         self.__idx_counter = self.__fixlen
+
+        self.__team_mat:  dict[int, int]             = {i: int(i>=5) for i in range(self.__fixlen)}
+        self.__team_diff: dict[int, tuple[int, int]] = {}  ## for each idx, number of kills/deaths to either team
+        self.__team_hist: dict[int, list[int]]       = {}  ## a list of kill/death relations for each idx
+    
+    @property
+    def mode(self) -> IGNMatrixMode:
+        return IGNMatrixMode.INFER
     
     def get(self, pign: str, threshold: float = VALID_THRESHOLD) -> Optional[Player]:
         ## first check the fixed igns
@@ -193,7 +210,7 @@ class IGNMatrixInfer(IGNMatrix):
         idx = self.__idx_counter
         self.__matrix[idx] = { pign: 1 }
         self.__idx_counter += 1
-        return Player(idx, pign)
+        return Player(idx, pign, None)
 
     def __in_names_dict(self, pign: str, idx: int, names_dict: dict, threshold: float) -> Optional[Player]:
         """
@@ -202,12 +219,12 @@ class IGNMatrixInfer(IGNMatrix):
         """
         if pign in names_dict:
             names_dict[pign] += 1 # increase occurrence count for pseudoIGN
-            return Player(idx, IGNMatrixInfer._max_dict(names_dict))
-        
+            return Player(idx, IGNMatrixInfer._max_dict(names_dict), self.get_team_from_idx(idx))
+
         for seen_pign in names_dict.keys():
-            if IGNMatrix._compare_names(pign, seen_pign) > threshold:
+            if IGNMatrix.compare_names(pign, seen_pign) > threshold:
                 names_dict[pign] = 1  # add to names_dict as a possible true IGN
-                return Player(idx, IGNMatrixInfer._max_dict(names_dict))
+                return Player(idx, IGNMatrixInfer._max_dict(names_dict), self.get_team_from_idx(idx))
 
         return None
     
@@ -232,11 +249,103 @@ class IGNMatrixInfer(IGNMatrix):
 
         return None
     
-    def get_team(self, ign: str | int) -> Optional[int]:
-        ...
+    def get_team_from_idx(self, idx: int) -> Optional[int]:
+        ## unnecessary as caught by if-clause below, but doesn't hurt to double check!
+        if self.__fixlen >= 5 or idx <= self.__fixlen:
+            return int(idx >= 5)
 
-    def get_players(self, flip: bool = False) -> list[Player]:
-        igns = ... ## TODO
+        if idx in self.__team_mat:
+            return self.__team_mat[idx]
+
+        return None
+    
+    def update_team_table(self, pidx: int, tidx: int) -> None:
+        pteam = self.__team_mat.get(pidx, None)
+        tteam = self.__team_mat.get(tidx, None)
+
+        ## parentheses for clarity
+        if ((pteam is not None) and (tteam is not None)) \
+            or (self.get_team_from_idx(pidx) is not None and self.get_team_from_idx(tidx) is not None): ## both team indices are known
+            return
+
+        elif (pteam is None) and (tteam is not None): ## one of the team indices are not known
+            self.__add_team_diff(pidx, tteam)
+        elif pteam is not None and (tteam is None):
+            self.__add_team_diff(tidx, pteam)
+
+        else:  ## neither team indices are known
+            self.__add_team_hist(pidx, tidx)
+            self.__add_team_hist(tidx, pidx)
+
+    def __add_team_diff(self, idx: int, opp_team: int) -> None:
+        """
+        This method adds an interaction count with `opp_team` to idx's team_diff
+        It then checks to see if `idx`'s team_diff has reached the KD_DIFF_TRESHOLD
+          so that idx's team can be set
+        """
+        if idx not in self.__team_diff:
+            self.__team_diff[idx] = [0, 0]
+        
+        tdiff = self.__team_diff[idx]
+        tdiff[opp_team] += 1
+
+        ## check if idx has passed KD_DIFF_THRESHOLD, number of interactions before setting team index
+        if abs(tdiff[0] - tdiff[1]) > IGNMatrixInfer.KD_DIFF_THRESHOLD:
+            team_idx = int(tdiff[0] > tdiff[1])      ## idx's team = argmin(tdiff)
+            self.__set_team_idx(idx, team_idx)
+
+    def __add_team_hist(self, idx: int, value: int) -> None:
+        if idx in self.__team_mat: return  ## should only hit if I've made a mistake
+
+        if idx not in self.__team_hist:
+            self.__team_hist[idx] = [value]
+        else:
+            self.__team_hist[idx].append(value)
+        
+        if len(self.__team_mat) == 0 and len(self.__team_hist[idx]) > IGNMatrixInfer.NO_TEAN_HIST_THRESHOLD:
+            self.__set_team_idx(idx, 0)  ## DECLARE TEAMS!
+
+    def __set_team_idx(self, idx: int, team_idx: int) -> None:
+        self.__team_mat[idx] = team_idx       ## set the team index for idx
+
+        if idx in self.__team_hist:
+            for opp_idx in self.__team_hist[idx]: ## update team_diff for all of idx's previous unknown-team interactions
+                self.__add_team_diff(opp_idx, team_idx)
+            self.__team_hist.pop(idx)
+
+        if idx in self.__team_diff:
+            self.__team_diff.pop(idx)
+
+    def get_players(self) -> list[Player]:
+        unsorted_players = self.__get_unsorted_players()
+        if self.__fixlen >= 5:
+            return unsorted_players
+
+        buckets = [[], [], []]
+        for pl in unsorted_players:
+            bidx = ndefault(pl.team, 2)
+            buckets[bidx].append(pl)
+
+        return buckets[0] + buckets[1] + buckets[2]
+
+    def __get_unsorted_players(self) -> list[Player]:
+        players = [Player(i, ign, int(i >= 5)) for i, ign in enumerate(self.__fixmat)]
+        if self.__fixlen == 10:
+            return players
+
+        players += [Player(idx, IGNMatrixInfer._max_dict(names_dict), self.get_team_from_idx(idx)) for idx, names_dict in self.__semi_fixmat.items()]
+        if len(players) == 10:
+            return players
+        
+        if len(players) + len(self.__matrix) <= 10:
+            ## Note: may return a list < 10 length
+            return players + [Player(idx, IGNMatrixInfer._max_dict(names_dict), self.get_team_from_idx(idx)) for idx, names_dict in self.__matrix.items()]
+        else:
+            ## Only add the most likely (most seen) players from __matrix to the players list
+            ##   sorted the __matrix by # times seen and only add the top 10-len(players)
+            indices = sorted(self.__matrix, key=lambda k: sum(self.__matrix[k].values()), reverse=True)[:10-len(players)]
+            return players + [Player(idx, IGNMatrixInfer._max_dict(self.__matrix[idx]), self.get_team_from_idx(idx)) for idx in indices]
+
     
     def evaluate(self, pign: str) -> float:
         """
@@ -249,7 +358,7 @@ class IGNMatrixInfer(IGNMatrix):
         max_val = 0.0
         for names_dict in self.__matrix.values():
             max_occr = max(names_dict.values())
-            evals = [IGNMatrix._compare_names(pign, name) * (IGNMatrixInfer.EVAL_DECAY ** (max_occr - occr)) for name, occr in names_dict.items()]
+            evals = [IGNMatrix.compare_names(pign, name) * (IGNMatrixInfer.EVAL_DECAY ** (max_occr - occr)) for name, occr in names_dict.items()]
             max_val = max(max_val, *evals)
 
         return max_val
@@ -260,7 +369,7 @@ class IGNMatrixInfer(IGNMatrix):
         return IGNMatrixInfer(igns)
 
     @staticmethod
-    def _max_dict(_dict: dict[str: int]) -> str:
+    def _max_dict(_dict: dict[str, int]) -> str:
         return max(_dict, key=_dict.get)
 
 
@@ -319,6 +428,11 @@ class KFRecord:
     def __eq__(self, other: 'KFRecord') -> bool:
         return self.player_idx == other.player_idx and self.target_idx == other.target_idx
     
+    def update(self, ign_mat: IGNMatrix) -> 'KFRecord':
+        self.player = ign_mat.from_idx(self.player_idx) or self.player
+        self.target = ign_mat.from_idx(self.target_idx) or self.player
+        return self
+    
     def to_str(self) -> str:
         return f"{self.time}| {self.player} -> {self.target}"
 
@@ -344,7 +458,8 @@ class History(dict):
     def __init__(self, verbose: int) -> None:
         self.__roundn = -1
         self.__verbose = verbose
-    
+        self.__atk_first = None
+
     @property
     def is_ready(self) -> bool:
         return self.__roundn > 0
@@ -357,9 +472,9 @@ class History(dict):
         """This method should only be used if something has gone wrong, `roundn` should be coupled to `new_round` function """
         self.__roundn = roundn
     
-    def get(self, key: str):
-        if self.__roundn <= 0: return None
-        return self[self.__roundn].get(key, None)
+    def get(self, key: str, _default=None):
+        if self.__roundn <= 0: return _default
+        return self[self.__roundn].get(key, _default)
     
     def get_round(self, roundn: Optional[int] = None) -> Optional[dict]:
         if roundn is None: roundn = self.__roundn
@@ -383,7 +498,9 @@ class History(dict):
             self.print()
 
     def new_round(self, round_number: int) -> None:
-        print(f"Info: New Round {round_number}")
+        if self.__verbose > 0:
+            print(f"Info: New Round {round_number}")
+
         self.__roundn = round_number
         self[round_number] = {
             "scoreline": None,
@@ -419,6 +536,13 @@ class History(dict):
 
     def print(self) -> None:
         print(self.__roundn, self.get_round())
+    
+    @property
+    def atk_first(self) -> int:
+        return self.__atk_first
+    
+    def set_atk_first(self, value: int) -> None:
+        self.__atk_first = value
 
 
 @dataclass
@@ -437,92 +561,160 @@ class SaveManager:
     """
     This class manages everything to do with saving/uploading round data to json/xlsx/google sheets
     """
-    def __init__(self, savefile: SaveFile, history: History, ign_matrix: IGNMatrix) -> None:
+    def __init__(self, savefile: SaveFile, history: History, ign_matrix: IGNMatrix, config: dict) -> None:
         self.__savefile = savefile
         self.__history = history
         self.__ignmat = ign_matrix
+        self.__config = config
+
+        self.__players: list[Player]
 
     def save(self, append: bool = False) -> None:
         if not exists("saves"):
             mkdir("saves")
+        
+        self.__players = self.__ignmat.get_players()
+        self.__clean_history()
 
         match self.__savefile.ext:
             case "json":
-                self._save_json()
+                self.__save_json()
             case "xlsx":
-                self._save_xlsx(append)
+                self.__save_xlsx(append)
+    
+    def __clean_history(self) -> None:
+        indices = [pl.idx for pl in self.__players]
+        for round in self.__history.values():
+            round["clean_killfeed"] = [record for record in round["killfeed"] if record.player_idx in indices and record.target_idx in indices]
+            round["clean_deaths"] = [didx for didx in round["deaths"] if didx in indices]
 
-    def _save_json(self) -> None:
+    def __save_json(self) -> None:
         with open(join("saves", str(self.__savefile)), "w") as f_out:
             json.dump(self.__history.to_json(), f_out, indent=4)
+
+
+    def __save_xlsx(self, append: bool = False) -> None:
+        savepath = join("saves", str(self.__savefile))
+        workbook, savepath, append = self.__load_existing_wb(savepath, append)
+
+        ## remove default worksheet
+        if "Sheet" in workbook.sheetnames:
+            del workbook["Sheet"]
+
+        ## get data
+        rounds = [self.__history.roundn] if append else list(self.__history.keys())
+        xslx_match = self.__get_xlsx_match(workbook) if append else self.__get_xlsx_match()
+        data = xslx_match | self.__get_xlsx_rounds(rounds)
+
+        ## Add new sheets and fill them with data
+        for sheet_name, sheet_data in data.items():
+            if sheet_name in workbook.sheetnames:
+                del workbook[sheet_name]
+
+            sheet = workbook.create_sheet(title=sheet_name)
+            for row in sheet_data:
+                sheet.append(row)
+
+        ## Save the workbook
+        try:
+            workbook.save(savepath)
+        except PermissionError:
+            new_savepath = self.__make_tempfile()
+            print(f"SAVE FILE ERROR: Permission Denied! Cannot save to {savepath}, file may already be open. Saving to {new_savepath}")
+            workbook.save(new_savepath)
+    
+    def __load_existing_wb(self, savepath: str, append: bool) -> tuple[Workbook, bool, str]:
+        if not (append and exists(savepath)):
+            return Workbook(), savepath, append
+        
+        ## Append = True
+        try:
+            workbook = load_workbook(savepath)
+
+            if self.__history.atk_first is None:
+                not_set = True
+                if "Round 1" in workbook.sheetnames:
+                    names = next(workbook["Round 1"].iter_cols(min_col=1, max_col=1, min_row=3, max_row=12, values_only=True))
+                    for i in range(10): ## attempt to infer atk_first by checking each name until inference is done
+                        pl = self.__ignmat.get(names[i])
+                        if pl is None or pl.team is None: continue
+
+                        self.__history.atk_first = 1-pl.team if i < 5 else pl.team
+                        not_set = False
+
+                if not_set:
+                    self.__history.atk_first = 0
+            
+            return workbook, savepath, append
+            
+        except PermissionError:
+            print(f"SAVE FILE ERROR: Permission Denied! Cannot open save file {savepath}, file may already be open. Defaulting to append-save=False")
+        except Exception as e:
+            print(f"SAVE FILE ERROR: An error occurred when trying to load the existing xlsx file {savepath}. Defaulting to append-save=False")
+
+        return Workbook(), self.__make_tempfile(), False
     
     def __make_tempfile(self) -> str:
         temp_savefile = self.__savefile.copy()
         temp_savefile.filename += " - Copy"
         return join("saves", str(temp_savefile))
 
-    def _save_xlsx(self, append: bool = False) -> None:
-        # Create a new workbook
-        savepath = join("saves", str(self.__savefile))
-        if append and exists(savepath):
-            try:
-                workbook = load_workbook(savepath)
-            except PermissionError:
-                print(f"ERROR: Permission Denied! Cannot open save file {savepath}, file may already be open. Defaulting to append-save=False")
-                workbook = Workbook()
-                savepath = self.__make_tempfile()
-                append = False
-        else:
-            workbook = Workbook()
+    def __get_xlsx_match(self, workbook: Optional[Workbook] = None) -> dict:
+        existing_kd = None
+        if workbook is not None and "Match" in workbook.sheetnames:
+            existing_kd = self.__get_existing_kd(workbook)
 
-        ## remove default worksheet
-        if "Sheet" in workbook.sheetnames:
-            del workbook["Sheet"]
-
-        self.__players = self.__ignmat.get_players()
-        rounds = [self.__history.roundn] if append else list(self.__history.keys())
-        data = self.__get_xlsx_match() | self.__get_xlsx_rounds(rounds)
-
-        # Add new sheets and fill them with data
-        for sheet_name, data in data.items():
-            if sheet_name in workbook.sheetnames:
-                del workbook[sheet_name]
-
-            sheet = workbook.create_sheet(title=sheet_name)
-            for row in data:
-                sheet.append(row)
-
-        # Save the new workbook
-        try:
-            workbook.save(savepath)
-        except PermissionError:
-            new_savepath = self.__make_tempfile()
-            print(f"ERROR: Permission Denied! Cannot save to {savepath}, file may already be open. Saving to {new_savepath}")
-            workbook.save(new_savepath)
-
-    
-    def __get_xlsx_match(self) -> dict:
         headers = [
             ["Statistics"],
             ["Player", "Team Index", "Rounds", "Kills", "Deaths"]]
         
-        kills, deaths = self.__get_xlsx_kd()
-        dataT = [
+        kills, deaths = self.__get_xlsx_kd(existing_kd)
+        data = transpose([
             [pl.ign for pl in self.__players],
-            [0]*5 + [1]*5,
-            [self.__history.roundn]*10,
+            [ndefault(pl.team, "") for pl in self.__players],
+            [self.__history.roundn]*len(self.__players),
             kills,
             deaths
-        ]
-        return { "Match": headers + transpose(dataT) }
+        ])
+        if self.__history.atk_first == 0:
+            data = self.__table_flip(data)
 
-    def __get_xlsx_kd(self) -> tuple[list[int], list[int]]:
-        kills, deaths = [0]*10, [0]*10
+        return { "Match": headers + data }
 
+    def __get_existing_kd(self, workbook: Workbook) -> list[list]:
+        ## TODO: if you are trying to re-append a Round, you will count that round's stat's twice
+        existing_kd = [list(row) for row in workbook["Match"].iter_rows(min_row=3, max_row=12, min_col=4, max_col=5, values_only=True)]
+        existing_names = next(workbook["Match"].iter_cols(min_col=1, max_col=1, min_row=3, max_row=12, values_only=True))
+
+        if self.__ignmat.mode == IGNMatrixMode.FIXED:
+            return transpose([existing_kd[existing_names.index(pl.ign)] for pl in self.__players])
+
+
+        pl_map = {} ## maps player.idx to existing_name index
+        for i, name in enumerate(existing_names):
+            scores = [IGNMatrix.compare_names(pl.ign, name) for pl in self.__players] 
+            idx = scores.index(max(scores))
+            pl_map[self.__players[idx].idx] = i
+
+        n = len(self.__players) ## select existing_kd for new __player list
+        new_kd = [[0]*n, [0]*n]
+        for i, pl in enumerate(self.__players):
+            if pl.idx in pl_map:
+                new_kd[0][i] = existing_kd[pl_map[pl.idx]][0]
+                new_kd[1][i] = existing_kd[pl_map[pl.idx]][1]
+
+        return new_kd
+
+    def __get_xlsx_kd(self, existing_kd: Optional[tuple[list[int], list[int]]] = None) -> tuple[list[int], list[int]]:
+        n = len(self.__players)
+        kills, deaths = ([0]*n, [0]*n) if existing_kd is None else existing_kd
+
+        plidx_map = {pl.idx: i for i, pl in enumerate(self.__players)}
         for round in self.__history.values():
-            for record in round["killfeed"]: ## TODO: fix for infer cases when idx >= 10
-                kills[record.player_idx] += 1
-                deaths[record.target_idx] += 1
+            for record in round["clean_killfeed"]:
+                kills[plidx_map[record.player_idx]] += 1
+            for idx in round["clean_deaths"]:
+                deaths[plidx_map[idx]] += 1
 
         return kills, deaths
 
@@ -530,42 +722,59 @@ class SaveManager:
         data = {}
         for rn in round_nums:
             if (round := self.__history.get_round(rn)) is not None:
-                data[f"Round {rn}"] = self.__get_xlsx_rdata(round)
+                data[f"Round {rn}"] = self.__get_xlsx_rdata(rn, round)
         
         return data
 
-    def __get_xlsx_rdata(self, round: dict) -> list[list]:
+    def __get_xlsx_rdata(self, rn: int, round: dict) -> list[list]:
         rdata = [
             ["Statistics"],
             ["Player", "Team Index", "Kills", "Deaths", "Assissts", "Hs%", "Headshots", "1vX", "Operator"]
         ]
         ## Statistics Section
-        kills, deaths = [0]*10, [False]*10
-        for record in round["killfeed"]:
-            kills[record.player_idx] += 1
-            deaths[record.target_idx] = True
+        idx_map = {pl.idx: i for i, pl in enumerate(self.__players)}
+        teams_known = all([pl.team is not None for pl in self.__players]) and len(self.__players) == 10
+
+        n = len(self.__players)
+        kills, deaths = [0]*n, [False]*n 
+        round_kf = round["clean_killfeed"]
+        for record in round_kf:
+            kills[idx_map[record.player_idx]] += 1
+
+        for idx in round["clean_deaths"]:
+            deaths[idx_map[idx]] = True
 
         onevx = None
         onevx_count = 0
-        if (w := round["winner"]) is not None:
+        ## TODO: this oneVx calculator won't work for when players and teams are not known
+        # your team won, you were the last alive (not necessarily alive at the end), X = number of opponents alive when your last alive teammate died
+        if (w := round["winner"]) is not None and teams_known:
             if deaths[w*5:(w+1)*5].count(False) == 1: ## possible 1vX
                 onevx = deaths.index(False)
-                for record in reversed(round["killfeed"]):
+                for record in reversed(round_kf):
                     if record.player_idx == onevx:
                         onevx_count += 1
                     else:
                         break
                 onevx_count += deaths[(1-w)*5:(2-w)*5].count(False)
 
-        for pl in self.__players: ## TODO: may have to change pl.idx to i, pl enumerated
+        stats_table = []
+        for i, pl in enumerate(self.__players):
             onevx_pl = 0 if pl.idx != onevx else onevx_count
-            rdata.append([pl.ign, self.__ignmat.get_team(pl.idx), kills[pl.idx], deaths[pl.idx], "", "", "", onevx_pl, ""])
+            stats_table.append([pl.ign, ndefault(pl.team, ""), kills[i], deaths[i], "", "", "", onevx_pl, ""])
+        
+        ## make sure defence team is at the top of the stats table, same as dissect
+        switch = ((rn-1) // self.__config["ROUNDS_PER_SIDE"]) % 2
+        if self.__history.atk_first ^ switch ^ 1:  ## a lovely bit op (NXOR)
+            stats_table = self.__table_flip(stats_table)
+        
+        rdata += stats_table
 
         ## Round Info
-        if len(round["killfeed"]) == 0: ## highly-unlikely, maybe a issue occurred during recording
+        if len(round_kf) == 0: ## highly-unlikely, maybe a issue occurred during recording
             opening_kd = KFRecord("", -1, "", -1, "")
         else:
-            opening_kd = round["killfeed"][0]
+            opening_kd = round_kf[0].update(self.__ignmat)
 
         bpat = round["bomb_planted_at"]
         ddat = round["disabled_defuser_at"]
@@ -589,19 +798,19 @@ class SaveManager:
             ["Player", "Target", "Time", "Traded", "Refragged Death", "Refragged Kill"],
         ])
         refragged_kills = []
-        for i, record in enumerate(round["killfeed"]):
-            record: KFRecord
-            n = len(round["killfeed"])
+        for i, record in enumerate(round_kf):
+            record: KFRecord = record.update(self.__ignmat) ## get the latest IGNs
+            n = len(round_kf)
             if i+1 == n:
                 rdata.append([record.player, record.target, str(record.time), False, False, i in refragged_kills])
                 break
 
             traded = i+1 < n \
-                and (record.time - round["killfeed"][i+1].time) <= 6 \
-                and self.__ignmat.get_team(record.player_idx) != self.__ignmat.get_team(record.target_idx)
+                and (record.time - round_kf[i+1].time) <= 6 \
+                and self.__ignmat.get_team_from_idx(record.player_idx) != self.__ignmat.get_team_from_idx(record.target_idx)
             
             refragged_death = False
-            for j, r2 in enumerate(round["killfeed"][i+1:], start=i+1):
+            for j, r2 in enumerate(round_kf[i+1:], start=i+1):
                 r2: KFRecord
                 if record.time - r2.time > 6: break
                 if record.player_idx == r2.target_idx:
@@ -612,8 +821,8 @@ class SaveManager:
         
         return rdata
 
-    def upload_save(self) -> None:
-        ...
+    def __table_flip(self, data: list[list]) -> list[list]:
+        return data[5:] + data[:5]
 
 
 class Analyser(ABC):
@@ -635,7 +844,7 @@ class Analyser(ABC):
             if not args.test: sys_exit()
 
         self.running = False
-        self.tdelta: float = self.config.get("SCREENSHOT_PERIOD", 1.0)
+        self.tdelta: float = self.config["SCREENSHOT_PERIOD"]
         
         self.ign_matrix = IGNMatrix.new(self.config["IGNS"], self.config["IGN_MODE"])
         self.reader = easyocr.Reader(['en'], gpu=not args.cpu)
@@ -643,7 +852,7 @@ class Analyser(ABC):
 
         self.state = State(False, True, False, False)
         self.history = History(self.verbose)
-        self.save_manager = SaveManager(self.prog_args.save, self.history, self.ign_matrix)
+        self.save_manager = SaveManager(self.prog_args.save, self.history, self.ign_matrix, self.config)
 
         self.current_time: Timestamp = None
         self.defuse_countdown_timer: float = None
@@ -653,7 +862,7 @@ class Analyser(ABC):
         if not exists("images"):
             mkdir("images")
 
-        print("Info: Saving check images")
+        self._verbose_print(0, "Saving check images")
         region_keys = self._get_ss_region_keys()
         regions = self._get_ss_regions(region_keys)
         for name, img in regions.items():
@@ -725,7 +934,7 @@ class Analyser(ABC):
         if denoise:
             image = cv2.fastNlMeansDenoising(image, None, 5, 7, 21)
 
-        scale_factor = self.config.get("SCREENSHOT_RESIZE", 4)
+        scale_factor = self.config["SCREENSHOT_RESIZE"]
         if squeeze_width != -1:
             sf_w, sf_h = scale_factor * squeeze_width, scale_factor
         else:
@@ -854,6 +1063,12 @@ class InPersonAnalyser(Analyser):
 
         atkside = self.__read_atkside(regions["TEAM1_SIDE_REGION"], regions["TEAM2_SIDE_REGION"])
         self.history.set("atk_side", atkside)
+
+        if self.history.atk_first is None and atkside is not None and new_roundn <= self.config["MAX_ROUNDS"]-3:
+            switch = ((new_roundn-1) // self.config["ROUNDS_PER_SIDE"]) % 2
+            atk_first = atkside ^ switch
+            self.history.set_atk_first(atk_first)
+            self._verbose_print(1, f"Set history param {atk_first=}")
     
     def __read_scoreline(self, scoreline1: np.ndarray, scoreline2: np.ndarray) -> Optional[tuple[int, int]]:
         img1 = self._screenshot_preprocess(scoreline1, to_gray=True, squeeze_width=0.65)
@@ -979,7 +1194,7 @@ class InPersonAnalyser(Analyser):
             if record not in self.history.get("killfeed"):
                 self.history.set("killfeed", record)
                 self.history.set("deaths", target.idx)
-                ##self.ign_matrix.update_team_table(player.idx, target.idx)
+                self.ign_matrix.update_team_table(player.idx, target.idx)
     
     def __read_feed(self, image: np.ndarray) -> list[tuple[str, str]]:
         image = self._screenshot_preprocess(image, to_gray=True, denoise=True, squeeze_width=0.75)
@@ -1007,7 +1222,7 @@ class InPersonAnalyser(Analyser):
         for res1 in results:
             for res2 in results:
                 r1, r2 = bbox_to_rect(res1[0]), bbox_to_rect(res2[0]) ## convert from easyocr bounding-box to rect (x,y,w,h)
-                prox_dist = InPersonAnalyser.PROXIMITY_DIST * (self.config.get("SCREENSHOT_RESIZE", 4) / 4)
+                prox_dist = InPersonAnalyser.PROXIMITY_DIST * (self.config["SCREENSHOT_RESIZE"] / 4)
                 if res1 is not res2 and (rect_collision(r1, r2) or rect_proximity(r1, r2) <= prox_dist):
                     jr = join_results(res1, res2)
                     eval_score = self.ign_matrix.evaluate(jr[1]) ## re-evaluate joined text
@@ -1069,10 +1284,10 @@ class InPersonAnalyser(Analyser):
 
         if not save: return
         ## Save round data once all data can be extracted
-        if self.prog_args.upload_save:
-            self.save_manager.upload_save()
-        else:
-            self.save_manager.save(append=self.prog_args.append_save)
+        # if self.prog_args.upload_save:
+        #     self.save_manager.upload_save()
+        # else:
+        self.save_manager.save(append=self.prog_args.append_save)
 
     def _new_round(self, score1: int, score2: int) -> None:
         """
@@ -1092,8 +1307,13 @@ class InPersonAnalyser(Analyser):
         self.history.set("round_end_at", self.current_time)
         self.state = State(False, True, False, 0)
 
-        mxrnd = self.config["MAX_ROUNDS"]
-        if self.history.roundn >= mxrnd or (not self.config["SCRIM"] and max(self.history.get("scoreline", 0)) == (mxrnd+1)/2):
+        mx_rnd = self.config["MAX_ROUNDS"]
+        rps = self.config["ROUNDS_PER_SIDE"]
+        scoreline = self.history.get("scoreline", [0, 0])
+        is_ot = not self.config["SCRIM"] and scoreline[0] >= rps and scoreline[1] >= rps
+        if self.history.roundn >= mx_rnd \
+                or (not is_ot and sum(scoreline) == rps+1) \
+                or (is_ot and abs(scoreline[0]-scoreline[1]) == 2):
             self._end_game()
     
     def _get_wincon(self) -> WinCondition:
@@ -1119,7 +1339,7 @@ class InPersonAnalyser(Analyser):
     def __wincon_alive_count(self, side: int) -> bool:
         alive = 5 ## TODO: history, ign matrix team count
         for d_idx in self.history.get("deaths"):
-            if self.ign_matrix.get_team(d_idx) == side:
+            if self.ign_matrix.get_team_from_idx(d_idx) == side:
                 alive -= 1
         return alive
     
@@ -1131,7 +1351,7 @@ class InPersonAnalyser(Analyser):
         self.__pre_new_round(scoreline, save=False)
 
         self.save_manager.save()
-        print(f"Data Saved to {self.prog_args.save}, program terminated.")
+        self._verbose_print(0, f"Data Saved to {self.prog_args.save}, program terminated.")
         sys_exit()
     
     def _fix_state(self, roundn: int) -> None:
@@ -1142,13 +1362,14 @@ class InPersonAnalyser(Analyser):
         self.state.in_round = True
         self.state.end_round = False
 
-        timer_region = self._get_ss_regions(["TIMER_REGION"])[0]
+        timer_region = self._get_ss_regions(["TIMER_REGION"])["TIMER_REGION"]
         self.state.bomb_planted = self.__is_bomb_countdown(timer_region)
 
         ct = self.current_time.to_int()
         if ct < 10:
             self.state.last_ten = 10-ct
         self.history.set_roundn(roundn)
+        self._verbose_print(1, f"Fixed State for round {roundn}")
 
 
 class SpectatorAnalyser(Analyser):
@@ -1191,6 +1412,10 @@ class SpectatorAnalyser(Analyser):
 
 
 # ----- HELPER FUNCTIONS -----
+def ndefault(value, default):
+    if value is None: return default
+    return value
+
 def transpose(matrix: list[list]) -> list[list]:
     return [list(row) for row in zip(*matrix)]
 

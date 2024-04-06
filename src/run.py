@@ -11,7 +11,7 @@ from analyser import InPersonAnalyser, SpectatorAnalyser, SaveFile, IGNMatrixMod
 
 ## ----- HELPER FUNCTIONS -----
 ## Config Parser helper function
-def arg_error(name: str, reason: str) -> argparse.ArgumentError:
+def config_arg_error(name: str, reason: str) -> None:
     print(f"CONFIG ERROR: Invalid `{name}` argument, {reason}")
     exit()
 
@@ -41,7 +41,7 @@ def __infer_key(config: dict, key: str) -> None:
 ## The following _cparse_ functions parse and validate different configuration arguments
 def __cparse_bool(arg, name: str) -> bool:
     if type(arg) != bool:
-        arg_error(name, "only Boolean true/false, (no quotation \"\\' marks)")
+        config_arg_error(name, "only Boolean true/false, (no quotation \"\\' marks)")
     return arg
 
 T = TypeVar("T")
@@ -50,16 +50,16 @@ def __cparse_type_range(arg, _type: T|list[T], name: str, lower: T, upper: T) ->
         _type = [_type]
     if not any([type(arg) == t for t in _type]):
         s_type = ",".join([str(t) for t in _type])
-        arg_error(name, f"only {s_type} types")
+        config_arg_error(name, f"only {s_type} types")
     if not (lower <= arg <= upper):
-        arg_error(name, f"must be in range [{lower}-{upper}]")
+        config_arg_error(name, f"must be in range [{lower}-{upper}]")
     return arg
 
 def __cparse_bounding_box(arg, name: str) -> list[int]:
     if type(arg) != list or len(arg) != 4 or not all([type(el) == int for el in arg]):
-        arg_error(name, "must be of length=4 and type list[int]")
+        config_arg_error(name, "must be of length=4 and type list[int]")
     if any([el < 0 for el in arg]):
-        arg_error(name, "elements must be positive integers")    
+        config_arg_error(name, "elements must be positive integers")    
     return arg
 
 E = TypeVar('E', bound=Enum)
@@ -69,17 +69,17 @@ def __cparse_enum(arg, name: str, enum: Type[E]) -> E:
     for enum_member in enum:
         if enum_member.value == arg:
             return enum_member
-    arg_error(name, f"{arg} not a valid enum value")
+    config_arg_error(name, f"{arg} not a valid enum value")
 
 def __cparse_IGNS(arg) -> list[str]:
     if type(arg) != list:
-        arg_error("IGNS", "not a list")
+        config_arg_error("IGNS", "not a list")
     if not 0 <= len(arg) <= 10:
-        arg_error("IGNS", "list must have a length of [0-10]")
+        config_arg_error("IGNS", "list must have a length of [0-10]")
     if not all([type(el) == str for el in arg]):
-        arg_error("IGNS", "not a list of strings")
+        config_arg_error("IGNS", "not a list of strings")
     if not all([1 < len(el) <= 18 for el in arg]): ## max length of an ign is 18?
-        arg_error("IGNS", "list contains an invalid IGN")
+        config_arg_error("IGNS", "list contains an invalid IGN")
     return arg
 
 
@@ -116,7 +116,7 @@ __cparse_functions = {
 def __parse_config(config_filepath: str) -> dict:
     ## argument checks
     if not (exists(config_filepath) or exists(join("configs", config_filepath))):
-        raise argparse.ArgumentError(f"Config file '{config_filepath}' cannot be found!")
+        exit(f"CONFIG ERROR: File '{config_filepath}' cannot be found!")
     
     if not exists(config_filepath):
         config_filepath = join("configs", config_filepath)
@@ -127,15 +127,18 @@ def __parse_config(config_filepath: str) -> dict:
             config: dict = json_load(f_in)
 
     except Exception as e:
-        print(f"CONFIG ERROR: Could not open {config_filepath}!\n{str(e)}")
+        exit(f"CONFIG ERROR: Could not open {config_filepath}!\n{str(e)}")
 
     ## check if all required keys are contained in config file
     for key in REQUIRED_CONFIG_KEYS:
         if key not in config:
-            raise argparse.ArgumentError(f"Config file does not contain key '{key}'!")
+            exit(f"CONFIG ERROR: Config file does not contain key '{key}'!")
     
     parsed_keys = []
     for key in config.keys():
+        if key not in __cparse_functions:
+            exit(f"CONFIG ERROR: Config file contains an invalid key '{key}'!")
+
         config[key] = __cparse_functions[key](config[key])
         parsed_keys.append(key)
         
@@ -157,7 +160,7 @@ def __parse_config(config_filepath: str) -> dict:
             with open(DEFAULT_CONFIG_FILENAME, "r", encoding="utf-8") as f_in:
                 default_config = json_load(f_in)
         except Exception as e:
-            print(f"CONFIG ERROR: Could not open {DEFAULT_CONFIG_FILENAME}\n{str(e)}")
+            exit(f"CONFIG ERROR: Could not open {DEFAULT_CONFIG_FILENAME}\n{str(e)}")
 
         for key in keys_to_add:
             if key not in default_config:
@@ -220,10 +223,10 @@ if __name__ == "__main__":
                        action="store_true",
                        help="Whether to append new round data onto the existing save file, otherwise save all data at the end of a game",
                        dest="append_save")
-    parser.add_argument("--upload-save",
-                       action="store_true",
-                       help="Whether to upload new round data directly to the cloud, otherwise save all data at the end of a game",
-                       dest="upload_save")
+    # parser.add_argument("--upload-save",
+    #                    action="store_true",
+    #                    help="Whether to upload new round data directly to the cloud, otherwise save all data at the end of a game",
+    #                    dest="upload_save")
     parser.add_argument("--check", 
                         action="store_true",
                         help="Does not perform data extract but saves the regions of interest as images for quality check")
