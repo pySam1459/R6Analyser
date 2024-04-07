@@ -352,14 +352,18 @@ class IGNMatrixInfer(IGNMatrix):
         Evaluates an pseudoIGN, determining how close it is to a real ign
         Eval decay: `(IGNMatrixInfer.EVAL_DECAY ** (max_occr - occr)` factor gives emphasis to pseudoIGNs seen more often
         """
-        if pign in self.__fixmat or pign in self.__semi_fixmat:
-            return 1.0
-        
         max_val = 0.0
-        for names_dict in self.__matrix.values():
-            max_occr = max(names_dict.values())
-            evals = [IGNMatrix.compare_names(pign, name) * (IGNMatrixInfer.EVAL_DECAY ** (max_occr - occr)) for name, occr in names_dict.items()]
-            max_val = max(max_val, *evals)
+        if pign in self.__fixmat:
+            return 1.0
+
+        for ign in self.__fixmat:
+            max_val = max(max_val, IGNMatrix.compare_names(pign, ign))
+        
+        for matrix in [self.__semi_fixmat, self.__matrix]:
+            for names_dict in matrix.values():
+                max_occr = max(names_dict.values())
+                evals = [IGNMatrix.compare_names(pign, name) * (IGNMatrixInfer.EVAL_DECAY ** (max_occr - occr)) for name, occr in names_dict.items()]
+                max_val = max(max_val, *evals)
 
         return max_val
 
@@ -373,12 +377,16 @@ class IGNMatrixInfer(IGNMatrix):
         return max(_dict, key=_dict.get)
 
 
+class TimerFormat(Enum):
+    FULL = 0      ## 2:59 - 0:10
+    SECONDS = 1   ## 9:99 - 0:00   -> 0:09 - 0:00
+
+
 @dataclass
 class State:
     in_round:     bool
     end_round:    bool
     bomb_planted: bool
-    last_ten:     int
 
 
 class WinCondition(StrEnum):
@@ -429,20 +437,21 @@ class KFRecord:
         return self.player_idx == other.player_idx and self.target_idx == other.target_idx
     
     def update(self, ign_mat: IGNMatrix) -> 'KFRecord':
-        self.player = ign_mat.from_idx(self.player_idx) or self.player
-        self.target = ign_mat.from_idx(self.target_idx) or self.player
+        if ign_mat.mode == IGNMatrixMode.INFER:
+            self.player = ign_mat.from_idx(self.player_idx).ign or self.player
+            self.target = ign_mat.from_idx(self.target_idx).ign or self.player
         return self
     
     def to_str(self) -> str:
         return f"{self.time}| {self.player} -> {self.target}"
 
     def to_json(self, ign_matrix: Optional[IGNMatrix] = None) -> dict:
-        if ign_matrix is None:
+        if ign_matrix is None or ign_matrix.mode == IGNMatrixMode.INFER:
             player = self.player
             target = self.target
         else:
-            player = ign_matrix.from_idx(self.player_idx) or self.player
-            target = ign_matrix.from_idx(self.target_idx) or self.target
+            player = ign_matrix.from_idx(self.player_idx).ign or self.player
+            target = ign_matrix.from_idx(self.target_idx).ign or self.target
 
         return {
             "time": str(self.time),
@@ -458,7 +467,6 @@ class History(dict):
     def __init__(self, verbose: int) -> None:
         self.__roundn = -1
         self.__verbose = verbose
-        self.__atk_first = None
 
     @property
     def is_ready(self) -> bool:
@@ -468,9 +476,9 @@ class History(dict):
     def roundn(self) -> int:
         return self.__roundn
     
-    def set_roundn(self, roundn: int) -> None:
-        """This method should only be used if something has gone wrong, `roundn` should be coupled to `new_round` function """
-        self.__roundn = roundn
+    def fix_round(self) -> None:
+        """Called by _fix_state, in-case program incorrectly thinks round ended"""
+        self.set("round_end_at", None)
     
     def get(self, key: str, _default=None):
         if self.__roundn <= 0: return _default
@@ -536,13 +544,6 @@ class History(dict):
 
     def print(self) -> None:
         print(self.__roundn, self.get_round())
-    
-    @property
-    def atk_first(self) -> int:
-        return self.__atk_first
-    
-    def set_atk_first(self, value: int) -> None:
-        self.__atk_first = value
 
 
 @dataclass
@@ -561,15 +562,16 @@ class SaveManager:
     """
     This class manages everything to do with saving/uploading round data to json/xlsx/google sheets
     """
-    def __init__(self, savefile: SaveFile, history: History, ign_matrix: IGNMatrix, config: dict) -> None:
+    def __init__(self, savefile: SaveFile, history: History, ign_matrix: IGNMatrix, config: dict, append_mode: bool = False) -> None:
         self.__savefile = savefile
         self.__history = history
         self.__ignmat = ign_matrix
         self.__config = config
+        self.__append_mode = append_mode
 
         self.__players: list[Player]
 
-    def save(self, append: bool = False) -> None:
+    def save(self) -> None:
         if not exists("saves"):
             mkdir("saves")
         
@@ -580,7 +582,7 @@ class SaveManager:
             case "json":
                 self.__save_json()
             case "xlsx":
-                self.__save_xlsx(append)
+                self.__save_xlsx()
     
     def __clean_history(self) -> None:
         indices = [pl.idx for pl in self.__players]
@@ -593,9 +595,9 @@ class SaveManager:
             json.dump(self.__history.to_json(), f_out, indent=4)
 
 
-    def __save_xlsx(self, append: bool = False) -> None:
+    def __save_xlsx(self) -> None:
         savepath = join("saves", str(self.__savefile))
-        workbook, savepath, append = self.__load_existing_wb(savepath, append)
+        workbook, savepath, append = self.__load_existing_wb(savepath, self.__append_mode)
 
         ## remove default worksheet
         if "Sheet" in workbook.sheetnames:
@@ -614,50 +616,34 @@ class SaveManager:
             sheet = workbook.create_sheet(title=sheet_name)
             for row in sheet_data:
                 sheet.append(row)
-
-        ## Save the workbook
+        
         try:
+            ## Save the workbook
             workbook.save(savepath)
         except PermissionError:
             new_savepath = self.__make_tempfile()
-            print(f"SAVE FILE ERROR: Permission Denied! Cannot save to {savepath}, file may already be open. Saving to {new_savepath}")
             workbook.save(new_savepath)
+            print(f"SAVE FILE ERROR: Permission Denied! Cannot save to {savepath}, file may already be open. Saving to {new_savepath}")
     
     def __load_existing_wb(self, savepath: str, append: bool) -> tuple[Workbook, bool, str]:
-        if not (append and exists(savepath)):
-            return Workbook(), savepath, append
+        if not append:
+            return Workbook(), savepath, False
+
+        if not exists(savepath):
+            print(f"SAVE FILE ERROR: {savepath} does not exist! Defaulting to append-save=False.")
+            return Workbook(), savepath, False
         
-        ## Append = True
+        temp_file = self.__make_tempfile()
         try:
-            workbook = load_workbook(savepath)
-
-            if self.__history.atk_first is None:
-                not_set = True
-                if "Round 1" in workbook.sheetnames:
-                    names = next(workbook["Round 1"].iter_cols(min_col=1, max_col=1, min_row=3, max_row=12, values_only=True))
-                    for i in range(10): ## attempt to infer atk_first by checking each name until inference is done
-                        pl = self.__ignmat.get(names[i])
-                        if pl is None or pl.team is None: continue
-
-                        self.__history.atk_first = 1-pl.team if i < 5 else pl.team
-                        not_set = False
-
-                if not_set:
-                    self.__history.atk_first = 0
+            return load_workbook(savepath), savepath, True
             
-            return workbook, savepath, append
-            
-        except PermissionError:
-            print(f"SAVE FILE ERROR: Permission Denied! Cannot open save file {savepath}, file may already be open. Defaulting to append-save=False")
+        except PermissionError as e:
+            print(f"SAVE FILE ERROR: Permission Denied! Cannot open save file {savepath}, file may already be open.\nDefaulting to append-save=False and saving to {temp_file}.\n{str(e)}")
         except Exception as e:
-            print(f"SAVE FILE ERROR: An error occurred when trying to load the existing xlsx file {savepath}. Defaulting to append-save=False")
+            print(f"SAVE FILE ERROR: An error occurred when trying to load the existing xlsx file {savepath}.\nDefaulting to append-save=False and saving to {temp_file}.\n{str(e)}")
 
-        return Workbook(), self.__make_tempfile(), False
+        return Workbook(), temp_file, False
     
-    def __make_tempfile(self) -> str:
-        temp_savefile = self.__savefile.copy()
-        temp_savefile.filename += " - Copy"
-        return join("saves", str(temp_savefile))
 
     def __get_xlsx_match(self, workbook: Optional[Workbook] = None) -> dict:
         existing_kd = None
@@ -676,7 +662,14 @@ class SaveManager:
             kills,
             deaths
         ])
-        if self.__history.atk_first == 0:
+
+        ## if player[0] is not attacker of first recorded game
+        min_rn = min(self.__history)
+        rps = self.__config["ROUNDS_PER_SIDE"]
+        team = self.__players[0].team
+        if rps < min_rn <= rps*2:
+            team = 1-team
+        if self.__history.get_round(min_rn)["atk_side"] != team:
             data = self.__table_flip(data)
 
         return { "Match": headers + data }
@@ -688,7 +681,6 @@ class SaveManager:
 
         if self.__ignmat.mode == IGNMatrixMode.FIXED:
             return transpose([existing_kd[existing_names.index(pl.ign)] for pl in self.__players])
-
 
         pl_map = {} ## maps player.idx to existing_name index
         for i, name in enumerate(existing_names):
@@ -719,14 +711,15 @@ class SaveManager:
         return kills, deaths
 
     def __get_xlsx_rounds(self, round_nums: list[int]) -> dict:
+        # return {f"Round {rn}": self.__get_xlsx_rdata(round) for rn in round_nums if (round := self.__history.get_round(rn)) is not None}
         data = {}
         for rn in round_nums:
             if (round := self.__history.get_round(rn)) is not None:
-                data[f"Round {rn}"] = self.__get_xlsx_rdata(rn, round)
-        
+                data[f"Round {rn}"] = self.__get_xlsx_rdata(round)
+
         return data
 
-    def __get_xlsx_rdata(self, rn: int, round: dict) -> list[list]:
+    def __get_xlsx_rdata(self, round: dict) -> list[list]:
         rdata = [
             ["Statistics"],
             ["Player", "Team Index", "Kills", "Deaths", "Assissts", "Hs%", "Headshots", "1vX", "Operator"]
@@ -737,7 +730,7 @@ class SaveManager:
 
         n = len(self.__players)
         kills, deaths = [0]*n, [False]*n 
-        round_kf = round["clean_killfeed"]
+        round_kf: list[KFRecord] = round["clean_killfeed"]
         for record in round_kf:
             kills[idx_map[record.player_idx]] += 1
 
@@ -764,11 +757,14 @@ class SaveManager:
             stats_table.append([pl.ign, ndefault(pl.team, ""), kills[i], deaths[i], "", "", "", onevx_pl, ""])
         
         ## make sure defence team is at the top of the stats table, same as dissect
-        switch = ((rn-1) // self.__config["ROUNDS_PER_SIDE"]) % 2
-        if self.__history.atk_first ^ switch ^ 1:  ## a lovely bit op (NXOR)
+        if round["atk_side"] == self.__players[0].team:
             stats_table = self.__table_flip(stats_table)
-        
+
         rdata += stats_table
+
+        ## Winning team
+        prefix = "YOUR TEAM" if round['winner'] == 0 else "OPPONENTS"
+        winning_team = f"{prefix} [{round['winner']}]"
 
         ## Round Info
         if len(round_kf) == 0: ## highly-unlikely, maybe a issue occurred during recording
@@ -783,12 +779,12 @@ class SaveManager:
             ["Round Info"],
             ["Name", "Value", "Time"],
             ["Site"],
-            ["Winning team", f"[{round['winner']}]"],
+            ["Winning team",  winning_team],
             ["Win condition", round["win_condition"].value],
-            ["Opening kill", opening_kd.player, str(opening_kd.time)],
+            ["Opening kill",  opening_kd.player, str(opening_kd.time)],
             ["Opening death", opening_kd.target, str(opening_kd.time)],
-            ["Planted at", str(bpat) if bpat is not None else ""],
-            ["Defused at", str(ddat) if ddat is not None else ""]
+            ["Planted at",    str(ndefault(bpat, ""))],
+            ["Defused at",    str(ndefault(ddat, ""))]
         ])
 
         ## Kill/death feed
@@ -821,8 +817,45 @@ class SaveManager:
         
         return rdata
 
+    def __make_tempfile(self) -> str:
+        temp_savefile = self.__savefile.copy()
+        temp_savefile.filename += " - Copy"
+        return join("saves", str(temp_savefile))
+
     def __table_flip(self, data: list[list]) -> list[list]:
         return data[5:] + data[:5]
+
+
+@dataclass
+class OCResult:
+    rect: list[int]
+    text: str
+    prob: float
+    eval_score: Optional[float] = None
+
+    def __init__(self, ocr_result: tuple[list[list[int]], str, float]) -> 'OCResult':
+        self.rect = bbox_to_rect(ocr_result[0]) if type(ocr_result[0][0]) == list else ocr_result[0]
+        self.text = ocr_result[1]
+        self.prob = ocr_result[2]
+
+    def eval(self, ign_matrix: IGNMatrix) -> float:
+        self.eval_score = ign_matrix.evaluate(self.text)
+        return self.eval_score
+    
+    def join(self, other: 'OCResult') -> 'OCResult':
+        x, y = min(self.rect[0], other.rect[0]), min(self.rect[1], other.rect[1])
+        x2, y2 = max(self.rect[0]+self.rect[2], other.rect[0]+other.rect[2]), max(self.rect[1]+self.rect[3], other.rect[1]+other.rect[3])
+        join_rect = [x, y, x2-x, y2-y]
+
+        join_str  = self.text + "_" + other.text
+        join_prob = min(self.prob, other.prob)
+        return OCResult((join_rect, join_str, join_prob))
+    
+    def __str__(self) -> str:
+        if self.eval_score is not None: return f"{self.text}|eval={self.eval_score}"
+        else: return f"{self.text}|prob={self.prob}"
+
+    __repr__ = __str__
 
 
 class Analyser(ABC):
@@ -850,9 +883,9 @@ class Analyser(ABC):
         self.reader = easyocr.Reader(['en'], gpu=not args.cpu)
         self._verbose_print(0, "EasyOCR Reader model loaded")
 
-        self.state = State(False, True, False, False)
+        self.state = State(False, True, False)
         self.history = History(self.verbose)
-        self.save_manager = SaveManager(self.prog_args.save, self.history, self.ign_matrix, self.config)
+        self.save_manager = SaveManager(self.prog_args.save, self.history, self.ign_matrix, self.config, append_mode=args.append_save)
 
         self.current_time: Timestamp = None
         self.defuse_countdown_timer: float = None
@@ -1002,10 +1035,12 @@ class InPersonAnalyser(Analyser):
     NUM_LAST_SECONDS = 4   ## number of seconds to continue reading killfeed after round end (reliability reasons)
     END_ROUND_SECONDS = 12 ## number of seconds to check no timer to determine round end
     
+    NUM_KF_LINES = 3
     SCREENSHOT_REGIONS = ["TEAM1_SCORE_REGION", "TEAM2_SCORE_REGION",
                           "TEAM1_SIDE_REGION", "TEAM2_SIDE_REGION",
                           "TIMER_REGION",
                           "KILLFEED_REGION"]
+    NON_NAMES = ["has found the bomb", "Friendly Fire has been activated for"]
 
     SCORELINE_PROB = 0.25
     TIMER_PROB = 0.35
@@ -1023,8 +1058,11 @@ class InPersonAnalyser(Analyser):
 
         self.last_kf_seconds = None
         self.end_round_seconds = None
+        self.last_seconds_count = 0
+        self.timer_format = TimerFormat.FULL
 
         self.atkside_icon = self.__load_side_icon()
+        self.kf_lines = self.__get_kf_lines()
     
     def __load_side_icon(self) -> np.ndarray:
         assert exists("res/swords.jpg"), "res/swords.jpg does not exist!"
@@ -1058,17 +1096,12 @@ class InPersonAnalyser(Analyser):
         new_roundn = sum(scores)+1
         if new_roundn in self.history:
             self._fix_state(new_roundn)
+            return
 
         self._new_round(*scores)
 
         atkside = self.__read_atkside(regions["TEAM1_SIDE_REGION"], regions["TEAM2_SIDE_REGION"])
         self.history.set("atk_side", atkside)
-
-        if self.history.atk_first is None and atkside is not None and new_roundn <= self.config["MAX_ROUNDS"]-3:
-            switch = ((new_roundn-1) // self.config["ROUNDS_PER_SIDE"]) % 2
-            atk_first = atkside ^ switch
-            self.history.set_atk_first(atk_first)
-            self._verbose_print(1, f"Set history param {atk_first=}")
     
     def __read_scoreline(self, scoreline1: np.ndarray, scoreline2: np.ndarray) -> Optional[tuple[int, int]]:
         img1 = self._screenshot_preprocess(scoreline1, to_gray=True, squeeze_width=0.65)
@@ -1153,14 +1186,24 @@ class InPersonAnalyser(Analyser):
         if len(results) == 0: return None
 
         result = results[0] if len(results) == 1 else "".join(results)
-        if (time := search(r"([0-2]).?([0-5]\d)", result)) and self.state.last_ten < 4:
-            self.state.last_ten = 0
-            return Timestamp(int(time.group(1)), int(time.group(2)))
-        elif (time := search(r"(\d).?\d\d", result)):
-            self.state.last_ten += 1
-            return Timestamp(0, int(time.group(1)))
+        time1 = search(r"([0-2]).?([0-5]\d)$", result) ## 2:59 - 0:10
+        time2 = search(r"(\d).?\d\d", result)          ## 9:99 - 0:00
+
+        if time1 is None and time2 is not None and self.timer_format != TimerFormat.SECONDS:
+            self.last_seconds_count += 1
+            if self.last_seconds_count > 4:
+                self.timer_format = TimerFormat.SECONDS
+                self.last_seconds_count = 0
+
+        if self.timer_format == TimerFormat.FULL:
+            if time1 is not None:
+                return Timestamp(int(time1.group(1)), int(time1.group(2)))
+        elif self.timer_format == TimerFormat.SECONDS or time1 is None:
+            if time2 is not None:
+                return Timestamp(0, int(time2.group(1)))
 
         return None
+
     
     def __is_bomb_countdown(self, image: np.ndarray) -> bool:
         """
@@ -1177,8 +1220,6 @@ class InPersonAnalyser(Analyser):
 
     ## ----- KILL FEED -----
     def _handle_feed(self, regions: Analyser.Regions_t) -> None:
-        """
-        """
         if not self.history.is_ready: return
         if not self.state.in_round and self.last_kf_seconds is None: return
 
@@ -1200,72 +1241,104 @@ class InPersonAnalyser(Analyser):
         image = self._screenshot_preprocess(image, to_gray=True, denoise=True, squeeze_width=0.75)
 
         ocr_results = self.reader.readtext(image, allowlist=Analyser.KF_ALLOWLIST)
-        for i, res in enumerate(ocr_results):
-            ocr_results[i] += (self.ign_matrix.evaluate(res[1]), )
+        ocr_results = [OCResult(res) for res in ocr_results]
+        for res in ocr_results:
+            res.eval(self.ign_matrix)
 
-        cleaned_results = self.__clean_kf_results(ocr_results)
-        pairs, boxes = self.__get_kf_pairs(cleaned_results)
-        self.__test_pairs(image, boxes)
-        return pairs
-
-    def __clean_kf_results(self, results: list[tuple]) -> list[tuple]:
-        """
-        To clean the IGNMatrix evaluated easyocr results, the method does:
-        1. filters out any result with an easyocr probability score < KF_PROB  (~0.15)
-        2. Attempt to pair up boxes which have been split for a single IGN (easyocr struggles with underscores and many dots)
-          a. if the boxes are colliding or if their closest vertical edges are <= PROXIMITY_DIST, and inline with one-another
-          b. join the boxes and re-evaluate the concatenated ign, if the eval score > than either parent box
-          c. replace the joined box with res1
-        """
-        results = [res for res in results if res[2] > InPersonAnalyser.KF_PROB]
-        new_results = []
-        for res1 in results:
-            for res2 in results:
-                r1, r2 = bbox_to_rect(res1[0]), bbox_to_rect(res2[0]) ## convert from easyocr bounding-box to rect (x,y,w,h)
-                prox_dist = InPersonAnalyser.PROXIMITY_DIST * (self.config["SCREENSHOT_RESIZE"] / 4)
-                if res1 is not res2 and (rect_collision(r1, r2) or rect_proximity(r1, r2) <= prox_dist):
-                    jr = join_results(res1, res2)
-                    eval_score = self.ign_matrix.evaluate(jr[1]) ## re-evaluate joined text
-                    if eval_score > max(res1[3], res2[3]):
-                        jr += (eval_score, ) ## add eval to joined-result
-                        new_results.append(jr)
-                        break
-            else:
-                new_results.append(res1)
-
-        return new_results
-
-    def __get_kf_pairs(self, results: list[tuple]) -> tuple[list[tuple[str, str]], list[tuple[list[int], list[int]]]]:
-        """
-        This helper method attempts to pair up player and target from the ocr results
-        The method checks:
-        1. if the player bbox is completely left of target bbox
-        2. if the midline of the player and target bboxes are less than 20% max_width apart
-        If the conditions are met, the player and target are paired
-        """
-        if len(results) <= 1: return [], [] ## TODO: account for un-alives
-
-        pairs = []
-        boxes = []
-        for i, res1 in enumerate(results[:-1]):
-            box1 = bbox_to_rect(res1[0])
-            mid1 = box1[1] + box1[3]/2 
-            for res2 in results[i+1:]:
-                box2 = bbox_to_rect(res2[0])
-                mid2 = box2[1] + box2[3]/2
-                if box1[0] + box1[2] < box2[0] and abs(mid1-mid2) < 0.2 * max(box1[3], box2[3]):
-                    pairs.append((res1[1], res2[1]))
-                    boxes.append((box1, box2))
-
-        return pairs, boxes
-
-    def __test_pairs(self, image: np.ndarray, boxes: list[tuple[str, str]]) -> None:
+        lines = self.__get_lines(ocr_results)
+        pairs = self.__get_pairs(lines)
         if self.prog_args.test:
-            rect_img = cv2.cvtColor(image.copy(), cv2.COLOR_GRAY2BGR)
-            for left, right in boxes:
-                cv2.rectangle(rect_img, left[:2],  [left[0]+left[2], left[1]+left[3]], (0, 0, 255), 3)
-                cv2.rectangle(rect_img, right[:2], [right[0]+right[2], right[1]+right[3]], (0, 255, 0), 3)
-            cv2.imwrite("images/TEST_KF_BOXES.jpg", rect_img)
+            # self.__test_lines(image, lines)
+            self.__test_pairs(image, pairs)
+
+        return [(left.text, right.text) for left, right in pairs]
+    
+    def __get_lines(self, results: list[OCResult]) -> list[list[OCResult]]:
+        temp_results: list[OCResult] = []
+        for res in results:
+            if res.prob < InPersonAnalyser.KF_PROB or len(res.text) < 2: continue
+            if max([IGNMatrix.compare_names(res.text, non_name) for non_name in InPersonAnalyser.NON_NAMES]) > 0.5: continue
+            temp_results.append(res)
+        
+        lines: list[list[OCResult]] = [[] for _ in range(InPersonAnalyser.NUM_KF_LINES)]
+        kfr = self.config["KILLFEED_REGION"]
+        for res in temp_results:
+            midy = (res.rect[1] + res.rect[3]//2) // self.config["SCREENSHOT_RESIZE"]
+            for i, lrect in enumerate(self.kf_lines):
+                if lrect[1] <= kfr[1]+midy <= lrect[1]+lrect[3]:
+                    lines[i].append(res)
+
+        return lines
+    
+    def __get_pairs(self, lines: list[list[OCResult]]) -> list[tuple[OCResult, OCResult]]:
+        singles = []
+        pairs = []
+        for line in lines:
+            if len(line) <= 1: continue ## TODO: deal with self-deaths
+            elif len(line) == 2:
+                pairs.append(line)
+            else:
+                jline = self.__join_line(line)
+                if len(jline) == 1: singles.append(jline)
+                else: pairs.append(jline)
+
+        return pairs
+    
+    def __join_line(self, line: list[OCResult]) -> tuple[OCResult, OCResult]:
+        prox_dist = InPersonAnalyser.PROXIMITY_DIST * (self.config["SCREENSHOT_RESIZE"] / 4)
+        line.sort(key=lambda ocr_res: ocr_res.rect[0])
+        new_line = []
+        used = []
+        for i, ocr1 in enumerate(line):
+            if i in used: continue
+            if i == len(line)-1:
+                new_line.append(ocr1)
+                break
+
+            for j, ocr2 in enumerate(line[i+1:], start=i+1):
+                if j in used: continue
+                
+                jocr = ocr1.join(ocr2)
+                jocr.eval(self.ign_matrix)
+                mx_score = max(ocr1.eval_score, ocr2.eval_score)
+                if jocr.eval_score > mx_score or mx_score == 0.0:
+                    new_line.append(jocr)
+                elif rect_collision(ocr1.rect, ocr2.rect) or rect_proximity(ocr1.rect, ocr2.rect) <= prox_dist:
+                    new_line.append(jocr)
+                else:
+                    continue
+
+                used += [i, j]
+                break
+            else:
+                new_line.append(ocr1)
+                used.append(i)
+
+        if len(new_line) > 2: ## TODO: sort this out
+            new_line = sorted(new_line, key=lambda res: res.eval_score, reverse=True)[:2]
+
+        return new_line
+
+    def __get_kf_lines(self) -> list[list[int]]:
+        kflr = self.config["KF_LINE_REGION"]
+        return [[kflr[0], int(kflr[1]-i*1.25*kflr[3]), kflr[2], kflr[3]] for i in range(InPersonAnalyser.NUM_KF_LINES)]
+
+
+    def __test_lines(self, image: np.ndarray, lines: list[list[OCResult]]) -> None:
+        rect_img = cv2.cvtColor(image.copy(), cv2.COLOR_GRAY2BGR)
+        line_cols = [(0, 0, 255), (0, 255, 0), (255, 0, 0)]
+        for line, col in zip(lines, line_cols):
+            for ores in line:
+                cv2.rectangle(rect_img, ores.rect[:2],  [ores.rect[0]+ores.rect[2], ores.rect[1]+ores.rect[3]], col, 3)
+        cv2.imwrite("images/TEST_KFLINE_BOXES.jpg", rect_img)
+
+    def __test_pairs(self, image: np.ndarray, pairs: list[tuple[OCResult, OCResult]]) -> None:
+        rect_img = cv2.cvtColor(image.copy(), cv2.COLOR_GRAY2BGR)
+        for locr, rocr in pairs:
+            left, right = locr.rect, rocr.rect
+            cv2.rectangle(rect_img, left[:2],  [left[0]+left[2], left[1]+left[3]], (0, 0, 255), 3)
+            cv2.rectangle(rect_img, right[:2], [right[0]+right[2], right[1]+right[3]], (0, 255, 0), 3)
+        cv2.imwrite("images/TEST_KF_BOXES.jpg", rect_img)
 
     # ----- GAME STATE -----
     def __pre_new_round(self, score2: int, save: bool = True) -> None:
@@ -1287,7 +1360,7 @@ class InPersonAnalyser(Analyser):
         # if self.prog_args.upload_save:
         #     self.save_manager.upload_save()
         # else:
-        self.save_manager.save(append=self.prog_args.append_save)
+        self.save_manager.save()
 
     def _new_round(self, score1: int, score2: int) -> None:
         """
@@ -1298,21 +1371,24 @@ class InPersonAnalyser(Analyser):
         if new_round in self.history: return
 
         self.__pre_new_round(score2, save=True)
-        self.state = State(True, False, False, 0)
+        self.state = State(True, False, False)
+        self.timer_format = TimerFormat.FULL
+        self.last_seconds_count = 0
 
         self.history.new_round(new_round)
         self.history.set("scoreline", [score1, score2])
     
     def _end_round(self) -> None:
         self.history.set("round_end_at", self.current_time)
-        self.state = State(False, True, False, 0)
+        self.state = State(False, True, False)
+        self.last_seconds_count = 0
 
         mx_rnd = self.config["MAX_ROUNDS"]
         rps = self.config["ROUNDS_PER_SIDE"]
         scoreline = self.history.get("scoreline", [0, 0])
         is_ot = not self.config["SCRIM"] and scoreline[0] >= rps and scoreline[1] >= rps
         if self.history.roundn >= mx_rnd \
-                or (not is_ot and sum(scoreline) == rps+1) \
+                or (not is_ot and max(scoreline) == rps+1) \
                 or (is_ot and abs(scoreline[0]-scoreline[1]) == 2):
             self._end_game()
     
@@ -1354,22 +1430,18 @@ class InPersonAnalyser(Analyser):
         self._verbose_print(0, f"Data Saved to {self.prog_args.save}, program terminated.")
         sys_exit()
     
-    def _fix_state(self, roundn: int) -> None:
+    def _fix_state(self) -> None:
         """
-        Hard reset of state in rare occassions when state is wrong,
-          should be called when known to be in round
+        Called when the program incorrectly thinks the round ended, e.g. paused during death animation with now scoreline showing
         """
+        self._verbose_print(1, f"Fixing State")
         self.state.in_round = True
         self.state.end_round = False
 
         timer_region = self._get_ss_regions(["TIMER_REGION"])["TIMER_REGION"]
         self.state.bomb_planted = self.__is_bomb_countdown(timer_region)
-
-        ct = self.current_time.to_int()
-        if ct < 10:
-            self.state.last_ten = 10-ct
-        self.history.set_roundn(roundn)
-        self._verbose_print(1, f"Fixed State for round {roundn}")
+        
+        self.history.fix_round()
 
 
 class SpectatorAnalyser(Analyser):
@@ -1427,7 +1499,7 @@ def rect_collision(r1: list[int], r2: list[int]) -> bool:
 
 def bbox_to_rect(bbox: list[list[int]]) -> list[int]:
     tl, tr, _, bl = bbox
-    return [tl[0], tl[1], tr[0]-tl[0], bl[1]-tl[1]]
+    return [int(tl[0]), int(tl[1]), int(tr[0]-tl[0]), int(bl[1]-tl[1])]
 
 
 def box_collision(b1: list[list[int]], b2: list[list[int]]) -> bool:
@@ -1439,15 +1511,5 @@ def rect_proximity(r1: list[int], r2: list[int]) -> float:
     return r2[0] - (r1[0]+r1[2])
 
 
-Result_t: TypeAlias = tuple[list[list[int]],str,float]
-def join_results(res1: Result_t, res2: Result_t, sep: str = "_"):
-    if res2[0][0][0] < res1[0][0][0]: res1, res2 = res2, res1 ## make res1 the left most result
-
-    box1, box2 = bbox_to_rect(res1[0]), bbox_to_rect(res2[0])
-    x, y = min(box1[0], box2[0]), min(box1[1], box2[1])
-    x2, y2 = max(box1[0]+box1[2], box2[0]+box2[2]), max(box1[1]+box1[3], box2[1]+box2[3])
-    join_box = [[x, y], [x2, y], [x2, y2], [x, y2]]
-
-    join_str  = res1[1] + sep + res2[1]
-    join_prob = min(res1[2], res2[2])
-    return (join_box, join_str, join_prob)
+def point_in_rect(point: list[int], rect: list[int]) -> bool:
+    return rect[0] <= point[0] <= rect[0]+rect[2] and rect[1] <= point[1] <= rect[1]+rect[3]

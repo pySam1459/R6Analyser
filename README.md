@@ -50,7 +50,7 @@ These parameters must be specified:
 - `SCRIM`: `true`/`false` specifying whether the game is a scrim or not.
 - `SPECTATOR`: `true`/`false` specifying if the game perspective is in spectator mode or in-person.
 - `TIMER_REGION`: A list of 4 integers specifying the region of the game window where the timer is located.
-- `KILLFEED_REGION`: A list of 4 integers specifying the region of the game window where the kill feed is located.
+- `KF_LINE_REGION`: A list of 4 integers specifying the region of the first line in the kill feed. The region should be filled by the IGN boxes, but should extend leftwards to be able to fit in longer names.
 - `IGNS`: A list of 0-10 strings specifying the in-game names (IGNs) of the players in the game. IGNs 1-5 will be considered as one team, with IGNs 6-10 as the other team. It is recommended to specify all 10 IGNs to maximise the accuracy of the program, with a minimum recommendation of 5 IGNs (your team).
 
 ### Inferred Parameters
@@ -60,10 +60,11 @@ These parameters are optional and will be inferred by the program if not explici
 - `IGN_MODE`: Specifies how the IGNs are processed. There are two modes available:
   - `fixed`: This mode is used when you have a predefined list of IGNs, and any IGN not in this list will not be considered, returned as `None`.
   - `infer`: Use this mode if you want the program to automatically identify and use IGNs from the game feed. If 10 IGNs are already provided, the mode will default to `fixed`. 
-- `TEAM1_SCORE_REGION`: Specifies the region of the game window where team 1's score is displayed.
-- `TEAM2_SCORE_REGION`: Specifies the region of the game window where team 2's score is displayed.
-- `TEAM1_SIDE_REGION`: Specifies the region of the game window where team 1's side icon is displayed.
-- `TEAM2_SIDE_REGION`: Specifies the region of the game window where team 2's side icon is displayed.
+- `TEAM1_SCORE_REGION`: The region where team 1's score is displayed.
+- `TEAM2_SCORE_REGION`: The region where team 2's score is displayed.
+- `TEAM1_SIDE_REGION`: The region where team 1's side icon is displayed.
+- `TEAM2_SIDE_REGION`: The region where team 2's side icon is displayed.
+- `KILLFEED_REGION`: The region where the kill feed is displayed. This region is inferred from the `KF_LINE_REGION` as approximately 4x the height of the `KF_LINE_REGION`.
 
 ### Optional Parameters
 These parameters are optional and will default to values in `default.json` if not specified:
@@ -78,7 +79,7 @@ Below is an example configuration file that specifies a set of possible paramete
   "SCRIM": false,
   "SPECTATOR": false,
   "TIMER_REGION": [1210, 110, 140, 65],
-  "KILLFEED_REGION": [1640, 310, 565, 140],
+  "KF_LINE_REGION": [1705, 413, 605, 31],
   "IGNS": [
     "Samba.",
     "Player2",

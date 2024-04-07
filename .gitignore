@@ -5,6 +5,9 @@ saves/
 images/
 test/
 
+build/
+dist/
+
 .env
 configs/*.json
 !example.json

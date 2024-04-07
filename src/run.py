@@ -20,7 +20,8 @@ def __infer_key(config: dict, key: str) -> None:
         case "MAX_ROUNDS":
             config["MAX_ROUNDS"] = 12 if config["SCRIM"] else 15
         case "ROUNDS_PER_SIDE":
-            config["ROUNDS_PER_SIDE"] = (config["MAX_ROUNDS"]-3)/2
+            if config["SCRIM"]: config["ROUNDS_PER_SIDE"] = config["MAX_ROUNDS"] // 2
+            else: config["ROUNDS_PER_SIDE"] = int((config["MAX_ROUNDS"]-3) // 2)
         case "IGN_MODE":
             config["IGN_MODE"] = IGNMatrixMode.FIXED if len(config["IGNS"]) == 10 else IGNMatrixMode.INFER
         case "TEAM1_SCORE_REGION":
@@ -35,6 +36,9 @@ def __infer_key(config: dict, key: str) -> None:
         case "TEAM2_SIDE_REGION":
             tr = config["TIMER_REGION"]
             config["TEAM2_SIDE_REGION"]  = [tr[0] + int(tr[2]*1.45), tr[1], tr[2]//2, tr[3]]
+        case "KILLFEED_REGION":
+            kflr = config["KF_LINE_REGION"]
+            config["KILLFEED_REGION"] = [kflr[0], kflr[1] - kflr[3]*3, kflr[2], kflr[3]*4]
         case _:
             ...
 
@@ -85,8 +89,8 @@ def __cparse_IGNS(arg) -> list[str]:
 
 ## config keys
 #    note: MAX_ROUNDS must be inferred before ROUNDS_PER_SIDE
-REQUIRED_CONFIG_KEYS = ["SCRIM", "SPECTATOR", "TIMER_REGION", "KILLFEED_REGION", "IGNS"]
-INFER_CONFIG_KEYS    = ["MAX_ROUNDS", "ROUNDS_PER_SIDE", "IGN_MODE", "TEAM1_SCORE_REGION", "TEAM2_SCORE_REGION", "TEAM1_SIDE_REGION", "TEAM2_SIDE_REGION"]
+REQUIRED_CONFIG_KEYS = ["SCRIM", "SPECTATOR", "TIMER_REGION", "KF_LINE_REGION", "IGNS"]
+INFER_CONFIG_KEYS    = ["MAX_ROUNDS", "ROUNDS_PER_SIDE", "IGN_MODE", "TEAM1_SCORE_REGION", "TEAM2_SCORE_REGION", "TEAM1_SIDE_REGION", "TEAM2_SIDE_REGION", "KILLFEED_REGION"]
 OPTIONAL_CONFIG_KEYS = ["SCREENSHOT_RESIZE", "SCREENSHOT_PERIOD"]
 DEFAULT_CONFIG_FILENAME = "defaults.json"
 
@@ -96,7 +100,7 @@ __cparse_functions = {
     "SCRIM":              lambda arg: __cparse_bool(arg, "SCRIM"),
     "SPECTATOR":          lambda arg: __cparse_bool(arg, "SPECTATOR"),
     "TIMER_REGION":       lambda arg: __cparse_bounding_box(arg, "TIMER_REGION"),
-    "KILLFEED_REGION":    lambda arg: __cparse_bounding_box(arg, "KILLFEED_REGION"),
+    "KF_LINE_REGION":     lambda arg: __cparse_bounding_box(arg, "KF_LINE_REGION"),
     "IGNS":               lambda arg: __cparse_IGNS(arg),
 
     ## Inferred keys
@@ -107,6 +111,7 @@ __cparse_functions = {
     "TEAM2_SCORE_REGION": lambda arg: __cparse_bounding_box(arg, "TEAM2_SCORE_REGION"),
     "TEAM1_SIDE_REGION":  lambda arg: __cparse_bounding_box(arg, "TEAM1_SIDE_REGION"),
     "TEAM2_SIDE_REGION":  lambda arg: __cparse_bounding_box(arg, "TEAM2_SIDE_REGION"),
+    "KILLFEED_REGION":    lambda arg: __cparse_bounding_box(arg, "KILLFEED_REGION"),
 
     ## Optional keys
     "SCREENSHOT_RESIZE":  lambda arg: __cparse_type_range(arg, [int, float], "SCREENSHOT_RESIZE", 1, 8),
