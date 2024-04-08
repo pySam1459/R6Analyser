@@ -464,9 +464,8 @@ class KFRecord:
 
 
 class History(dict):
-    def __init__(self, verbose: int) -> None:
+    def __init__(self) -> None:
         self.__roundn = -1
-        self.__verbose = verbose
 
     @property
     def is_ready(self) -> bool:
@@ -499,16 +498,7 @@ class History(dict):
         else:
             self[self.__roundn][key] = value
 
-        EXCLUDE_PRINT = ["deaths"]
-        if self.__verbose > 1 and key not in EXCLUDE_PRINT:
-            print(f"{self.__roundn}|{key}: {self[self.__roundn][key]}")
-        elif self.__verbose > 2:
-            self.print()
-
     def new_round(self, round_number: int) -> None:
-        if self.__verbose > 0:
-            print(f"Info: New Round {round_number}")
-
         self.__roundn = round_number
         self[round_number] = {
             "scoreline": None,
@@ -541,9 +531,6 @@ class History(dict):
                     case _:
                         out[ridx][key] = value
         return out
-
-    def print(self) -> None:
-        print(self.__roundn, self.get_round())
 
 
 @dataclass
@@ -884,7 +871,7 @@ class Analyser(ABC):
         self._verbose_print(0, "EasyOCR Reader model loaded")
 
         self.state = State(False, True, False)
-        self.history = History(self.verbose)
+        self.history = History()
         self.save_manager = SaveManager(self.prog_args.save, self.history, self.ign_matrix, self.config, append_mode=args.append_save)
 
         self.current_time: Timestamp = None
@@ -1102,6 +1089,7 @@ class InPersonAnalyser(Analyser):
 
         atkside = self.__read_atkside(regions["TEAM1_SIDE_REGION"], regions["TEAM2_SIDE_REGION"])
         self.history.set("atk_side", atkside)
+        self._verbose_print(1, f"Atk Side: {atkside}")
     
     def __read_scoreline(self, scoreline1: np.ndarray, scoreline2: np.ndarray) -> Optional[tuple[int, int]]:
         img1 = self._screenshot_preprocess(scoreline1, to_gray=True, squeeze_width=0.65)
@@ -1157,6 +1145,7 @@ class InPersonAnalyser(Analyser):
             if self.defuse_countdown_timer is None: ## bomb planted
                 self.defuse_countdown_timer = time()
                 self.history.set("bomb_planted_at", self.current_time)
+                self._verbose_print(1, f"Bomb planted at: {self.current_time}")
 
                 self.state.bomb_planted = True
             else:
@@ -1236,6 +1225,7 @@ class InPersonAnalyser(Analyser):
                 self.history.set("killfeed", record)
                 self.history.set("deaths", target.idx)
                 self.ign_matrix.update_team_table(player.idx, target.idx)
+                self._verbose_print(1, f"{self.current_time} | {player.ign}\t-> {target.ign}")
     
     def __read_feed(self, image: np.ndarray) -> list[tuple[str, str]]:
         image = self._screenshot_preprocess(image, to_gray=True, denoise=True, squeeze_width=0.75)
@@ -1276,7 +1266,10 @@ class InPersonAnalyser(Analyser):
         for line in lines:
             if len(line) <= 1: continue ## TODO: deal with self-deaths
             elif len(line) == 2:
-                pairs.append(line)
+                if line[0].rect[0] < line[1].rect[0]:
+                    pairs.append(line)
+                else:
+                    pairs.append([line[1], line[0]])
             else:
                 jline = self.__join_line(line)
                 if len(jline) == 1: singles.append(jline)
@@ -1345,22 +1338,23 @@ class InPersonAnalyser(Analyser):
         if len(self.history) == 0: return
 
         ## infer winner of previous round based on new scoreline
-        if self.history.get("winner") is None and self.history.get("scoreline") is not None:
+        winner = self.history.get("winner")
+        if winner is None and self.history.get("scoreline") is not None:
             _, _score2 = self.history.get("scoreline")
-            self.history.set("winner", int(_score2 < score2)) ## if _score1+1 == score1, return 0
+            winner = int(_score2 < score2)
+            self.history.set("winner", winner) ## if _score1+1 == score1, return 0
 
         win_con = self._get_wincon()
         self.history.set("win_condition", win_con)
 
+        reat = self.history.get("round_end_at")
         if win_con == WinCondition.DISABLED_DEFUSER:
-            self.history.set("disabled_defuser_at", self.history.get("round_end_at"))
-
-        if not save: return
-        ## Save round data once all data can be extracted
-        # if self.prog_args.upload_save:
-        #     self.save_manager.upload_save()
-        # else:
-        self.save_manager.save()
+            self.history.set("disabled_defuser_at", reat)
+            self._verbose_print(1, f"Disabled defsuer at: {reat}")
+        
+        self._verbose_print(0, f"Team {winner} wins round {self.history.roundn} by {win_con} at {reat}.")
+        if save:
+            self.save_manager.save()
 
     def _new_round(self, score1: int, score2: int) -> None:
         """
@@ -1377,6 +1371,7 @@ class InPersonAnalyser(Analyser):
 
         self.history.new_round(new_round)
         self.history.set("scoreline", [score1, score2])
+        self._verbose_print(1, f"New Round: {new_round} | Scoreline: {score1}-{score2}")
     
     def _end_round(self) -> None:
         self.history.set("round_end_at", self.current_time)
