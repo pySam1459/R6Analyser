@@ -1393,18 +1393,19 @@ class InPersonAnalyser(Analyser):
             self._end_game()
     
     def _get_wincon(self) -> WinCondition:
-        bpat    =   self.history.get("bomb_planted_at")
-        winner  =   self.history.get("winner")
-        defside = 1-self.history.get("atk_side")
+        bpat    = self.history.get("bomb_planted_at")
+        winner  = self.history.get("winner")
+        atkside = self.history.get("atk_side")
 
-        if bpat is not None and winner == defside:
+        if bpat is not None and winner == 1-atkside:
             return WinCondition.DISABLED_DEFUSER
         elif bpat is not None:
             return WinCondition.DEFUSED_BOMB
 
         elif 0 <= self.current_time.to_int() <= 1 \
-                and winner == defside \
-                and self.__wincon_alive_count(defside) > 0:
+                and winner == 1-atkside \
+                and self.__wincon_alive_count(atkside) > 0 \
+                and self.__wincon_alive_count(1-atkside) > 0:
             return WinCondition.TIME
 
         elif self.__wincon_alive_count(1-winner) == 0:
