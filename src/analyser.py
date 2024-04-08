@@ -1396,16 +1396,17 @@ class InPersonAnalyser(Analyser):
         bpat    = self.history.get("bomb_planted_at")
         winner  = self.history.get("winner")
         atkside = self.history.get("atk_side")
+        defside = 1-atkside
 
-        if bpat is not None and winner == 1-atkside:
+        if bpat is not None and winner == defside:
             return WinCondition.DISABLED_DEFUSER
         elif bpat is not None:
             return WinCondition.DEFUSED_BOMB
 
         elif 0 <= self.current_time.to_int() <= 1 \
-                and winner == 1-atkside \
+                and winner == defside \
                 and self.__wincon_alive_count(atkside) > 0 \
-                and self.__wincon_alive_count(1-atkside) > 0:
+                and self.__wincon_alive_count(defside) > 0:
             return WinCondition.TIME
 
         elif self.__wincon_alive_count(1-winner) == 0:
