@@ -15,7 +15,6 @@ from abc import ABC, abstractmethod
 from enum import Enum
 from Levenshtein import ratio as leven_ratio
 from openpyxl import load_workbook, Workbook
-from openpyxl.worksheet.worksheet import Worksheet
 from typing import TypeAlias, Optional
 
 
@@ -236,10 +235,8 @@ class IGNMatrixInfer(IGNMatrix):
         if sum(names_dict.values()) >= IGNMatrixInfer.ASSIMILATE_THRESHOLD:
             self.__semi_fixmat[idx] = self.__matrix.pop(idx)
             self.__semi_fixlen += 1
-        
     
-    def from_idx(self, idx: int) -> Optional[str]:
-        """Returns the (most likely) IGN from a given idx"""
+    def get_ign_from_idx(self, idx: int) -> Optional[str]:
         if 0 <= idx < self.__fixlen:
             return self.__fixmat[idx]
         elif idx in self.__semi_fixmat:
@@ -248,6 +245,13 @@ class IGNMatrixInfer(IGNMatrix):
             return IGNMatrixInfer._max_dict(self.__matrix[idx])
 
         return None
+
+    def from_idx(self, idx: int) -> Optional[Player]:
+        """Returns the (most likely) IGN from a given idx"""
+        ign = self.get_ign_from_idx(idx)
+        if ign is None: return None
+
+        return Player(idx, ign, self.get_team_from_idx(idx))
     
     def get_team_from_idx(self, idx: int) -> Optional[int]:
         ## unnecessary as caught by if-clause below, but doesn't hurt to double check!
@@ -993,7 +997,7 @@ class Analyser(ABC):
         ...
 
     @abstractmethod
-    def _fix_state(self, roundn: int) -> None:
+    def _fix_state(self) -> None:
         ...    
 
     # ----- ENG OF PROGRAM / SAVING -----
@@ -1082,7 +1086,7 @@ class InPersonAnalyser(Analyser):
 
         new_roundn = sum(scores)+1
         if new_roundn in self.history:
-            self._fix_state(new_roundn)
+            self._fix_state()
             return
 
         self._new_round(*scores)
@@ -1476,7 +1480,7 @@ class SpectatorAnalyser(Analyser):
     def _end_game(self) -> None:
         ...
     
-    def _fix_state(self, roundn: int) -> None:
+    def _fix_state(self) -> None:
         ...
 
 
