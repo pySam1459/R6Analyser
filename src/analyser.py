@@ -10,7 +10,7 @@ from time import time
 from os import mkdir
 from os.path import join, exists
 from sys import exit as sys_exit
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from abc import ABC, abstractmethod
 from enum import Enum
 from Levenshtein import ratio as leven_ratio
@@ -382,7 +382,7 @@ class IGNMatrixInfer(IGNMatrix):
 
 
 class TimerFormat(Enum):
-    FULL = 0      ## 2:59 - 0:10
+    FULL    = 0   ## 2:59 - 0:10
     SECONDS = 1   ## 9:99 - 0:00   -> 0:09 - 0:00
 
 
@@ -431,45 +431,68 @@ class KFRecord:
     Dataclass to record an player interaction, who killed who and at what time.
       player: killer, target: dead
     """
-    player: str
-    player_idx: int
-    target: str
-    target_idx: str
+    player: Player
+    target: Player
     time: Timestamp
+    headshot: bool = False
     
     def __eq__(self, other: 'KFRecord') -> bool:
-        return self.player_idx == other.player_idx and self.target_idx == other.target_idx
+        return self.player.idx == other.player.idx and self.target.idx == other.target.idx
     
     def update(self, ign_mat: IGNMatrix) -> 'KFRecord':
         if ign_mat.mode == IGNMatrixMode.INFER:
-            self.player = ign_mat.from_idx(self.player_idx).ign or self.player
-            self.target = ign_mat.from_idx(self.target_idx).ign or self.player
+            self.player = ign_mat.from_idx(self.player.idx) or self.player
+            self.target = ign_mat.from_idx(self.target.idx) or self.player
         return self
-    
-    def to_str(self) -> str:
-        return f"{self.time}| {self.player} -> {self.target}"
 
-    def to_json(self, ign_matrix: Optional[IGNMatrix] = None) -> dict:
-        if ign_matrix is None or ign_matrix.mode == IGNMatrixMode.INFER:
-            player = self.player
-            target = self.target
-        else:
-            player = ign_matrix.from_idx(self.player_idx).ign or self.player
-            target = ign_matrix.from_idx(self.target_idx).ign or self.target
-
+    def to_json(self) -> dict:
         return {
             "time": str(self.time),
-            "player": player,
-            "target": target
+            "player": self.player.ign,
+            "target": self.target.ign,
+            "headshot": self.headshot
         }
 
-    __str__ = to_str
-    __repr__ = to_str # to_json
+    def __str__(self) -> str:
+        headshot_str = "(X) " if self.headshot else ""
+        return f"{self.time}| {self.player} -> {headshot_str}{self.target}"
+
+    __repr__ = __str__
 
 
-class History(dict):
+@dataclass
+class HistoryRound:
+    scoreline:           Optional[tuple[int, int]] = None
+    atk_side:            Optional[int] = None
+    bomb_planted_at:     Optional[Timestamp] = None
+    disabled_defuser_at: Optional[Timestamp] = None
+    round_end_at:        Optional[Timestamp] = None
+    win_condition:       WinCondition = WinCondition.UNKNOWN
+    winner:              Optional[int] = None
+    killfeed:            list[KFRecord] = field(default_factory=list)
+    deaths:              list[int] = field(default_factory=list)
+
+    clean_killfeed: Optional[list[KFRecord]] = None
+    clean_deaths:   Optional[list[int]] = None
+
+    def to_json(self) -> dict:
+        return {
+            "scoreline":            self.scoreline,
+            "atk_side":             self.atk_side,
+            "bomb_planted_at":      str(self.bomb_planted_at),
+            "disabled_defuser_at":  str(self.disabled_defuser_at),
+            "round_end_at":         str(self.round_end_at),
+            "win_condition":        self.win_condition.value,
+            "winner":               self.winner,
+            "killfeed":             [kfr.to_json() for kfr in (self.clean_killfeed if self.clean_killfeed else self.killfeed)]
+        }
+
+
+class History:
     def __init__(self) -> None:
         self.__roundn = -1
+        self.__round_data: dict[int, HistoryRound] = {}
+        self.__phantom_round = HistoryRound()
 
     @property
     def is_ready(self) -> bool:
@@ -479,62 +502,31 @@ class History(dict):
     def roundn(self) -> int:
         return self.__roundn
     
-    def fix_round(self) -> None:
-        """Called by _fix_state, in-case program incorrectly thinks round ended"""
-        self.set("round_end_at", None)
+    def get_round(self, roundn: int) -> Optional[HistoryRound]:
+        return self.__round_data.get(roundn, None)
     
-    def get(self, key: str, _default=None):
-        if self.__roundn <= 0: return _default
-        return self[self.__roundn].get(key, _default)
-    
-    def get_round(self, roundn: Optional[int] = None) -> Optional[dict]:
-        if roundn is None: roundn = self.__roundn
-        if roundn not in self: return None
-        return self[roundn]
-    
-    def set(self, key: str, value) -> None:
-        """Sets the values of elements in the history attributes; appending values to the `killfeed` element"""
-        if not self.is_ready: return
+    def get_rounds(self) -> list[HistoryRound]:
+        return list(self.__round_data.values())
+    def get_round_nums(self) -> list[int]:
+        return list(self.__round_data.keys())
+    def __contains__(self, key: int) -> bool:
+        return key in self.__round_data
 
-        APPEND_KEYS = ["killfeed", "deaths"]
-        if key in APPEND_KEYS:
-            self[self.__roundn][key].append(value)
-        else:
-            self[self.__roundn][key] = value
+    @property
+    def cround(self) -> HistoryRound:
+        """Returns a Phantom round in case history is not ready (__roundn <= 0)"""
+        return self.__round_data.get(self.__roundn, self.__phantom_round)
 
     def new_round(self, round_number: int) -> None:
         self.__roundn = round_number
-        self[round_number] = {
-            "scoreline": None,
-            "atk_side": None,
-            "bomb_planted_at": None,
-            "disabled_defuser_at": None,
-            "round_end_at": None,
-            "win_condition": None,
-            "winner": None,
-            "killfeed": [],
-            "deaths": []
-        }
+        self.__round_data[round_number] = HistoryRound()
+    
+    def fix_round(self) -> None:
+        """Called by _fix_state, in-case program incorrectly thinks round ended"""
+        self.cround.round_end_at = None
         
     def to_json(self) -> dict:
-        out = {}
-        for ridx, round in self.items():
-            out[ridx] = {}
-            for key, value in round.items():
-                if type(value) == Timestamp:
-                    out[ridx][key] = str(value)
-                    continue
-
-                match key:
-                    case "killfeed":
-                        out[ridx][key] = [record.to_json() for record in round[key]]
-                    case "win_condition":
-                        out[ridx][key] = value.value
-                    case "deaths":
-                        continue
-                    case _:
-                        out[ridx][key] = value
-        return out
+        return {ridx: round.to_json() for ridx, round in self.__round_data.items()}
 
 
 @dataclass
@@ -542,7 +534,8 @@ class SaveFile:
     filename: str
     ext: str
 
-    def __str__(self) -> str: return f"{self.filename}.{self.ext}"
+    def __str__(self) -> str:
+        return f"{self.filename}.{self.ext}"
     __repr__ = __str__
 
     def copy(self) -> 'SaveFile':
@@ -555,9 +548,9 @@ class SaveManager:
     """
     def __init__(self, savefile: SaveFile, history: History, ign_matrix: IGNMatrix, config: dict, append_mode: bool = False) -> None:
         self.__savefile = savefile
-        self.__history = history
-        self.__ignmat = ign_matrix
-        self.__config = config
+        self.__history  = history
+        self.__ignmat   = ign_matrix
+        self.__config   = config
         self.__append_mode = append_mode
 
         self.__players: list[Player]
@@ -567,6 +560,7 @@ class SaveManager:
             mkdir("saves")
         
         self.__players = self.__ignmat.get_players()
+        self.__update_history()
         self.__clean_history()
 
         match self.__savefile.ext:
@@ -575,11 +569,16 @@ class SaveManager:
             case "xlsx":
                 self.__save_xlsx()
     
+    def __update_history(self) -> None:
+        for round in self.__history.get_rounds():
+            for record in round.killfeed:
+                record.update(self.__ignmat)
+    
     def __clean_history(self) -> None:
         indices = [pl.idx for pl in self.__players]
-        for round in self.__history.values():
-            round["clean_killfeed"] = [record for record in round["killfeed"] if record.player_idx in indices and record.target_idx in indices]
-            round["clean_deaths"] = [didx for didx in round["deaths"] if didx in indices]
+        for round in self.__history.get_rounds():
+            round.clean_killfeed = [record for record in round.killfeed if record.player.idx in indices and record.target.idx in indices]
+            round.clean_deaths   = [didx for didx in round.deaths if didx in indices]
 
     def __save_json(self) -> None:
         with open(join("saves", str(self.__savefile)), "w") as f_out:
@@ -595,7 +594,7 @@ class SaveManager:
             del workbook["Sheet"]
 
         ## get data
-        rounds = [self.__history.roundn] if append else list(self.__history.keys())
+        rounds = [self.__history.roundn] if append else list(self.__history.get_round_nums())
         xslx_match = self.__get_xlsx_match(workbook) if append else self.__get_xlsx_match()
         data = xslx_match | self.__get_xlsx_rounds(rounds)
 
@@ -655,17 +654,17 @@ class SaveManager:
         ])
 
         ## if player[0] is not attacker of first recorded game
-        min_rn = min(self.__history)
+        min_rn = min(self.__history.get_round_nums())
         rps = self.__config["ROUNDS_PER_SIDE"]
         team = self.__players[0].team
         if rps < min_rn <= rps*2:
             team = 1-team
-        if self.__history.get_round(min_rn)["atk_side"] != team:
+        if self.__history.get_round(min_rn).atk_side != team:
             data = self.__table_flip(data)
 
         return { "Match": headers + data }
 
-    def __get_existing_kd(self, workbook: Workbook) -> list[list]:
+    def __get_existing_kd(self, workbook: Workbook) -> tuple[list[int], list[int]]:
         ## TODO: if you are trying to re-append a Round, you will count that round's stat's twice
         existing_kd = [list(row) for row in workbook["Match"].iter_rows(min_row=3, max_row=12, min_col=4, max_col=5, values_only=True)]
         existing_names = next(workbook["Match"].iter_cols(min_col=1, max_col=1, min_row=3, max_row=12, values_only=True))
@@ -679,25 +678,26 @@ class SaveManager:
             idx = scores.index(max(scores))
             pl_map[self.__players[idx].idx] = i
 
-        n = len(self.__players) ## select existing_kd for new __player list
-        new_kd = [[0]*n, [0]*n]
+        n_players = len(self.__players) ## select existing_kd for new __player list
+        kills, deaths = [0]*n_players, [0]*n_players
         for i, pl in enumerate(self.__players):
             if pl.idx in pl_map:
-                new_kd[0][i] = existing_kd[pl_map[pl.idx]][0]
-                new_kd[1][i] = existing_kd[pl_map[pl.idx]][1]
+                kills[i] = existing_kd[pl_map[pl.idx]][0]
+                deaths[i] = existing_kd[pl_map[pl.idx]][1]
 
-        return new_kd
+        return (kills, deaths)
 
     def __get_xlsx_kd(self, existing_kd: Optional[tuple[list[int], list[int]]] = None) -> tuple[list[int], list[int]]:
-        n = len(self.__players)
-        kills, deaths = ([0]*n, [0]*n) if existing_kd is None else existing_kd
+        n_players = len(self.__players)
+        kills, deaths = ([0]*n_players, [0]*n_players) if existing_kd is None else existing_kd
 
-        plidx_map = {pl.idx: i for i, pl in enumerate(self.__players)}
-        for round in self.__history.values():
-            for record in round["clean_killfeed"]:
-                kills[plidx_map[record.player_idx]] += 1
-            for idx in round["clean_deaths"]:
-                deaths[plidx_map[idx]] += 1
+        idx_map = {pl.idx: i for i, pl in enumerate(self.__players)}
+        for round in self.__history.get_rounds():
+            for record in round.clean_killfeed:
+                if record.player.team != record.target.team:
+                    kills[idx_map[record.player.idx]] += 1
+            for idx in round.clean_deaths:
+                deaths[idx_map[idx]] += 1
 
         return kills, deaths
 
@@ -710,7 +710,7 @@ class SaveManager:
 
         return data
 
-    def __get_xlsx_rdata(self, round: dict) -> list[list]:
+    def __get_xlsx_rdata(self, round: HistoryRound) -> list[list]:
         rdata = [
             ["Statistics"],
             ["Player", "Team Index", "Kills", "Deaths", "Assissts", "Hs%", "Headshots", "1vX", "Operator"]
@@ -719,24 +719,25 @@ class SaveManager:
         idx_map = {pl.idx: i for i, pl in enumerate(self.__players)}
         teams_known = all([pl.team is not None for pl in self.__players]) and len(self.__players) == 10
 
-        n = len(self.__players)
-        kills, deaths = [0]*n, [False]*n 
-        round_kf: list[KFRecord] = round["clean_killfeed"]
+        n_players = len(self.__players)
+        kills, deaths = [0]*n_players, [False]*n_players 
+        round_kf = ndefault(round.clean_killfeed, round.killfeed)
         for record in round_kf:
-            kills[idx_map[record.player_idx]] += 1
+            if record.player.team != record.target.team:
+                kills[idx_map[record.player.idx]] += 1
 
-        for idx in round["clean_deaths"]:
+        for idx in round.clean_deaths:
             deaths[idx_map[idx]] = True
 
         onevx = None
         onevx_count = 0
         ## TODO: this oneVx calculator won't work for when players and teams are not known
         # your team won, you were the last alive (not necessarily alive at the end), X = number of opponents alive when your last alive teammate died
-        if (w := round["winner"]) is not None and teams_known:
+        if (w := round.winner) is not None and teams_known:
             if deaths[w*5:(w+1)*5].count(False) == 1: ## possible 1vX
                 onevx = deaths.index(False)
                 for record in reversed(round_kf):
-                    if record.player_idx == onevx:
+                    if record.player.idx == onevx:
                         onevx_count += 1
                     else:
                         break
@@ -748,21 +749,16 @@ class SaveManager:
             stats_table.append([pl.ign, ndefault(pl.team, ""), kills[i], deaths[i], "", "", "", onevx_pl, ""])
         
         ## make sure defence team is at the top of the stats table, same as dissect
-        if round["atk_side"] == self.__players[0].team:
+        if round.atk_side == self.__players[0].team:
             stats_table = self.__table_flip(stats_table)
 
         rdata += stats_table
 
         ## Winning team
-        prefix = "YOUR TEAM" if round['winner'] == 0 else "OPPONENTS"
-        winning_team = f"{prefix} [{round['winner']}]"
+        prefix = "YOUR TEAM" if round.winner == 0 else "OPPONENTS"
+        winning_team_str = f"{prefix} [{round.winner}]"
 
         ## Round Info
-        if len(round_kf) == 0: ## highly-unlikely, maybe a issue occurred during recording
-            opening_kd = KFRecord("", -1, "", -1, "")
-        else:
-            opening_kd = round_kf[0].update(self.__ignmat)
-
         bpat = round["bomb_planted_at"]
         ddat = round["disabled_defuser_at"]
         rdata.extend([
@@ -770,41 +766,47 @@ class SaveManager:
             ["Round Info"],
             ["Name", "Value", "Time"],
             ["Site"],
-            ["Winning team",  winning_team],
-            ["Win condition", round["win_condition"].value],
-            ["Opening kill",  opening_kd.player, str(opening_kd.time)],
-            ["Opening death", opening_kd.target, str(opening_kd.time)],
-            ["Planted at",    str(ndefault(bpat, ""))],
-            ["Defused at",    str(ndefault(ddat, ""))]
+            ["Winning team",  winning_team_str],
+            ["Win condition", round.win_condition.value]
         ])
 
-        ## Kill/death feed
+        if len(round_kf) == 0:
+            rdata.extend([["Opening kill"], ["Opening death"]])
+        else:
+            opening_kd = round_kf[0]
+            rdata.extend([
+                ["Opening kill",  opening_kd.player.ign, str(opening_kd.time)],
+                ["Opening death", opening_kd.target.ign, str(opening_kd.time)]
+            ])
+        
         rdata.extend([
+            ["Planted at",    str(ndefault(bpat, ""))],
+            ["Defused at",    str(ndefault(ddat, ""))],
             [],
             ["Kill/death feed"],
             ["Player", "Target", "Time", "Traded", "Refragged Death", "Refragged Kill"],
         ])
+
+        ## Kill/death feed
         refragged_kills = []
+        n_players = len(round_kf)
         for i, record in enumerate(round_kf):
-            record: KFRecord = record.update(self.__ignmat) ## get the latest IGNs
-            n = len(round_kf)
-            if i+1 == n:
-                rdata.append([record.player, record.target, str(record.time), False, False, i in refragged_kills])
+            if i+1 == n_players:
+                rdata.append([record.player.ign, record.target.ign, str(record.time), False, False, i in refragged_kills])
                 break
 
-            traded = i+1 < n \
+            traded = i+1 < n_players \
                 and (record.time - round_kf[i+1].time) <= 6 \
-                and self.__ignmat.get_team_from_idx(record.player_idx) != self.__ignmat.get_team_from_idx(record.target_idx)
+                and self.__ignmat.get_team_from_idx(record.player.idx) != self.__ignmat.get_team_from_idx(record.target.idx)
             
             refragged_death = False
             for j, r2 in enumerate(round_kf[i+1:], start=i+1):
-                r2: KFRecord
                 if record.time - r2.time > 6: break
-                if record.player_idx == r2.target_idx:
+                if record.player.idx == r2.target.idx:
                     refragged_death = True
                     refragged_kills.append(j)
 
-            rdata.append([record.player, record.target, str(record.time), traded, refragged_death, i in refragged_kills])
+            rdata.append([record.player.ign, record.target.ign, str(record.time), traded, refragged_death, i in refragged_kills])
         
         return rdata
 
@@ -849,6 +851,12 @@ class OCResult:
     __repr__ = __str__
 
 
+@dataclass
+class OCRLine:
+    ocr_results: list[OCResult]
+    headshot: bool = False
+
+
 class Analyser(ABC):
     """
     Main class `Analyser`
@@ -869,7 +877,7 @@ class Analyser(ABC):
 
         self.running = False
         self.tdelta: float = self.config["SCREENSHOT_PERIOD"]
-        
+
         self.ign_matrix = IGNMatrix.new(self.config["IGNS"], self.config["IGN_MODE"])
         self.reader = easyocr.Reader(['en'], gpu=not args.cpu)
         self._verbose_print(0, "EasyOCR Reader model loaded")
@@ -1092,7 +1100,7 @@ class InPersonAnalyser(Analyser):
         self._new_round(*scores)
 
         atkside = self.__read_atkside(regions["TEAM1_SIDE_REGION"], regions["TEAM2_SIDE_REGION"])
-        self.history.set("atk_side", atkside)
+        self.history.cround.atk_side = atkside
         self._verbose_print(1, f"Atk Side: {atkside}")
     
     def __read_scoreline(self, scoreline1: np.ndarray, scoreline2: np.ndarray) -> Optional[tuple[int, int]]:
@@ -1131,8 +1139,6 @@ class InPersonAnalyser(Analyser):
 
     ## ----- TIMER FUNCTION -----
     def _handle_timer(self, regions: Analyser.Regions_t) -> None:
-        """
-        """
         if not self.history.is_ready: return
 
         timer_image = regions["TIMER_REGION"]
@@ -1148,13 +1154,13 @@ class InPersonAnalyser(Analyser):
         elif self.__is_bomb_countdown(timer_image):
             if self.defuse_countdown_timer is None: ## bomb planted
                 self.defuse_countdown_timer = time()
-                self.history.set("bomb_planted_at", self.current_time)
-                self._verbose_print(1, f"Bomb planted at: {self.current_time}")
-
                 self.state.bomb_planted = True
+
+                self.history.cround.bomb_planted_at = self.current_time
+                self._verbose_print(1, f"Bomb planted at: {self.current_time}")
             else:
-                bomb_planted_at: Timestamp = self.history.get("bomb_planted_at")
-                self.current_time = Timestamp.from_int(bomb_planted_at.to_int() - int(time() - self.defuse_countdown_timer))
+                bpat_int = self.history.cround.bomb_planted_at.to_int()
+                self.current_time = Timestamp.from_int(bpat_int - int(time() - self.defuse_countdown_timer))
 
         elif self.last_kf_seconds is None and self.end_round_seconds is None and self.state.in_round:
             self.last_kf_seconds = time()
@@ -1217,21 +1223,27 @@ class InPersonAnalyser(Analyser):
         if not self.state.in_round and self.last_kf_seconds is None: return
 
         image = regions["KILLFEED_REGION"]
-        for left, right in self.__read_feed(image):
-            player = self.ign_matrix.get(left, 0.75)
-            target = self.ign_matrix.get(right, 0.75)
-            
+        for line in self.__read_feed(image):
+            if len(line) == 1:
+                player = self.ign_matrix.get(line.ocr_results[0].text, 0.75)
+                target = self.ign_matrix.get(line.ocr_results[0].text, 0.75)
+
+            elif len(line) == 2:
+                player = self.ign_matrix.get(line.ocr_results[0].text, 0.75)
+                target = self.ign_matrix.get(line.ocr_results[1].text, 0.75)
+                
             if player is None or target is None:
                 continue ## invalid igns
 
-            record = KFRecord(player.ign, player.idx, target.ign, target.idx, self.current_time)
-            if record not in self.history.get("killfeed"):
-                self.history.set("killfeed", record)
-                self.history.set("deaths", target.idx)
+            record = KFRecord(player, target, self.current_time, line.headshot)
+            if record not in self.history.cround.killfeed:
+                self.history.cround.killfeed.append(record)
+                self.history.cround.deaths.append(target.idx)
+
                 self.ign_matrix.update_team_table(player.idx, target.idx)
                 self._verbose_print(1, f"{self.current_time} | {player.ign}\t-> {target.ign}")
     
-    def __read_feed(self, image: np.ndarray) -> list[tuple[str, str]]:
+    def __read_feed(self, image: np.ndarray) -> list[OCRLine]:
         image = self._screenshot_preprocess(image, to_gray=True, denoise=True, squeeze_width=0.75)
 
         ocr_results = self.reader.readtext(image, allowlist=Analyser.KF_ALLOWLIST)
@@ -1239,15 +1251,15 @@ class InPersonAnalyser(Analyser):
         for res in ocr_results:
             res.eval(self.ign_matrix)
 
-        lines = self.__get_lines(ocr_results)
-        pairs = self.__get_pairs(lines)
+        lines = self.__get_rawlines(ocr_results)
+        ocr_lines = self.__get_ocrlines(lines)
         if self.prog_args.test:
             # self.__test_lines(image, lines)
-            self.__test_pairs(image, pairs)
+            self.__test_lines(image, ocr_lines)
 
-        return [(left.text, right.text) for left, right in pairs]
+        return ocr_lines
     
-    def __get_lines(self, results: list[OCResult]) -> list[list[OCResult]]:
+    def __get_rawlines(self, results: list[OCResult]) -> list[list[OCResult]]:
         temp_results: list[OCResult] = []
         for res in results:
             if res.prob < InPersonAnalyser.KF_PROB or len(res.text) < 2: continue
@@ -1264,22 +1276,21 @@ class InPersonAnalyser(Analyser):
 
         return lines
     
-    def __get_pairs(self, lines: list[list[OCResult]]) -> list[tuple[OCResult, OCResult]]:
-        singles = []
-        pairs = []
+    def __get_ocrlines(self, lines: list[list[OCResult]]) -> list[OCRLine]:
+        ocr_lines = []
         for line in lines:
-            if len(line) <= 1: continue ## TODO: deal with self-deaths
+            if len(line) <= 1:
+                ocr_lines.append(OCRLine(line))
             elif len(line) == 2:
                 if line[0].rect[0] < line[1].rect[0]:
-                    pairs.append(line)
+                    ocr_lines.append(OCRLine(line))
                 else:
-                    pairs.append([line[1], line[0]])
+                    ocr_lines.append(OCRLine([line[1], line[0]]))
             else:
                 jline = self.__join_line(line)
-                if len(jline) == 1: singles.append(jline)
-                else: pairs.append(jline)
+                ocr_lines.append(OCRLine(jline))
 
-        return pairs
+        return ocr_lines
     
     def __join_line(self, line: list[OCResult]) -> tuple[OCResult, OCResult]:
         prox_dist = InPersonAnalyser.PROXIMITY_DIST * (self.config["SCREENSHOT_RESIZE"] / 4)
@@ -1313,6 +1324,8 @@ class InPersonAnalyser(Analyser):
 
         if len(new_line) > 2: ## TODO: sort this out
             new_line = sorted(new_line, key=lambda res: res.eval_score, reverse=True)[:2]
+            if new_line[0].rect[0] > new_line[1].rect[0]:
+                new_line = [new_line[1], new_line[0]]
 
         return new_line
 
@@ -1339,21 +1352,21 @@ class InPersonAnalyser(Analyser):
 
     # ----- GAME STATE -----
     def __pre_new_round(self, score2: int, save: bool = True) -> None:
-        if len(self.history) == 0: return
+        if not self.history.is_ready: return
 
         ## infer winner of previous round based on new scoreline
-        winner = self.history.get("winner")
-        if winner is None and self.history.get("scoreline") is not None:
-            _, _score2 = self.history.get("scoreline")
+        winner = self.history.cround.winner
+        if winner is None and self.history.cround.scoreline is not None:
+            _, _score2 = self.history.cround.scoreline
             winner = int(_score2 < score2)
-            self.history.set("winner", winner) ## if _score1+1 == score1, return 0
+            self.history.cround.winner = winner ## if _score1+1 == score1, return 0
 
         win_con = self._get_wincon()
-        self.history.set("win_condition", win_con)
+        self.history.cround.win_condition = win_con
 
-        reat = self.history.get("round_end_at")
+        reat = self.history.cround.round_end_at
         if win_con == WinCondition.DISABLED_DEFUSER:
-            self.history.set("disabled_defuser_at", reat)
+            self.history.cround.disabled_defuser_at = reat
             self._verbose_print(1, f"Disabled defsuer at: {reat}")
         
         self._verbose_print(0, f"Team {winner} wins round {self.history.roundn} by {win_con} at {reat}.")
@@ -1374,17 +1387,17 @@ class InPersonAnalyser(Analyser):
         self.last_seconds_count = 0
 
         self.history.new_round(new_round)
-        self.history.set("scoreline", [score1, score2])
+        self.history.cround.scoreline = [score1, score2]
         self._verbose_print(1, f"New Round: {new_round} | Scoreline: {score1}-{score2}")
     
     def _end_round(self) -> None:
-        self.history.set("round_end_at", self.current_time)
+        self.history.cround.round_end_at = self.current_time
         self.state = State(False, True, False)
         self.last_seconds_count = 0
 
         mx_rnd = self.config["MAX_ROUNDS"]
         rps = self.config["ROUNDS_PER_SIDE"]
-        scoreline = self.history.get("scoreline", [0, 0])
+        scoreline = self.history.cround.scoreline = [0, 0]
         is_ot = not self.config["SCRIM"] and scoreline[0] >= rps and scoreline[1] >= rps
         if self.history.roundn >= mx_rnd \
                 or (not is_ot and max(scoreline) == rps+1) \
@@ -1392,9 +1405,9 @@ class InPersonAnalyser(Analyser):
             self._end_game()
     
     def _get_wincon(self) -> WinCondition:
-        bpat    = self.history.get("bomb_planted_at")
-        winner  = self.history.get("winner")
-        atkside = self.history.get("atk_side")
+        bpat    = self.history.cround.bomb_planted_at
+        winner  = self.history.cround.winner
+        atkside = self.history.cround.atk_side
         defside = 1-atkside
 
         if bpat is not None and winner == defside:
@@ -1415,15 +1428,15 @@ class InPersonAnalyser(Analyser):
     
     def __wincon_alive_count(self, side: int) -> bool:
         alive = 5 ## TODO: history, ign matrix team count
-        for d_idx in self.history.get("deaths"):
+        for d_idx in self.history.cround.deaths:
             if self.ign_matrix.get_team_from_idx(d_idx) == side:
                 alive -= 1
         return alive
     
     def _end_game(self) -> None:
         winner = self._ask_winner()
-        self.history.set("winner", winner)
-        scoreline = self.history.get("scoreline")[:]
+        self.history.winner = winner
+        scoreline = self.history.cround.scoreline[:]
         scoreline[winner] += 1
         self.__pre_new_round(scoreline, save=False)
 

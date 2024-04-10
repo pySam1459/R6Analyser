@@ -1,6 +1,7 @@
 __pycache__/
 venv/
 .venv/
+venv312/
 saves/
 images/
 test/
@@ -16,3 +17,6 @@ configs/*.json
 notes.txt
 test.ipynb
 test.py
+
+pyarmor.error.log
+pyarmor.report.bug
