@@ -19,16 +19,16 @@ pip install -r requirements.txt
 You must also have made a configuration file (see below) to specify certain regions of the game window and other parameters. 
 To check the regions defined in the configuration file, you can run the following command:
 ```bash
-python src\run.py <config file> --check
+python src\run.py -c <config file> --check
 ```
 which will save the screenshots of the regions defined into a new `images` directory. If these screenshot's do not contain the relevant information, they should be re-defined.</br>
 To run the program, use the following command:
 ```bash
-python src\run.py <config file>
+python src\run.py -c <config file>
 ```
 and it is recommended to add a save path, where to save the game data to a JSON or XLSX file:
 ```bash
-python src\run.py <config file> --save <save file>
+python src\run.py -c <config file> --save <save file>
 ```
 Other optional arguments include:
 - `-v` / `--verbose`: Print additional information to the console (0-3).
@@ -37,13 +37,21 @@ Other optional arguments include:
 - `--append-save`: Whether to append the game data to an existing save file or overwrite it.
 - `--test`: (Debugging) Runs the OCR engine for a single instance of each region and prints the output to the console.
 - `--cpu`: (NOT recommended) Use the CPU for OCR instead of the GPU.
+- `--region-tool`: Runs the region tool used to find config `_REGION` parameters.
+- `--display`: The display number to take the screenshot from (default=0).
 
 ## How to use
 This program uses OCR to extract text information from the game window, so it is important to have a good quality video and high resolution. If you cannot read the text on the screen, the program will not be able to either. That being said, the program can handle relatively low quality (720p).</br>
 tl;dr The better the quality of the video/game, the more accurate the program will be.</br>
 
 ## Config
-To use R6Analyser, a configuration JSON is required to specify regions of the game window and other program parameters. An example config file can be found at `configs/example.json` and below; `_REGION` parameters can be created using `src\region-tool.py`. The following outlines the required and optional paremeters of a config file:
+To use R6Analyser, a configuration JSON is required to specify regions of the game window and other program parameters. An example config file can be found at `configs/example.json` and below. `_REGION` parameters can be found using the region tool, which can be run.
+```bash
+python src\run.py --region-tool --display <display number>
+```
+This tool takes a screenshot of the window and allows you to select regions using the mouse. The region parameter values are then printed to the console.
+
+The following outlines the required and optional paremeters of a config file:
 
 ### Required Parameters
 These parameters must be specified:

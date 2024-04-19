@@ -50,9 +50,9 @@ def __cparse_bool(arg, name: str) -> bool:
 
 T = TypeVar("T")
 def __cparse_type_range(arg, _type: T|list[T], name: str, lower: T, upper: T) -> T:
-    if type(_type) != list:
-        _type = [_type]
-    if not any([type(arg) == t for t in _type]):
+    if type(_type) != list and type(arg) == _type:
+        s_type = str(_type)
+    elif type(_type) == list and not any([type(arg) == t for t in _type]):
         s_type = ",".join([str(t) for t in _type])
         config_arg_error(name, f"only {s_type} types")
     if not (lower <= arg <= upper):
@@ -67,7 +67,7 @@ def __cparse_bounding_box(arg, name: str) -> list[int]:
     return arg
 
 E = TypeVar('E', bound=Enum)
-def __cparse_enum(arg, name: str, enum: Type[E]) -> E:
+def __cparse_enum(arg, name: str, enum: Type[E]) -> E: # type: ignore the line
     if type(arg) == enum: return arg
 
     for enum_member in enum:
@@ -185,17 +185,17 @@ def __parse_verbose(arg: str) -> int:
         x = int(arg)
         if 0 <= x <= 3:
             return x
-        raise argparse.ArgumentError("Verbose argument out of range [0,3]")
+        raise argparse.ArgumentTypeError("Verbose argument out of range [0,3]")
 
     except ValueError:
-        raise argparse.ArgumentError(f"Invalid Verbose argument {arg}")
+        raise argparse.ArgumentTypeError(f"Invalid Verbose argument {arg}")
 
 
 def __parse_save(arg: str) -> SaveFile:
     filename, ext = arg.rsplit(".", maxsplit=1)
     if ext == "json" or ext == "xlsx":
         return SaveFile(filename, ext)
-    raise argparse.ArgumentError(f"Invalid save file type {ext}, only json/xlsx allowed")
+    raise argparse.ArgumentTypeError(f"Invalid save file type {ext}, only json/xlsx allowed")
 
 def __default_save() -> str:
     return datetime.now().strftime('%Y-%m-%d_%H-%M-%S') + ".json"
@@ -206,7 +206,7 @@ def main():
         prog="R6 Analyser",
         description="A Rainbow Six Siege VOD Analyser to record live information from a game.")
 
-    parser.add_argument("config",
+    parser.add_argument("-c", "--config",
                         type=__parse_config,
                         help="Filename of the .json config file containing information bounding boxes")
     parser.add_argument("-d", "--delay",
@@ -241,19 +241,37 @@ def main():
     parser.add_argument("--cpu",
                         action="store_true",
                         help="Flag for only cpu execution, if your machine does not support gpu acceleration")
+    
+    parser.add_argument("--region-tool",
+                        action="store_true",
+                        help="Runs the Region tool instead of R6Analyser.")
+    parser.add_argument("--display",
+                        type=int,
+                        help="When using the `--region-tool`, Which display to capture",
+                        default=0)
 
     args = parser.parse_args()
     if args.delay > 0:
         sleep(args.delay)
 
-    if args.config["SPECTATOR"]:
-        print("Info: In Spectator Mode")
-        analyser = SpectatorAnalyser(args)
-    else:
-        print("Info: In Person Mode")
-        analyser = InPersonAnalyser(args)
+    if args.region_tool:
+        from regiontool import RegionTool
 
-    if args.test:
-        analyser.test()
+        print("Info: Running Region Tool...")
+        RegionTool(args).run()
+    
+    elif getattr(args, "config", default=False): # type: ignore the line
+        if args.config["SPECTATOR"]:
+            print("Info: In Spectator Mode")
+            analyser = SpectatorAnalyser(args)
+        else:
+            print("Info: In Person Mode")
+            analyser = InPersonAnalyser(args)
+
+        if args.test:
+            analyser.test()
+        else:
+            analyser.run()
+
     else:
-        analyser.run()
+        print("Invalid R6Analyser Arguments")
