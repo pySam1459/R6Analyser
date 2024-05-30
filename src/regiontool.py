@@ -56,3 +56,7 @@ class RegionTool:
     def run(self):
         print("PRESS ESCAPE TO QUIT AFTER SELECTING REGIONS")
         self.root.mainloop()
+
+
+if __name__ == "__main__":
+    print("Please use the region tool from the cli")

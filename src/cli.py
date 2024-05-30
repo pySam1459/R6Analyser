@@ -208,7 +208,8 @@ def main():
 
     parser.add_argument("-c", "--config",
                         type=__parse_config,
-                        help="Filename of the .json config file containing information bounding boxes")
+                        help="Filename of the .json config file containing information bounding boxes",
+                        dest="config")
     parser.add_argument("-d", "--delay",
                         type=int,
                         help="Time delay between starting the program and recording",
@@ -260,7 +261,7 @@ def main():
         print("Info: Running Region Tool...")
         RegionTool(args).run()
     
-    elif getattr(args, "config", default=False): # type: ignore the line
+    elif getattr(args, "config", False):
         if args.config["SPECTATOR"]:
             print("Info: In Spectator Mode")
             analyser = SpectatorAnalyser(args)

@@ -6,3 +6,4 @@ pillow
 levenshtein
 screeninfo
 openpyxl
+tqdm

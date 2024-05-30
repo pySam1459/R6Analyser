@@ -1,4 +1,5 @@
 import json
+import sys
 import pyautogui
 import cv2
 import numpy as np
@@ -9,26 +10,22 @@ from re import search, fullmatch
 from time import time
 from os import mkdir
 from os.path import join, exists
-from sys import exit as sys_exit
+from io import StringIO
 from dataclasses import dataclass, field
 from abc import ABC, abstractmethod
-from enum import Enum
 from Levenshtein import ratio as leven_ratio
 from openpyxl import load_workbook, Workbook
+from tqdm import tqdm
 from typing import TypeAlias, Optional, Any
+from utils import *
 
 
-class StrEnum(Enum):
-    """Helper class to implement `from_string` for Enum's with String values"""
-    @classmethod
-    def from_string(cls, value: str):
-        """
-        Class method to convert a string to an Enum value, with validity checks.
-        """
-        for enum_member in cls:
-            if enum_member.value == value:
-                return enum_member
-        raise ValueError(f"'{value}' is not a valid {cls.__name__}")
+@dataclass
+class Player:
+    """Dataclass containing all necessary player information"""
+    idx: int
+    ign: str
+    team: None | int = None
 
 
 class IGNMatrixMode(StrEnum):
@@ -39,14 +36,6 @@ class IGNMatrixMode(StrEnum):
     """
     FIXED = "fixed"
     INFER = "infer"
-
-
-@dataclass
-class Player:
-    """Dataclass containing all necessary player information"""
-    idx: int
-    ign: str
-    team: None | int = None
 
 
 class IGNMatrix(ABC):
@@ -170,16 +159,60 @@ class IGNMatrixFixed(IGNMatrix):
         return IGNMatrixFixed(igns)
 
 
+class NamesRecord:
+    """A Record containing the occurrency count for each pseudoIGN of an unknown true IGN"""
+    def __init__(self, pign: str):
+        self.__vars:   list[str] = [pign]
+        self.__counts: list[int] = [1]
+        
+        self.__noccr = 1
+        self.__best = 0 ## idx of most-likely pign so far
+    
+    def inc(self, idx: int) -> None:
+        self.__counts[idx] += 1
+        self.__noccr += 1
+
+        if self.__counts[idx] > self.__counts[self.__best]:
+            self.__best = self.__counts[idx]
+    
+    def new(self, pign: str) -> None:
+        self.__vars.append(pign)
+        self.__counts.append(1)
+        self.__noccr += 1
+    
+    def _in(self, pign: str) -> int:
+        if pign in self.__vars:
+            return self.__vars.index(pign)
+        return -1
+    
+    def fuzzy_cmp(self, pign: str, threshold: float) -> bool:
+        for var in self.__vars:
+            if IGNMatrix.compare_names(pign, var) >= threshold:
+                return True
+        return False
+    
+    def noccr(self) -> int:
+        return self.__noccr
+    
+    def maxoccr(self) -> int:
+        return max(self.__counts)
+
+    def best(self) -> str:
+        return self.__vars[self.__best]
+    
+    def __iter__(self) -> None:
+        return iter(zip(self.__vars, self.__counts))
+
+
 class IGNMatrixInfer(IGNMatrix):
     """
     IGN Inference has 3 steps, fixed, semi-fixed, matrix
     1. Fixed      - a pseudoIGN is compared to the list of known IGNs
-    2. Semi-Fixed - a pseudoIGN is tested against all of the semi-fixed IGN names-dicts
-    3. Matrix     - a pseudoIGN is tested against all other pseudoIGN names-dicts
-    When a pseudoIGN is found in either semi-fixed or matrix names-dicts, the occurrence of that pseudoIGN is incremented
-    If a matrix names-dict reaches the Assimilation threshold of occurrences, that pseduo IGN names-dict is promoted to semi-fixed
-    Once len(Fixed) + len(Semi-Fixed) == 10, no more psuedoIGN names-dict can be promoted and assumed to be invalid IGNs
-    A `names-dict: dict[str, int]` is a dictionary containing the occurrency count for each pseudoIGN of an unknown true IGN
+    2. Semi-Fixed - a pseudoIGN is tested against all of the semi-fixed IGN names-record
+    3. Matrix     - a pseudoIGN is tested against all other pseudoIGN names-record
+    When a pseudoIGN is found in either semi-fixed or matrix names-record, the occurrence of that pseudoIGN is incremented
+    If a matrix names-record reaches the ASSIMILATION THRESHOLD of occurrences, that pseduo IGN names-record is promoted to semi-fixed
+    Once len(Fixed) + len(Semi-Fixed) == 10, no more psuedoIGN names-record can be promoted and assumed to be invalid IGNs
     """
     VALID_THRESHOLD = 0.75     ## threshold for Levenshtein distance to determine equality
     ASSIMILATE_THRESHOLD = 7   ## how many times a pseudoIGN has to be seen before adding to 'semi-fixed' list
@@ -191,8 +224,9 @@ class IGNMatrixInfer(IGNMatrix):
         self.__fixmat = igns
         self.__fixlen = len(igns)
 
-        self.__semi_fixmat: dict[int,dict[str,int]] = {}
-        self.__matrix:      dict[int,dict[str,int]] = {}
+        self.__semi_fixmat: dict[int, NamesRecord] = {}
+        self.__matrix:      dict[int, NamesRecord] = {}
+        self.__mats = (self.__semi_fixmat, self.__matrix)
         self.__semi_fixlen = 0
         self.__idx_counter = self.__fixlen
 
@@ -217,8 +251,8 @@ class IGNMatrixInfer(IGNMatrix):
             return pl
         
         ## second, check the semi-fixed igns
-        for idx, names_dict in self.__semi_fixmat.items():
-            if (pl := self.__in_names_dict(pign, idx, names_dict, threshold)):
+        for idx, nr in self.__semi_fixmat.items():
+            if (pl := self.__in_names_record(pign, idx, nr, threshold)):
                 return pl
         
         ## if all fixed and semi-fixed igns have been found, assume pseudoIGN is invalid
@@ -226,36 +260,35 @@ class IGNMatrixInfer(IGNMatrix):
             return None
 
         ## if not all semi-fixed igns have been found, check matrix, and assimilate if necessary
-        for idx, names_dict in self.__matrix.items():
-            if (pl := self.__in_names_dict(pign, idx, names_dict, threshold)):
-                self.__check_assimilation(idx, names_dict)
+        for idx, nr in self.__matrix.items():
+            if (pl := self.__in_names_record(pign, idx, nr, threshold)):
+                self.__check_assimilation(idx, nr)
                 return pl
 
         ## if ign has not been seen, add to matrix
         idx = self.__idx_counter
-        self.__matrix[idx] = { pign: 1 }
+        self.__matrix[idx] = NamesRecord(pign)
         self.__idx_counter += 1
         return Player(idx, pign, None)
 
-    def __in_names_dict(self, pign: str, idx: int, names_dict: dict, threshold: float) -> Optional[Player]:
+    def __in_names_record(self, pign: str, idx: int, nr: NamesRecord, threshold: float) -> Optional[Player]:
         """
-        This method determines whether a pseudoIGN/pign belongs to a specified `names_dict`, and increases the occurrence counts if it does.
-        A `names_dict` is a dictionary with key: value pairs = pign: # occurrences of pign
+        Determines whether a pseudoIGN/pign belongs to a specified NamesRecord,
+          and increases the occurrence counts if it does.
         """
-        if pign in names_dict:
-            names_dict[pign] += 1 # increase occurrence count for pseudoIGN
-            return Player(idx, IGNMatrixInfer._max_dict(names_dict), self.get_team_from_idx(idx))
+        if (pidx := nr._in(pign)) >= 0:
+            nr.inc(pidx) # increase occurrence count for pseudoIGN
+            return Player(idx, nr.best(), self.get_team_from_idx(idx))
 
-        for seen_pign in names_dict.keys():
-            if IGNMatrix.compare_names(pign, seen_pign) > threshold:
-                names_dict[pign] = 1  # add to names_dict as a possible true IGN
-                return Player(idx, IGNMatrixInfer._max_dict(names_dict), self.get_team_from_idx(idx))
+        if nr.fuzzy_cmp(pign, threshold):
+            nr.new(pign)
+            return Player(idx, nr.best(), self.get_team_from_idx(idx))
 
         return None
     
-    def __check_assimilation(self, idx: int, names_dict: dict[str, int]) -> None:
-        """Checks to see if a specified names_dict has passed over the Assimilation threshold, and if so assimilate to semi-fixed matrix"""
-        if sum(names_dict.values()) >= IGNMatrixInfer.ASSIMILATE_THRESHOLD:
+    def __check_assimilation(self, idx: int, nr: NamesRecord) -> None:
+        """Checks to see if a specified names record has passed over the Assimilation threshold, and if so assimilate to semi-fixed matrix"""
+        if nr.noccr() >= IGNMatrixInfer.ASSIMILATE_THRESHOLD:
             self.__semi_fixmat[idx] = self.__matrix.pop(idx)
             self.__semi_fixlen += 1
     
@@ -264,16 +297,15 @@ class IGNMatrixInfer(IGNMatrix):
         if 0 <= idx < self.__fixlen:
             return self.__fixmat[idx]
         elif idx in self.__semi_fixmat:
-            return IGNMatrixInfer._max_dict(self.__semi_fixmat[idx])
+            return self.__semi_fixmat[idx].best()
         elif idx in self.__matrix:
-            return IGNMatrixInfer._max_dict(self.__matrix[idx])
+            return self.__matrix[idx].best()
 
         return None
 
     def get_from_idx(self, idx: int) -> Optional[Player]:
         """Returns the (most likely) Player from a given idx"""
-        ign = self.get_ign_from_idx(idx)
-        if ign is None:
+        if (ign := self.get_ign_from_idx(idx)) is None:
             return None
 
         return Player(idx, ign, self.get_team_from_idx(idx))
@@ -380,18 +412,18 @@ class IGNMatrixInfer(IGNMatrix):
         if self.__fixlen == 10:
             return players
 
-        players += [Player(idx, IGNMatrixInfer._max_dict(names_dict), self.get_team_from_idx(idx)) for idx, names_dict in self.__semi_fixmat.items()]
+        players += [Player(idx, nr.best(), self.get_team_from_idx(idx)) for idx, nr in self.__semi_fixmat.items()]
         if len(players) == 10:
             return players
         
         if len(players) + len(self.__matrix) <= 10:
             ## Note: may return a list < 10 length
-            return players + [Player(idx, IGNMatrixInfer._max_dict(names_dict), self.get_team_from_idx(idx)) for idx, names_dict in self.__matrix.items()]
+            return players + [Player(idx, nr.best(), self.get_team_from_idx(idx)) for idx, nr in self.__matrix.items()]
         else:
             ## Only add the most likely (most seen) players from __matrix to the players list
             ##   sorted the __matrix by # times seen and only add the top 10-len(players)
-            indices = sorted(self.__matrix, key=lambda k: sum(self.__matrix[k].values()), reverse=True)[:10-len(players)]
-            return players + [Player(idx, IGNMatrixInfer._max_dict(self.__matrix[idx]), self.get_team_from_idx(idx)) for idx in indices]
+            indices = sorted(self.__matrix, key=lambda k: self.__matrix[k].noccr(), reverse=True)[:10-len(players)]
+            return players + [Player(idx, self.__matrix[idx].best(), self.get_team_from_idx(idx)) for idx in indices]
 
     
     def evaluate(self, pign: str) -> float:
@@ -406,23 +438,17 @@ class IGNMatrixInfer(IGNMatrix):
         for ign in self.__fixmat:
             max_val = max(max_val, IGNMatrix.compare_names(pign, ign))
         
-        for matrix in [self.__semi_fixmat, self.__matrix]:
-            for names_dict in matrix.values():
-                max_occr = max(names_dict.values())
-                evals = [IGNMatrix.compare_names(pign, name) * (IGNMatrixInfer.EVAL_DECAY ** (max_occr - occr)) for name, occr in names_dict.items()]
-                max_val = max(max_val, *evals)
-
-        return max_val
+        for nr in self.__semi_fixmat.values():
+            if nr._in(pign):
+                return 1.0
+        
+        evals = [IGNMatrix.compare_names(pign, name) * (IGNMatrixInfer.EVAL_DECAY ** (nr.maxoccr() - occr)) for mat in self.__mats for nr in mat.values() for name, occr in nr]
+        return max(max_val, *evals)
 
     @staticmethod
     def new(igns: list[str]) -> 'IGNMatrixInfer':
         """Type checking of `igns` is done by the `__cparse_IGNS` function"""
         return IGNMatrixInfer(igns)
-
-    @staticmethod
-    def _max_dict(_dict: dict[str, int]) -> str:
-        """Returns the key with the maximum value"""
-        return max(_dict, key=_dict.get) # type: ignore the line
 
 
 class TimerFormat(Enum):
@@ -444,32 +470,7 @@ class WinCondition(StrEnum):
     TIME             = "Time"
     DEFUSED_BOMB     = "DefusedBomb"
     DISABLED_DEFUSER = "DisabledDefuser"
-    UNKNOWN          = "Unknown"
-
-
-@dataclass
-class Timestamp:
-    """Helper dataclass to deal with the timer"""
-    minutes: int
-    seconds: int
-
-    def __sub__(self, other: 'Timestamp') -> int:
-        return self.to_int() - other.to_int()
-
-    def to_int(self) -> int:
-        return self.minutes * 60 + self.seconds
-
-    @staticmethod
-    def from_int(num: int) -> 'Timestamp':
-        m = int(num / 60)
-        s = num - 60*m
-        return Timestamp(m, s)
-    
-    def __str__(self) -> str:
-        if self.seconds < 0: return f"{self.minutes}:{self.seconds:03}"
-        else: return f"{self.minutes}:{self.seconds:02}"
-
-    __repr__ = __str__
+    UNKNOWN          = "Unknown" 
 
 
 @dataclass
@@ -595,20 +596,6 @@ class History:
         for round in self.__round_data.values():
             for record in round.killfeed:
                 record.update(ignmat)
-
-
-@dataclass
-class SaveFile:
-    """Helper dataclass to handle SaveFile paths"""
-    filename: str
-    ext: str
-
-    def __str__(self) -> str:
-        return f"{self.filename}.{self.ext}"
-    __repr__ = __str__
-
-    def copy(self) -> 'SaveFile':
-        return SaveFile(self.filename, self.ext)
 
 
 class SaveManager:
@@ -906,6 +893,65 @@ class SaveManager:
         return data[5:] + data[:5]
 
 
+class ProgressBar:
+    def __init__(self, is_test: bool = False) -> None:
+        self.__tqdmbar = tqdm(total=180,
+                bar_format='{desc}|{bar}')
+        self.__header = ""
+        self.__time = ""
+        self.__value = "-"
+        
+        if is_test: ## for a slightly cleaner console output during --test
+            self.__tqdmbar.refresh = lambda *args, **kwargs: ...
+    
+    def set_desc(self, value: str) -> None:
+        self.__value = value
+        self.__tqdmbar.set_description_str(f"{self.__header} | {self.__time} | {value} ")
+
+    def set_time(self, value: Timestamp | int) -> None:
+        if type(value) == Timestamp:
+            self.__time = str(value)
+            value = value.to_int()
+        else:
+            self.__time = str(Timestamp.from_int(value))
+
+        self.__tqdmbar.n = value
+        self.__tqdmbar.set_description_str(f"{self.__header} | {self.__time} | {self.__value} ")
+
+    def set_total(self, value: int) -> None:
+        self.__tqdmbar.total = value
+    
+    def set_header(self, nround: int, s1: int, s2: int) -> None:
+        self.__header = f"{nround}/{s1}:{s2}"
+        self.__tqdmbar.set_description_str(f"{self.__header} | {self.__time} | {self.__value} ")
+
+    def refresh(self) -> None:
+        self.__tqdmbar.refresh()
+    
+    def close(self) -> None:
+        self.__tqdmbar.close()
+    
+    def reset(self) -> None:
+        self.__tqdmbar.n = 180
+        self.__tqdmbar.total = 180
+        self.__value = "-"
+        self.__time = "3:00"
+        self.__tqdmbar.set_description_str(f"{self.__header} | {self.__time} | {self.__value} ")
+    
+    def bomb(self) -> None:
+        self.set_time(45)
+        self.set_total(45)
+
+    @staticmethod
+    def print(*prompt: object, sep: Optional[str] = " ", end: Optional[str] = "\n", flush: bool = False) -> None:
+        """Replaces the builtin `print` function with one which works with the tqdm progress bar"""
+        temp_out = StringIO()
+        sys.stdout = temp_out
+        print(*prompt, sep=sep, end=end, flush=flush)
+        sys.stdout = sys.__stdout__
+        tqdm.write(temp_out.getvalue(), end='')
+
+
 @dataclass
 class OCResult:
     """
@@ -941,8 +987,8 @@ class OCResult:
         return OCResult((join_box, join_str, join_prob))
     
     def __str__(self) -> str:
-        if self.eval_score is not None: return f"{self.text}|eval={self.eval_score}"
-        else: return f"{self.text}|prob={self.prob}"
+        if self.eval_score is not None: return f"{self.text}|eval={self.eval_score*100:.2f}"
+        else: return f"{self.text}|prob={self.prob*100:.2f}"
 
     __repr__ = __str__
 
@@ -970,21 +1016,22 @@ class Analyser(ABC):
 
         if args.check:
             self.check()
-            if not args.test: sys_exit()
+            if not args.test: sys.exit()
 
         self.running = False
         self.tdelta: float = self.config["SCREENSHOT_PERIOD"]
 
+        self.state = State(False, True, False)
+        self.history = History()
+        self.save_manager = SaveManager(args.save, self.config, append_mode=args.append_save)
+
+        self.prog_bar = ProgressBar(args.test)
+        self.current_time: Timestamp
+        self.defuse_countdown_timer: Optional[float] = None
+        
         self.ign_matrix = IGNMatrix.new(self.config["IGNS"], self.config["IGN_MODE"])
         self.reader = easyocr.Reader(['en'], gpu=not args.cpu)
         self._verbose_print(0, "EasyOCR Reader model loaded")
-
-        self.state = State(False, True, False)
-        self.history = History()
-        self.save_manager = SaveManager(self.prog_args.save, self.config, append_mode=args.append_save)
-
-        self.current_time: Timestamp
-        self.defuse_countdown_timer: Optional[float] = None
 
     ## ----- CHECK -----
     def check(self) -> None:
@@ -1043,6 +1090,7 @@ class Analyser(ABC):
             self._handle_scoreline(regions)
             self._handle_timer(regions)
             self._handle_feed(regions)
+            self.prog_bar.refresh()
 
             self._debug_print(f"Inference time {time()-__inference_start:.2f}s")
             self.timer = time()
@@ -1123,11 +1171,17 @@ class Analyser(ABC):
     ## ----- PRINT FUNCTION -----
     def _verbose_print(self, verbose_value: int, *prompt) -> None:
         if self.verbose > verbose_value:
-            print("Info:", *prompt)
+            try:
+                self.prog_bar.print("Info:", *prompt)
+            except AttributeError:
+                print("Info:", *prompt)
 
     def _debug_print(self, *prompt) -> None:
         if self.verbose == 3:
-            print("Debug:", *prompt)
+            try:
+                self.prog_bar.print("Debug:", *prompt)
+            except AttributeError:
+                print("Debug:", *prompt)
 
 
 class InPersonAnalyser(Analyser):
@@ -1182,14 +1236,15 @@ class InPersonAnalyser(Analyser):
         atkside   = self.__read_atkside(regions["TEAM1_SIDE_REGION"], regions["TEAM2_SIDE_REGION"])
         time_read = self.__read_timer(regions["TIMER_REGION"])
         feed_read = self.__read_feed(regions["KILLFEED_REGION"])
+        print(feed_read)
 
-        print(f"Test: {scoreline=} | {atkside=} | {time_read} | ", end="")
+        print(f"\nTest: {scoreline=} | {atkside=} | {time_read} | ", end="")
         for line in feed_read:
             if len(line.ocr_results) == 1:
                 print(f"{line.ocr_results[0]} -> {line.ocr_results[0]}", end="")
             else:
                 headshot = "(X) " if line.headshot else ""
-                print(f"{line.ocr_results[0]} -> {headshot}{line.ocr_results[0]}, ", end="")
+                print(f"{line.ocr_results[0]} -> {headshot}{line.ocr_results[1]}, ", end="")
         print()
 
     ## ----- SCORELINE -----
@@ -1258,6 +1313,8 @@ class InPersonAnalyser(Analyser):
 
             self.last_kf_seconds = None
             self.end_round_seconds = None
+            
+            self.prog_bar.set_time(new_time)
         
         elif self.__is_bomb_countdown(timer_image):
             ## The bomb uses a separate countdown timer as the visual timer cannot be accurately tracked
@@ -1267,9 +1324,13 @@ class InPersonAnalyser(Analyser):
 
                 self.history.cround.bomb_planted_at = self.current_time
                 self._verbose_print(1, f"Bomb planted at: {self.current_time}")
+                self.prog_bar.bomb()
+            
             elif self.history.cround.bomb_planted_at is not None:
                 bpat_int = self.history.cround.bomb_planted_at.to_int()
-                self.current_time = Timestamp.from_int(bpat_int - int(time() - self.defuse_countdown_timer))
+                tdelta = int(time() - self.defuse_countdown_timer)
+                self.current_time = Timestamp.from_int(bpat_int - tdelta)
+                self.prog_bar.set_time(int(45-tdelta))
 
         elif self.last_kf_seconds is None and self.end_round_seconds is None and self.state.in_round:
             self.last_kf_seconds = time()
@@ -1335,6 +1396,7 @@ class InPersonAnalyser(Analyser):
         image = regions["KILLFEED_REGION"]
         for line in self.__read_feed(image):
             if len(line.ocr_results) == 1:
+                ## suicides?
                 player = self.ign_matrix.get(line.ocr_results[0].text, 0.75)
                 target = self.ign_matrix.get(line.ocr_results[0].text, 0.75)
 
@@ -1352,6 +1414,7 @@ class InPersonAnalyser(Analyser):
 
                 self.ign_matrix.update_team_table(player.idx, target.idx)
                 self._verbose_print(1, f"{self.current_time} | {player.ign}\t-> {target.ign}")
+                self.prog_bar.set_desc(f"{player.ign} -> {target.ign}")
     
     def __read_feed(self, image: np.ndarray) -> list[OCRLine]:
         """
@@ -1402,7 +1465,8 @@ class InPersonAnalyser(Analyser):
         """
         ocr_lines = []
         for line in lines:
-            if len(line) <= 1:
+            if len(line) == 0: continue
+            if len(line) == 1:
                 ocr_lines.append(OCRLine(line))
             elif len(line) == 2:
                 if line[0].rect[0] < line[1].rect[0]:
@@ -1509,13 +1573,17 @@ class InPersonAnalyser(Analyser):
 
         self.history.new_round(new_round)
         self.history.cround.scoreline = [score1, score2]
+
         self._verbose_print(1, f"New Round: {new_round} | Scoreline: {score1}-{score2}")
+        self.prog_bar.reset()
+        self.prog_bar.set_header(new_round, score1, score2)
     
     def _end_round(self) -> None:
         """A game state method called when the program determines that the current round has ended"""
         self.history.cround.round_end_at = self.current_time
         self.state = State(False, True, False)
         self.last_seconds_count = 0
+        self.prog_bar.set_time(0)
 
         mx_rnd = self.config["MAX_ROUNDS"]
         rps = self.config["ROUNDS_PER_SIDE"]
@@ -1570,7 +1638,7 @@ class InPersonAnalyser(Analyser):
 
         self.save_manager.save(self.history, self.ign_matrix)
         self._verbose_print(0, f"Data Saved to {self.prog_args.save}, program terminated.")
-        sys_exit()
+        sys.exit()
     
     def _fix_state(self) -> None:
         """
@@ -1623,35 +1691,3 @@ class SpectatorAnalyser(Analyser):
     
     def _fix_state(self) -> None:
         ...
-
-
-# ----- HELPER FUNCTIONS -----
-def ndefault(value, default):
-    if value is None: return default
-    return value
-
-def transpose(matrix: list[list[Any]]) -> list[list[Any]]:
-    return [list(row) for row in zip(*matrix)]
-
-
-def rect_collision(r1: list[int], r2: list[int]) -> bool:
-    return r1[0] <= r2[0]+r2[2] and r1[1] <= r2[1]+r2[3] \
-            and r2[0] <= r1[0]+r1[2] and r2[1] <= r1[1]+r1[3]
-
-
-def bbox_to_rect(bbox: list[list[int]]) -> list[int]:
-    tl, tr, _, bl = bbox
-    return [int(tl[0]), int(tl[1]), int(tr[0]-tl[0]), int(bl[1]-tl[1])]
-
-
-def box_collision(b1: list[list[int]], b2: list[list[int]]) -> bool:
-    return rect_collision(bbox_to_rect(b1), bbox_to_rect(b2))
-
-
-def rect_proximity(r1: list[int], r2: list[int]) -> float:
-    if not (r1[1] <= r2[1]+r2[3]/2 <= r1[1]+r1[3]): return float("inf")
-    return r2[0] - (r1[0]+r1[2])
-
-
-def point_in_rect(point: list[int], rect: list[int]) -> bool:
-    return rect[0] <= point[0] <= rect[0]+rect[2] and rect[1] <= point[1] <= rect[1]+rect[3]
