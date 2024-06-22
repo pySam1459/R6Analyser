@@ -96,6 +96,9 @@ INFER_CONFIG_KEYS    = ["MAX_ROUNDS", "ROUNDS_PER_SIDE", "IGN_MODE",
 OPTIONAL_CONFIG_KEYS = ["SCREENSHOT_RESIZE", "SCREENSHOT_PERIOD"]
 DEFAULT_CONFIG_FILENAME = "defaults.json"
 
+DEBUG_KEYS = ["config_keys", "red_percentage"]
+DEBUG_FILENAME = "debug.json"
+
 ## config parse function for each configuration variable
 __cparse_functions = {
     ## Required keys
@@ -181,6 +184,23 @@ def __parse_config(config_filepath: str) -> dict:
     return config
 
 
+def __load_debug(debug_filepath: str) -> dict:
+    try:
+        with open(debug_filepath, "r", encoding="utf-8") as f_in:
+            dconfig: dict = json_load(f_in)
+
+    except Exception as e:
+        exit(f"CONFIG ERROR: Could not open {debug_filepath}!\n{str(e)}")
+
+    for key in DEBUG_KEYS:
+        if key not in dconfig:
+            raise Exception(f"debug.json has been modified, key '{key}' has been removed!")
+        elif type(dconfig[key]) != bool:
+            raise Exception(f"debug/{key} is not boolean type!")
+    
+    return dconfig
+
+
 def __parse_verbose(arg: str) -> int:
     try:
         x = int(arg)
@@ -256,6 +276,8 @@ def main():
                         default=0)
 
     args = parser.parse_args()
+    args.debug = __load_debug(DEBUG_FILENAME)
+
     if args.delay > 0:
         sleep(args.delay)
 

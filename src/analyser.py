@@ -35,18 +35,19 @@ class State:
 
 
 class ProgressBar:
-    def __init__(self, verbose: int, is_test: bool = False) -> None:
+    def __init__(self, verbose: int, disable: bool = False) -> None:
         bar_format = "{desc}|{bar}"
         if verbose == 3:
             bar_format += "|{postfix}"
 
-        self.__tqdmbar = tqdm(total=180, bar_format=bar_format)
+        if not disable:
+            self.__tqdmbar = tqdm(total=180, bar_format=bar_format)
+        else:
+            self.__tqdmbar = PhantomTqdm()
+
         self.__header = ""
         self.__time = ""
         self.__value = "-"
-        
-        if is_test: ## for a slightly cleaner console output during --test
-            self.__tqdmbar.refresh = lambda *args, **kwargs: None
 
     def set_total(self, value: int) -> None:
         self.__tqdmbar.total = value
@@ -159,8 +160,9 @@ class Analyser(ABC):
     def __init__(self, args: Namespace):
         self.config: dict = args.config
         self.verbose: int = args.verbose
+        self.debug_config = args.debug
         self.prog_args = args
-        self._debug_print(f"Config Keys -", list(self.config.keys()))
+        self._debug_print("config_keys", f"Config Keys -", list(self.config.keys()))
 
         if args.check:
             self.check()
@@ -322,8 +324,8 @@ class Analyser(ABC):
             except AttributeError:
                 print("Info:", *prompt)
 
-    def _debug_print(self, *prompt) -> None:
-        if self.verbose == 3:
+    def _debug_print(self, key: str, *prompt) -> None:
+        if self.verbose == 3 and self.debug_config[key]:
             try:
                 self.prog_bar.print("Debug:", *prompt)
             except AttributeError:
@@ -391,7 +393,7 @@ class InPersonAnalyser(Analyser):
         x,y,w,h = self.config["KF_LINE_REGION"]
         buf = InPersonAnalyser.KF_BUF
         for i in range(InPersonAnalyser.NUM_KF_LINES):
-            region = [x, y-int(h*1.25*i)-buf, w, h+buf*2]
+            region = [x, y-int(h*1.40*i)-buf, w, h+buf*2]
             self.config[f"KF_LINE{i+1}_REGION"] = region
 
     def _get_ss_region_keys(self) -> list[str]:
@@ -416,7 +418,7 @@ class InPersonAnalyser(Analyser):
         atkside = self.__read_atkside(regions["TEAM1_SIDE_REGION"], regions["TEAM2_SIDE_REGION"])
         self.history.cround.atk_side = atkside
         self._verbose_print(1, f"Atk Side: {atkside}")
-    
+
     def __read_scoreline(self, scoreline1: np.ndarray, scoreline2: np.ndarray) -> Optional[tuple[int, int]]:
         """Reads the scoreline from the 2 TEAM1/2_SCORE_REGION screenshot"""
         img1 = self._screenshot_preprocess(scoreline1, to_gray=True, squeeze_width=0.65)
@@ -428,9 +430,9 @@ class InPersonAnalyser(Analyser):
             return None
         if not fullmatch(r"^\d+$", results[0]) or not fullmatch(r"^\d+$", results[1]):
             return None
-        
+
         return (int(results[0]), int(results[1]))
-    
+
     def __read_atkside(self, side1: np.ndarray, side2: np.ndarray) -> Optional[int]:
         """Matches the side icon next to the scoreline with `res/swords.jpg` to determine which side is attack."""
         icon1 = self._screenshot_preprocess(side1, to_gray=True, denoise=True)
@@ -537,7 +539,7 @@ class InPersonAnalyser(Analyser):
 
         # Calculate the percentage of red in the image
         red_percentage = np.sum(mask > 0) / mask.size
-        self._debug_print(f"{red_percentage=}")
+        self._debug_print("red_percentage", f"{red_percentage=}")
         return bool(red_percentage > InPersonAnalyser.RED_THRESHOLD)
 
 
@@ -587,27 +589,40 @@ class InPersonAnalyser(Analyser):
         """
         image_lines = [self._screenshot_preprocess(image, denoise=True)#0.75)
                        for image in image_lines]
+        headshots = [self.__is_headshot(img_line) for img_line in image_lines]
+        nohs_il = self.__fill_in_hs(image_lines, headshots)
         
-        ocr_results = self.reader.readtext_batched(image_lines,
+        ocr_results = self.reader.readtext_batched(nohs_il,
                             add_margin=0.15,
                             slope_ths=0.5,
                             allowlist=Analyser.KF_ALLOWLIST)
-        headshots = [self.__is_headshot(img_line) for img_line in image_lines]
-        ocr_lines = self.__get_ocrlines(ocr_results, headshots)
+        ocr_lines = self.__get_ocrlines(ocr_results)
+        for line, hs in zip(ocr_lines, headshots):
+            line.headshot = bool(hs)
+
         return ocr_lines, image_lines
     
-    def __get_ocrlines(self, lines: list[list[OCResult_t]], headshot_rects: list[list[int]]) -> list[OCRLine]:
-        output = []
-        for rawline, hsr in zip(lines, headshot_rects):
+    def __fill_in_hs(self, image_lines: list[np.ndarray], headshots: list[list[int]]) -> list[np.ndarray]:
+        out = []
+        for img, hsr in zip(image_lines, headshots):
+            if not hsr:
+                out.append(img)
+            else:
+                x, y, w, h = hsr
+                img_cpy = img.copy()
+                img_cpy[y:y+h, x:x+w] = 0
+                out.append(img_cpy)
+        return out
+    
+    def __get_ocrlines(self, lines: list[list[OCResult_t]]) -> list[OCRLine]:
+        ocr_lines = []
+        for rawline in lines:
             ## cleaning stage 1
             results: list[OCResult] = []
             for res in rawline:
                 res = OCResult(res)
                 if res.prob < InPersonAnalyser.KF_PROB or len(res.text) < 2: continue
                 if max([IGNMatrix.compare_names(res.text, non_name) for non_name in InPersonAnalyser.NON_NAMES]) > 0.5: continue
-                
-                # if hsr and compute_iou(hsr, res.rect) > 0.75:
-                #     continue
 
                 res.eval(self.ign_matrix)
                 results.append(res)
@@ -618,9 +633,9 @@ class InPersonAnalyser(Analyser):
             elif len(results) >= 3: ## join call is required
                 results = self.__join_line(results)
 
-            output.append(OCRLine(results, headshot=bool(hsr)))
+            ocr_lines.append(OCRLine(results))
 
-        return output
+        return ocr_lines
 
     def __join_line(self, line: list[OCResult]) -> list[OCResult]:
         """Determines which OCResults to join"""
@@ -661,11 +676,11 @@ class InPersonAnalyser(Analyser):
 
         return new_line
 
-    def __is_headshot(self, image_line: np.ndarray, threshold: float = 0.6) -> list[int]:
+    def __is_headshot(self, image_line: np.ndarray, threshold: float = 0.5) -> list[int]:
         hs_img = self.assets["headshot"]
         result = cv2.matchTemplate(image_line, hs_img, cv2.TM_CCOEFF_NORMED)
         _, max_val, _, best_pt = cv2.minMaxLoc(result)
-        
+
         if max_val < threshold:
             return []
 

@@ -53,6 +53,20 @@ class SaveFile:
         return SaveFile(self.filename, self.ext)
 
 
+class PhantomTqdm:
+    total: Any
+    n: Any
+
+    def set_description_str(self, *args, **kwargs) -> None:
+        ...
+    def set_postfix_str(self, *args, **kwargs) -> None:
+        ...
+    def refresh(self) -> None:
+        ...
+    def close(self) -> None:
+        ...
+
+
 # ----- HELPER FUNCTIONS -----
 def ndefault(value: Any, default: Any) -> Any:
     """return value is None ? default : value"""
@@ -112,6 +126,28 @@ def compute_iou(rect1: list[int], rect2: list[int]) -> float:
     iou = intersection_area / union_area
 
     return iou
+
+
+def compute_rinr(r1: list[int], r2: list[int]) -> float:
+    # r1 and r2 are tuples of the form (xmin, ymin, xmax, ymax)
+    x1, y1, w1, h1 = r1
+    x2, y2, w2, h2 = r2
+
+    # Calculate intersection coordinates
+    inter_x_min = max(x1, x2)
+    inter_y_min = max(y1, y2)
+    inter_x_max = min(x1 + w1, x2 + w2)
+    inter_y_max = min(y1 + h1, y2 + h2)
+
+    # Calculate width and height of intersection
+    inter_width = max(0, inter_x_max - inter_x_min)
+    inter_height = max(0, inter_y_max - inter_y_min)
+
+    # Calculate intersection area
+    inter_area = inter_width * inter_height
+    r1_area = w1 * h1
+
+    return inter_area / r1_area if r1_area > 0 else 0
 
 
 if __name__ == "__main__":
