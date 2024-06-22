@@ -433,7 +433,7 @@ class InPersonAnalyser(Analyser):
 
         return (int(results[0]), int(results[1]))
 
-    def __read_atkside(self, side1: np.ndarray, side2: np.ndarray) -> Optional[int]:
+    def __read_atkside(self, side1: np.ndarray, side2: np.ndarray) -> int:
         """Matches the side icon next to the scoreline with `res/swords.jpg` to determine which side is attack."""
         icon1 = self._screenshot_preprocess(side1, to_gray=True, denoise=True)
         icon2 = self._screenshot_preprocess(side2, to_gray=True, denoise=True)
@@ -448,7 +448,7 @@ class InPersonAnalyser(Analyser):
         # Decide which icon matches best
         if max_val_icon1 >= max_val_icon2:
             return 0
-        elif max_val_icon1 < max_val_icon2:
+        else:
             return 1
 
 
@@ -500,7 +500,7 @@ class InPersonAnalyser(Analyser):
             self._end_round()
             self.end_round_seconds = None
 
-    
+
     def __read_timer(self, image: np.ndarray) -> Optional[Timestamp]:
         """
         Reads the current time displayed in the region `TIMER_REGION`
@@ -529,7 +529,7 @@ class InPersonAnalyser(Analyser):
 
         return None
 
-    
+
     def __is_bomb_countdown(self, image: np.ndarray) -> bool:
         """
         When a bomb is planted, the timer is replaced with a majority red circular countdown
@@ -581,14 +581,7 @@ class InPersonAnalyser(Analyser):
     
     OCResult_t: TypeAlias = tuple[list[list], str, float]
     def __read_feed(self, image_lines: list[np.ndarray]) -> tuple[list[OCRLine], list[np.ndarray]]:
-        """
-        Reading of the killfeed requires a few steps
-        1. Preprocessing with grayscale, fastNlMeansDenoising and width squeezing
-        2. EasyOCR reading and cleaning
-        3. Line Sorting & Cleaning
-        """
-        image_lines = [self._screenshot_preprocess(image, denoise=True)#0.75)
-                       for image in image_lines]
+        image_lines = [self._screenshot_preprocess(image, denoise=True) for image in image_lines]
         headshots = [self.__is_headshot(img_line) for img_line in image_lines]
         nohs_il = self.__fill_in_hs(image_lines, headshots)
         
@@ -603,6 +596,7 @@ class InPersonAnalyser(Analyser):
         return ocr_lines, image_lines
     
     def __fill_in_hs(self, image_lines: list[np.ndarray], headshots: list[list[int]]) -> list[np.ndarray]:
+        """Fills over the headshot icon in the image line to improve OCR results"""
         out = []
         for img, hsr in zip(image_lines, headshots):
             if not hsr:
@@ -677,6 +671,7 @@ class InPersonAnalyser(Analyser):
         return new_line
 
     def __is_headshot(self, image_line: np.ndarray, threshold: float = 0.5) -> list[int]:
+        """Uses template matching to determine if a kf line has a headshot"""
         hs_img = self.assets["headshot"]
         result = cv2.matchTemplate(image_line, hs_img, cv2.TM_CCOEFF_NORMED)
         _, max_val, _, best_pt = cv2.minMaxLoc(result)
@@ -741,6 +736,7 @@ class InPersonAnalyser(Analyser):
         self.history.cround.round_end_at = self.current_time
         self.state = State(False, True, False)
         self.last_seconds_count = 0
+
         self.prog_bar.set_time(0)
         self.prog_bar.set_desc("ROUND END")
         self.prog_bar.refresh()
@@ -759,6 +755,7 @@ class InPersonAnalyser(Analyser):
         bpat    = self.history.cround.bomb_planted_at
         winner  = self.history.cround.winner
         atkside = self.history.cround.atk_side
+
         if winner is None or atkside is None:
             return WinCondition.UNKNOWN
 

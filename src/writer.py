@@ -77,9 +77,6 @@ class JsonWriter(Writer):
 
 
 class XlsxWriter(Writer):
-    """
-    This class manages everything to do with saving round data to json/xlsx
-    """
     def __init__(self, savefile: SaveFile, config: dict, append_mode: bool = False) -> None:
         super(XlsxWriter, self).__init__(savefile, config, append_mode)
 

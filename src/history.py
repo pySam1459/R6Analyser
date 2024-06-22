@@ -27,18 +27,18 @@ class KFRecord:
     Dataclass to record an player interaction, who killed who, at what time, and if it was a headshot.
       player: killer, target: dead
     """
-    player: Player
-    target: Player
-    time: Timestamp
+    player:   Player
+    target:   Player
+    time:     Timestamp
     headshot: bool = False
     
     def __eq__(self, other: 'KFRecord') -> bool:
         """Equality check only requires index, not time/headshot (A can only kill B once)"""
         return self.player.idx == other.player.idx and self.target.idx == other.target.idx
-    
+
     def __hash__(self) -> int:
         return self.player.idx * 101 + self.target.idx
-    
+
     def update(self, ign_mat: IGNMatrix) -> 'KFRecord':
         """Updates the details for the player/target with the current IGNMatrix data"""
         if ign_mat.mode == IGNMatrixMode.INFER:
@@ -88,7 +88,7 @@ class HistoryRound:
             "round_end_at":         str(self.round_end_at),
             "win_condition":        self.win_condition.value,
             "winner":               self.winner,
-            "killfeed":             [kfr.to_json() for kfr in (self.clean_killfeed if self.clean_killfeed else self.killfeed)],
+            "killfeed":             [kfr.to_json() for kfr in (self.clean_killfeed or self.killfeed)],
         }
 
 
@@ -106,14 +106,14 @@ class History:
     @property
     def is_ready(self) -> bool:
         return self.__roundn > 0
-    
+
     @property
     def roundn(self) -> int:
         return self.__roundn
-    
+
     def get_round(self, roundn: int) -> Optional[HistoryRound]:
         return self.__round_data.get(roundn, None)
-    
+
     def get_rounds(self) -> list[HistoryRound]:
         return list(self.__round_data.values())
     def get_round_nums(self) -> list[int]:
@@ -133,15 +133,15 @@ class History:
         """This method should be called at the start of a new round"""
         self.__roundn = round_number
         self.__round_data[round_number] = HistoryRound()
-    
+
     def fix_round(self) -> None:
         """Should be called by _fix_state, in-case program incorrectly thinks round ended"""
         self.cround.round_end_at = None
-        
+
     def to_json(self) -> dict:
         """Converts all game data recorded to json-handlable"""
         return {ridx: round.to_json() for ridx, round in self.__round_data.items()}
-    
+
     def update(self, ignmat: IGNMatrix) -> None:
         """Updates all of the KFRecords with the most up-to-date player information from the IGNMatrix"""
         for round in self.__round_data.values():
