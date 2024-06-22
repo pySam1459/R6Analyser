@@ -1,12 +1,18 @@
 import argparse
+from datetime import datetime
 from json import load as json_load
 from os.path import exists, join
 from sys import exit
 from time import sleep
-from datetime import datetime
 from enum import Enum
-from typing import TypeVar, Type
-from analyser import InPersonAnalyser, SpectatorAnalyser, SaveFile, IGNMatrixMode
+from typing import TypeVar, Type, Any
+
+from ignmatrix import IGNMatrixMode
+from writer import SUPPORTED_SAVEFILE_EXTS
+from utils import SaveFile
+
+
+__all__ = ["main"]
 
 
 ## ----- HELPER FUNCTIONS -----
@@ -14,6 +20,7 @@ from analyser import InPersonAnalyser, SpectatorAnalyser, SaveFile, IGNMatrixMod
 def config_arg_error(name: str, reason: str) -> None:
     print(f"CONFIG ERROR: Invalid `{name}` argument, {reason}")
     exit()
+
 
 def __infer_key(config: dict, key: str) -> None:
     match key:
@@ -36,30 +43,24 @@ def __infer_key(config: dict, key: str) -> None:
         case "TEAM2_SIDE_REGION":
             tr = config["TIMER_REGION"]
             config["TEAM2_SIDE_REGION"]  = [tr[0] + int(tr[2]*1.45), tr[1], tr[2]//2, tr[3]]
-        case "KILLFEED_REGION":
-            kflr = config["KF_LINE_REGION"]
-            config["KILLFEED_REGION"] = [kflr[0], kflr[1] - kflr[3]*3, kflr[2], kflr[3]*4]
         case _:
             ...
 
 ## The following _cparse_ functions parse and validate different configuration arguments
-def __cparse_bool(arg, name: str) -> bool:
+def __cparse_bool(arg: Any, name: str) -> bool:
     if type(arg) != bool:
         config_arg_error(name, "only Boolean true/false, (no quotation \"\\' marks)")
     return arg
 
 T = TypeVar("T")
-def __cparse_type_range(arg, _type: T|list[T], name: str, lower: T, upper: T) -> T:
-    if type(_type) != list and type(arg) == _type:
-        s_type = str(_type)
-    elif type(_type) == list and not any([type(arg) == t for t in _type]):
-        s_type = ",".join([str(t) for t in _type])
-        config_arg_error(name, f"only {s_type} types")
+def __cparse_type_range(arg: Any, _type: T, name: str, lower: T, upper: T) -> T:
+    if type(arg) != _type:
+        config_arg_error(name, f"invalid type, arg must be of type {_type}, but got {type(arg)}")
     if not (lower <= arg <= upper):
         config_arg_error(name, f"must be in range [{lower}-{upper}]")
     return arg
 
-def __cparse_bounding_box(arg, name: str) -> list[int]:
+def __cparse_bounding_box(arg: Any, name: str) -> list[int]:
     if type(arg) != list or len(arg) != 4 or not all([type(el) == int for el in arg]):
         config_arg_error(name, "must be of length=4 and type list[int]")
     if any([el < 0 for el in arg]):
@@ -67,7 +68,7 @@ def __cparse_bounding_box(arg, name: str) -> list[int]:
     return arg
 
 E = TypeVar('E', bound=Enum)
-def __cparse_enum(arg, name: str, enum: Type[E]) -> E: # type: ignore the line
+def __cparse_enum(arg: Any, name: str, enum: Type[E]) -> E: # type: ignore the line
     if type(arg) == enum: return arg
 
     for enum_member in enum:
@@ -75,7 +76,7 @@ def __cparse_enum(arg, name: str, enum: Type[E]) -> E: # type: ignore the line
             return enum_member
     config_arg_error(name, f"{arg} not a valid enum value")
 
-def __cparse_IGNS(arg) -> list[str]:
+def __cparse_IGNS(arg: Any) -> list[str]:
     if type(arg) != list:
         config_arg_error("IGNS", "not a list")
     if not 0 <= len(arg) <= 10:
@@ -90,7 +91,8 @@ def __cparse_IGNS(arg) -> list[str]:
 ## config keys
 #    note: MAX_ROUNDS must be inferred before ROUNDS_PER_SIDE
 REQUIRED_CONFIG_KEYS = ["SCRIM", "SPECTATOR", "TIMER_REGION", "KF_LINE_REGION", "IGNS"]
-INFER_CONFIG_KEYS    = ["MAX_ROUNDS", "ROUNDS_PER_SIDE", "IGN_MODE", "TEAM1_SCORE_REGION", "TEAM2_SCORE_REGION", "TEAM1_SIDE_REGION", "TEAM2_SIDE_REGION", "KILLFEED_REGION"]
+INFER_CONFIG_KEYS    = ["MAX_ROUNDS", "ROUNDS_PER_SIDE", "IGN_MODE",
+                        "TEAM1_SCORE_REGION", "TEAM2_SCORE_REGION", "TEAM1_SIDE_REGION", "TEAM2_SIDE_REGION"]
 OPTIONAL_CONFIG_KEYS = ["SCREENSHOT_RESIZE", "SCREENSHOT_PERIOD"]
 DEFAULT_CONFIG_FILENAME = "defaults.json"
 
@@ -111,11 +113,10 @@ __cparse_functions = {
     "TEAM2_SCORE_REGION": lambda arg: __cparse_bounding_box(arg, "TEAM2_SCORE_REGION"),
     "TEAM1_SIDE_REGION":  lambda arg: __cparse_bounding_box(arg, "TEAM1_SIDE_REGION"),
     "TEAM2_SIDE_REGION":  lambda arg: __cparse_bounding_box(arg, "TEAM2_SIDE_REGION"),
-    "KILLFEED_REGION":    lambda arg: __cparse_bounding_box(arg, "KILLFEED_REGION"),
 
     ## Optional keys
-    "SCREENSHOT_RESIZE":  lambda arg: __cparse_type_range(arg, [int, float], "SCREENSHOT_RESIZE", 1, 8),
-    "SCREENSHOT_PERIOD":  lambda arg: __cparse_type_range(arg, [int, float], "SCREENSHOT_PERIOD", 0.25, 2),
+    "SCREENSHOT_RESIZE":  lambda arg: __cparse_type_range(arg, int, "SCREENSHOT_RESIZE", 1, 8),
+    "SCREENSHOT_PERIOD":  lambda arg: __cparse_type_range(arg, float, "SCREENSHOT_PERIOD", 0.25, 2),
 }
 
 def __parse_config(config_filepath: str) -> dict:
@@ -192,12 +193,15 @@ def __parse_verbose(arg: str) -> int:
 
 
 def __parse_save(arg: str) -> SaveFile:
+    if "." not in arg:
+        raise argparse.ArgumentTypeError(f"Invalid save file {arg}")
+
     filename, ext = arg.rsplit(".", maxsplit=1)
-    if ext == "json" or ext == "xlsx":
+    if ext in SUPPORTED_SAVEFILE_EXTS:
         return SaveFile(filename, ext)
     raise argparse.ArgumentTypeError(f"Invalid save file type {ext}, only json/xlsx allowed")
 
-def __default_save() -> str:
+def __default_json_savefile() -> str:
     return datetime.now().strftime('%Y-%m-%d_%H-%M-%S') + ".json"
 
 
@@ -224,7 +228,7 @@ def main():
                         type=__parse_save,
                         help="Where to save the output of R6Analyser, only json or xlsx files",
                         dest="save",
-                        default=__default_save())
+                        default=__default_json_savefile())
     parser.add_argument("--append-save",
                        action="store_true",
                        help="Whether to append new round data onto the existing save file, otherwise save all data at the end of a game",
@@ -256,16 +260,20 @@ def main():
         sleep(args.delay)
 
     if args.region_tool:
-        from regiontool import RegionTool
+        from tools.regiontool import RegionTool
 
         print("Info: Running Region Tool...")
         RegionTool(args).run()
     
     elif getattr(args, "config", False):
         if args.config["SPECTATOR"]:
+            from analyser import SpectatorAnalyser
+
             print("Info: In Spectator Mode")
             analyser = SpectatorAnalyser(args)
         else:
+            from analyser import InPersonAnalyser
+
             print("Info: In Person Mode")
             analyser = InPersonAnalyser(args)
 
@@ -276,3 +284,7 @@ def main():
 
     else:
         print("Invalid R6Analyser Arguments")
+
+
+if __name__ == "__main__":
+    print("Please run R6Analyser from run.py")

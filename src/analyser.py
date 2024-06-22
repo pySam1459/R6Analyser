@@ -1,454 +1,23 @@
-import json
-import sys
-import pyautogui
 import cv2
-import numpy as np
 import easyocr
-from string import ascii_letters
+import numpy as np
+import pyautogui
+import sys
+from abc import ABC, abstractmethod
 from argparse import Namespace
-from re import search, fullmatch
-from time import time
+from dataclasses import dataclass
+from io import StringIO
 from os import mkdir
 from os.path import join, exists
-from io import StringIO
-from dataclasses import dataclass, field
-from abc import ABC, abstractmethod
-from Levenshtein import ratio as leven_ratio
-from openpyxl import load_workbook, Workbook
+from re import search, fullmatch
+from time import time
 from tqdm import tqdm
-from typing import TypeAlias, Optional, Any
+from typing import TypeAlias, Optional
+
+from ignmatrix import IGNMatrix
+from history import History, KFRecord, WinCondition
+from writer import Writer
 from utils import *
-
-
-@dataclass
-class Player:
-    """Dataclass containing all necessary player information"""
-    idx: int
-    ign: str
-    team: None | int = None
-
-
-class IGNMatrixMode(StrEnum):
-    """
-    Mode for the IGN Matrix
-        fixed - all 10 IGNs are present before program starts and remains unchanged throughout
-        infer - <10 IGNs are present, the remaining IGNs will be inferred through the killfeed
-    """
-    FIXED = "fixed"
-    INFER = "infer"
-
-
-class IGNMatrix(ABC):
-    """
-    IGN Matrix infers the true IGN from the EasyOCR reading of the IGN (pseudoIGN/pign) from the killfeed.
-    The matrix can be initialised with a prior list of 'fixed' IGNs (IGNs known before starting the game)
-    If the matrix is not provided with 10 fixed IGNs, the matrix's output will depend on its initialised mode
-    - fixed: will return None for all non-fixed IGNs
-    - infer: will infer the non-fixed IGNs from the OCR's output
-    The matrix will return an index/ID and the true/most-seen IGN when requested using the `get` method
-    The matrix uses Levenshtein distance to determine whether two IGNs are the same (could be improved?)
-    """
-
-    @property
-    @abstractmethod
-    def mode(self) -> IGNMatrixMode:
-        ...
-
-    @abstractmethod
-    def get(self, pseudoIGN: str, threshold: float = 0.75) -> Optional[Player]:
-        ...
-    
-    @abstractmethod
-    def get_from_idx(self, idx: int) -> Optional[Player]:
-        ...
-    
-    @abstractmethod
-    def get_team_from_idx(self, idx: int) -> Optional[int]:
-        ...
-    
-    @abstractmethod
-    def get_players(self) -> list[Player]:
-        """Returns a list of 10 Player objects where each team are grouped in team 0: 0-4 | team 1: 5-9"""
-        ...
-    
-    @abstractmethod
-    def evaluate(self, pign: str) -> float:
-        ...
-    
-    def update_team_table(self, pidx: int, tidx: int) -> None:
-        ...
-    
-    @staticmethod
-    def new(igns: list[str], mode: IGNMatrixMode) -> 'IGNMatrix':
-        """Creates a new IGNMatrix object from a list of fixed IGNs and the IGNMatrix Mode"""
-        match mode:
-            case IGNMatrixMode.FIXED:
-                return IGNMatrixFixed.new(igns)
-            case IGNMatrixMode.INFER:
-                if len(igns) == 10: return IGNMatrixFixed.new(igns)
-                else: return IGNMatrixInfer.new(igns)
-            case _:
-                raise ValueError(f"Unknown IGNMatrixMode {mode}")
-
-    @staticmethod
-    def compare_names(name1: str, name2: str) -> float:
-        """Compares two IGN's (pseudo/non-pseudo) using Levenshtein distance, output in the range [0-1]"""
-        return leven_ratio(name1.lower(), name2.lower())
-    
-    @staticmethod
-    def _check_fixed(ign_list: list[str], pign: str, threshold: float) -> Optional[Player]:
-        """Compares a psuedoIGN to a fixed list of igns and returns a Player object if the pign is in the list"""
-        max_score = 0.0
-        max_idx   = None
-        for i, ign in enumerate(ign_list):
-            if ign == pign: return Player(i, ign, int(i >= 5))
-            if (score := IGNMatrix.compare_names(pign, ign)) > max_score:
-                max_score = score
-                max_idx = i
-
-        if max_score > threshold and max_idx is not None:
-            return Player(max_idx, ign_list[max_idx], int(max_idx >= 5))
-        return None
-
-
-class IGNMatrixFixed(IGNMatrix):
-    """
-    This subclass of IGNMatrix only handles the case where all IGNs are known beforehand
-    Separating the different IGN modes aims to improve efficiency, readability and modularity
-    """
-    VALID_THRESHOLD = 0.6 ## threshold for Levenshtein distance to determine equality
-
-    def __init__(self, igns: list[str]) -> None:
-        self.__fixmat = igns
-    
-    @property
-    def mode(self) -> IGNMatrixMode:
-        return IGNMatrixMode.FIXED
-    
-    def get(self, pign: str, threshold: float = VALID_THRESHOLD) -> Optional[Player]:
-        """Returns the most-likely Player object from a pseudoIGN or None if the pseudoIGN does not meet the threshold"""
-        return IGNMatrix._check_fixed(self.__fixmat, pign, threshold)
-
-    def get_from_idx(self, idx: int) -> Optional[Player]:
-        """Returns the Player object from their index"""
-        if 0 <= idx <= 9:
-            return Player(idx, self.__fixmat[idx], int(idx >= 5))
-
-        return None
-    
-    def get_team_from_idx(self, idx: int) -> Optional[int]:
-        """Returns the team index from the player's index"""
-        return int(idx >= 5)
-
-    def get_players(self) -> list[Player]:
-        """Returns a list of all Players currently playing"""
-        return [Player(i, ign, int(i >= 5)) for i, ign in enumerate(self.__fixmat)]
-
-    ## worth adding an cache?
-    def evaluate(self, pign: str) -> float:
-        """Evaluates a given pseudoIGN and returns as score between 0-1"""
-        if pign in self.__fixmat: return 1.0
-        return max([IGNMatrix.compare_names(pign, name) for name in self.__fixmat])
-
-    @staticmethod
-    def new(igns: list[str]) -> 'IGNMatrixFixed':
-        """Type checking of `igns` is done by the `__cparse_IGNS` function, except for length=10 check"""
-        if len(igns) != 10:
-            raise ValueError(f"Invalid Fixed IGNMatrix argument, must have 10 IGNs, not {len(igns)}")
-        
-        return IGNMatrixFixed(igns)
-
-
-class NamesRecord:
-    """A Record containing the occurrency count for each pseudoIGN of an unknown true IGN"""
-    def __init__(self, pign: str):
-        self.__vars:   list[str] = [pign]
-        self.__counts: list[int] = [1]
-        
-        self.__noccr = 1
-        self.__best = 0 ## idx of most-likely pign so far
-    
-    def inc(self, idx: int) -> None:
-        self.__counts[idx] += 1
-        self.__noccr += 1
-
-        if self.__counts[idx] > self.__counts[self.__best]:
-            self.__best = self.__counts[idx]
-    
-    def new(self, pign: str) -> None:
-        self.__vars.append(pign)
-        self.__counts.append(1)
-        self.__noccr += 1
-    
-    def _in(self, pign: str) -> int:
-        if pign in self.__vars:
-            return self.__vars.index(pign)
-        return -1
-    
-    def fuzzy_cmp(self, pign: str, threshold: float) -> bool:
-        for var in self.__vars:
-            if IGNMatrix.compare_names(pign, var) >= threshold:
-                return True
-        return False
-    
-    def noccr(self) -> int:
-        return self.__noccr
-    
-    def maxoccr(self) -> int:
-        return max(self.__counts)
-
-    def best(self) -> str:
-        return self.__vars[self.__best]
-    
-    def __iter__(self) -> None:
-        return iter(zip(self.__vars, self.__counts))
-
-
-class IGNMatrixInfer(IGNMatrix):
-    """
-    IGN Inference has 3 steps, fixed, semi-fixed, matrix
-    1. Fixed      - a pseudoIGN is compared to the list of known IGNs
-    2. Semi-Fixed - a pseudoIGN is tested against all of the semi-fixed IGN names-record
-    3. Matrix     - a pseudoIGN is tested against all other pseudoIGN names-record
-    When a pseudoIGN is found in either semi-fixed or matrix names-record, the occurrence of that pseudoIGN is incremented
-    If a matrix names-record reaches the ASSIMILATION THRESHOLD of occurrences, that pseduo IGN names-record is promoted to semi-fixed
-    Once len(Fixed) + len(Semi-Fixed) == 10, no more psuedoIGN names-record can be promoted and assumed to be invalid IGNs
-    """
-    VALID_THRESHOLD = 0.75     ## threshold for Levenshtein distance to determine equality
-    ASSIMILATE_THRESHOLD = 7   ## how many times a pseudoIGN has to be seen before adding to 'semi-fixed' list
-    KD_DIFF_THRESHOLD = 4      ## how many times player on team 'A' but kill/be killed by a player on team 'B' before setting team
-    NO_TEAM_HIST_THRESHOLD = 3 ## how many history records to declare teams, if no team indices are known
-    EVAL_DECAY = 0.95
-
-    def __init__(self, igns: list[str]) -> None:
-        self.__fixmat = igns
-        self.__fixlen = len(igns)
-
-        self.__semi_fixmat: dict[int, NamesRecord] = {}
-        self.__matrix:      dict[int, NamesRecord] = {}
-        self.__mats = (self.__semi_fixmat, self.__matrix)
-        self.__semi_fixlen = 0
-        self.__idx_counter = self.__fixlen
-
-        self.__team_mat:  dict[int, int]       = {i: int(i>=5) for i in range(self.__fixlen)}
-        self.__team_diff: dict[int, list[int]] = {}  ## for each idx, number of kills/deaths to either team
-        self.__team_hist: dict[int, list[int]] = {}  ## a list of kill/death relations for each idx
-    
-    @property
-    def mode(self) -> IGNMatrixMode:
-        return IGNMatrixMode.INFER
-    
-    def get(self, pign: str, threshold: float = VALID_THRESHOLD) -> Optional[Player]:
-        """
-        Returns the most-likely Player from the pseudoIGN
-        1. checks the pign against the fixed matrix
-        2. checks the pign against the semi-fixed matrix
-        3. checks the pign against the matrix & assimmilates player into semi-fixed if assim-threshold is met
-        4. otherwise add pign to the matrix
-        """
-        ## first check the fixed igns
-        if self.__fixlen > 0 and (pl := IGNMatrix._check_fixed(self.__fixmat, pign, threshold)) is not None:
-            return pl
-        
-        ## second, check the semi-fixed igns
-        for idx, nr in self.__semi_fixmat.items():
-            if (pl := self.__in_names_record(pign, idx, nr, threshold)):
-                return pl
-        
-        ## if all fixed and semi-fixed igns have been found, assume pseudoIGN is invalid
-        if self.__fixlen + self.__semi_fixlen >= 10:
-            return None
-
-        ## if not all semi-fixed igns have been found, check matrix, and assimilate if necessary
-        for idx, nr in self.__matrix.items():
-            if (pl := self.__in_names_record(pign, idx, nr, threshold)):
-                self.__check_assimilation(idx, nr)
-                return pl
-
-        ## if ign has not been seen, add to matrix
-        idx = self.__idx_counter
-        self.__matrix[idx] = NamesRecord(pign)
-        self.__idx_counter += 1
-        return Player(idx, pign, None)
-
-    def __in_names_record(self, pign: str, idx: int, nr: NamesRecord, threshold: float) -> Optional[Player]:
-        """
-        Determines whether a pseudoIGN/pign belongs to a specified NamesRecord,
-          and increases the occurrence counts if it does.
-        """
-        if (pidx := nr._in(pign)) >= 0:
-            nr.inc(pidx) # increase occurrence count for pseudoIGN
-            return Player(idx, nr.best(), self.get_team_from_idx(idx))
-
-        if nr.fuzzy_cmp(pign, threshold):
-            nr.new(pign)
-            return Player(idx, nr.best(), self.get_team_from_idx(idx))
-
-        return None
-    
-    def __check_assimilation(self, idx: int, nr: NamesRecord) -> None:
-        """Checks to see if a specified names record has passed over the Assimilation threshold, and if so assimilate to semi-fixed matrix"""
-        if nr.noccr() >= IGNMatrixInfer.ASSIMILATE_THRESHOLD:
-            self.__semi_fixmat[idx] = self.__matrix.pop(idx)
-            self.__semi_fixlen += 1
-    
-    def get_ign_from_idx(self, idx: int) -> Optional[str]:
-        """Returns the player's most-likely ign from their index"""
-        if 0 <= idx < self.__fixlen:
-            return self.__fixmat[idx]
-        elif idx in self.__semi_fixmat:
-            return self.__semi_fixmat[idx].best()
-        elif idx in self.__matrix:
-            return self.__matrix[idx].best()
-
-        return None
-
-    def get_from_idx(self, idx: int) -> Optional[Player]:
-        """Returns the (most likely) Player from a given idx"""
-        if (ign := self.get_ign_from_idx(idx)) is None:
-            return None
-
-        return Player(idx, ign, self.get_team_from_idx(idx))
-    
-    def get_team_from_idx(self, idx: int) -> Optional[int]:
-        """Returns the team index from a player's index"""
-        if self.__fixlen >= 5 or idx <= self.__fixlen:
-            return int(idx >= 5)
-
-        if idx in self.__team_mat:
-            return self.__team_mat[idx]
-
-        return None
-    
-    def update_team_table(self, pidx: int, tidx: int) -> None:
-        """
-        To infer a player's team, a record of player kills/deaths are recorded to infer the most likely team they belong to
-        The team table is required to handle cases of team-kills, and so the KD_DIFF_THRESHOLD is used to determine 
-          when a player has had enough interactions to decide a team
-        """
-        pteam = self.__team_mat.get(pidx, None)
-        tteam = self.__team_mat.get(tidx, None)
-
-        ## parentheses for clarity
-        if ((pteam is not None) and (tteam is not None)) \
-            or (self.get_team_from_idx(pidx) is not None and self.get_team_from_idx(tidx) is not None): ## both team indices are known
-            return
-
-        ## one of the team indices are not known
-        elif (pteam is None) and (tteam is not None):
-            self.__add_team_diff(pidx, tteam)
-        elif pteam is not None and (tteam is None):
-            self.__add_team_diff(tidx, pteam)
-
-        ## neither team indices are known
-        else:
-            self.__add_team_hist(pidx, tidx)
-            self.__add_team_hist(tidx, pidx)
-
-    def __add_team_diff(self, idx: int, opp_team: int) -> None:
-        """
-        This method adds an interaction count with `opp_team` to idx's team_diff
-        It then checks to see if `idx`'s team_diff has reached the KD_DIFF_TRESHOLD
-          so that idx's team can be set
-        """
-        if idx not in self.__team_diff:
-            self.__team_diff[idx] = [0, 0]
-        
-        tdiff = self.__team_diff[idx]
-        tdiff[opp_team] += 1
-
-        ## check if idx has passed KD_DIFF_THRESHOLD, number of interactions before setting team index
-        if abs(tdiff[0] - tdiff[1]) > IGNMatrixInfer.KD_DIFF_THRESHOLD:
-            team_idx = int(tdiff[0] > tdiff[1])      ## idx's team = argmin(tdiff)
-            self.__set_team_idx(idx, team_idx)
-
-    def __add_team_hist(self, idx: int, value: int) -> None:
-        """In the case when neither player's team in an interaction is known, add the interaction to a history"""
-        if idx in self.__team_mat: return  ## should only hit if I've made a mistake
-
-        if idx not in self.__team_hist:
-            self.__team_hist[idx] = [value]
-        else:
-            self.__team_hist[idx].append(value)
-        
-        ## in the case when no player has a set team, declare a team when the # interactions threshold is met
-        if len(self.__team_mat) == 0 and len(self.__team_hist[idx]) > IGNMatrixInfer.NO_TEAM_HIST_THRESHOLD:
-            self.__set_team_idx(idx, 0)  ## DECLARE TEAMS!
-
-    def __set_team_idx(self, idx: int, team_idx: int) -> None:
-        """Sets the team index for a Player with `idx`"""
-        self.__team_mat[idx] = team_idx       ## set the team index for idx
-
-        ## use interaction history to infer teams for other players
-        if idx in self.__team_hist:
-            ## update team_diff for all of idx's previous unknown-team interactions
-            for opp_idx in self.__team_hist[idx]:
-                self.__add_team_diff(opp_idx, team_idx)
-            self.__team_hist.pop(idx)
-
-        if idx in self.__team_diff:
-            self.__team_diff.pop(idx)
-
-    def get_players(self) -> list[Player]:
-        """Returns a list of Players most likely playing in the game"""
-        unsorted_players = self.__get_unsorted_players()
-        if self.__fixlen >= 5:
-            return unsorted_players
-
-        ## sort the players based on their team, 3rd bucket is for players with an unknown team
-        buckets = [[], [], []]
-        for pl in unsorted_players:
-            bidx = ndefault(pl.team, 2)
-            buckets[bidx].append(pl)
-
-        return buckets[0] + buckets[1] + buckets[2]
-
-    def __get_unsorted_players(self) -> list[Player]:
-        """
-        Creates a list of players with priority starting with fixmat, semi-fixmat and matrix
-        The likelihood for players in the matrix is determined by the number of occurrences
-        """
-        players = [Player(i, ign, int(i >= 5)) for i, ign in enumerate(self.__fixmat)]
-        if self.__fixlen == 10:
-            return players
-
-        players += [Player(idx, nr.best(), self.get_team_from_idx(idx)) for idx, nr in self.__semi_fixmat.items()]
-        if len(players) == 10:
-            return players
-        
-        if len(players) + len(self.__matrix) <= 10:
-            ## Note: may return a list < 10 length
-            return players + [Player(idx, nr.best(), self.get_team_from_idx(idx)) for idx, nr in self.__matrix.items()]
-        else:
-            ## Only add the most likely (most seen) players from __matrix to the players list
-            ##   sorted the __matrix by # times seen and only add the top 10-len(players)
-            indices = sorted(self.__matrix, key=lambda k: self.__matrix[k].noccr(), reverse=True)[:10-len(players)]
-            return players + [Player(idx, self.__matrix[idx].best(), self.get_team_from_idx(idx)) for idx in indices]
-
-    
-    def evaluate(self, pign: str) -> float:
-        """
-        Evaluates an pseudoIGN, determining how close it is to a real ign
-        Eval decay: `(IGNMatrixInfer.EVAL_DECAY ** (max_occr - occr)` factor gives emphasis to pseudoIGNs seen more often
-        """
-        max_val = 0.0
-        if pign in self.__fixmat:
-            return 1.0
-
-        for ign in self.__fixmat:
-            max_val = max(max_val, IGNMatrix.compare_names(pign, ign))
-        
-        for nr in self.__semi_fixmat.values():
-            if nr._in(pign):
-                return 1.0
-        
-        evals = [IGNMatrix.compare_names(pign, name) * (IGNMatrixInfer.EVAL_DECAY ** (nr.maxoccr() - occr)) for mat in self.__mats for nr in mat.values() for name, occr in nr]
-        return max(max_val, *evals)
-
-    @staticmethod
-    def new(igns: list[str]) -> 'IGNMatrixInfer':
-        """Type checking of `igns` is done by the `__cparse_IGNS` function"""
-        return IGNMatrixInfer(igns)
 
 
 class TimerFormat(Enum):
@@ -465,482 +34,62 @@ class State:
     bomb_planted: bool
 
 
-class WinCondition(StrEnum):
-    KILLED_OPPONENTS = "KilledOpponents"
-    TIME             = "Time"
-    DEFUSED_BOMB     = "DefusedBomb"
-    DISABLED_DEFUSER = "DisabledDefuser"
-    UNKNOWN          = "Unknown" 
-
-
-@dataclass
-class KFRecord:
-    """
-    Dataclass to record an player interaction, who killed who, at what time, and if it was a headshot.
-      player: killer, target: dead
-    """
-    player: Player
-    target: Player
-    time: Timestamp
-    headshot: bool = False
-    
-    def __eq__(self, other: 'KFRecord') -> bool:
-        """Equality check only requires index, not time/headshot (A can only kill B once)"""
-        return self.player.idx == other.player.idx and self.target.idx == other.target.idx
-    
-    def update(self, ign_mat: IGNMatrix) -> 'KFRecord':
-        """Updates the details for the player/target with the current IGNMatrix data"""
-        if ign_mat.mode == IGNMatrixMode.INFER:
-            self.player = ign_mat.get_from_idx(self.player.idx) or self.player
-            self.target = ign_mat.get_from_idx(self.target.idx) or self.player
-        return self
-
-    def to_json(self) -> dict:
-        """Converts KFRecord object to json-handlable dictionary"""
-        return {
-            "time": str(self.time),
-            "player": self.player.ign,
-            "target": self.target.ign,
-            "headshot": self.headshot
-        }
-
-    def __str__(self) -> str:
-        headshot_str = "(X) " if self.headshot else ""
-        return f"{self.time}| {self.player} -> {headshot_str}{self.target}"
-
-    __repr__ = __str__
-
-
-@dataclass
-class HistoryRound:
-    """Dataclass storing all of the data gathered from 1 round"""
-    scoreline:           Optional[list[int]] = None
-    atk_side:            Optional[int] = None
-    bomb_planted_at:     Optional[Timestamp] = None
-    disabled_defuser_at: Optional[Timestamp] = None
-    round_end_at:        Optional[Timestamp] = None
-    win_condition:       WinCondition = WinCondition.UNKNOWN
-    winner:              Optional[int] = None
-    killfeed:            list[KFRecord] = field(default_factory=list)
-    deaths:              list[int] = field(default_factory=list)
-
-    clean_killfeed: Optional[list[KFRecord]] = None
-    clean_deaths:   Optional[list[int]] = None
-
-    def to_json(self) -> dict:
-        """Converts a HistoryRound object to a json-handlable dictionary"""
-        return {
-            "scoreline":            self.scoreline,
-            "atk_side":             self.atk_side,
-            "bomb_planted_at":      str(self.bomb_planted_at),
-            "disabled_defuser_at":  str(self.disabled_defuser_at),
-            "round_end_at":         str(self.round_end_at),
-            "win_condition":        self.win_condition.value,
-            "winner":               self.winner,
-            "killfeed":             [kfr.to_json() for kfr in (self.clean_killfeed if self.clean_killfeed else self.killfeed)]
-        }
-
-
-class History:
-    """
-    This History class maintains a record of all game data recorded in a dictionary of game round: HistoryRound
-    The program's round number counter is coupled to this class and only modified through the `new_round` method
-    This class will only record round data after `new_round` is called for the first time
-    """
-    def __init__(self) -> None:
-        self.__roundn = -1
-        self.__round_data: dict[int, HistoryRound] = {}
-        self.__phantom_round = HistoryRound()
-
-    @property
-    def is_ready(self) -> bool:
-        return self.__roundn > 0
-    
-    @property
-    def roundn(self) -> int:
-        return self.__roundn
-    
-    def get_round(self, roundn: int) -> Optional[HistoryRound]:
-        return self.__round_data.get(roundn, None)
-    
-    def get_rounds(self) -> list[HistoryRound]:
-        return list(self.__round_data.values())
-    def get_round_nums(self) -> list[int]:
-        return list(self.__round_data.keys())
-    def __contains__(self, key: int) -> bool:
-        return key in self.__round_data
-
-    @property
-    def cround(self) -> HistoryRound:
-        """
-        Property to access the current HistoryRound
-        Returns a Phantom round in-case history is not ready (__roundn <= 0)
-        """
-        return self.__round_data.get(self.__roundn, self.__phantom_round)
-
-    def new_round(self, round_number: int) -> None:
-        """This method should be called at the start of a new round"""
-        self.__roundn = round_number
-        self.__round_data[round_number] = HistoryRound()
-    
-    def fix_round(self) -> None:
-        """Should be called by _fix_state, in-case program incorrectly thinks round ended"""
-        self.cround.round_end_at = None
-        
-    def to_json(self) -> dict:
-        """Converts all game data recorded to json-handlable"""
-        return {ridx: round.to_json() for ridx, round in self.__round_data.items()}
-    
-    def update(self, ignmat: IGNMatrix) -> None:
-        """Updates all of the KFRecords with the most up-to-date player information from the IGNMatrix"""
-        for round in self.__round_data.values():
-            for record in round.killfeed:
-                record.update(ignmat)
-
-
-class SaveManager:
-    """
-    This class manages everything to do with saving round data to json/xlsx
-    """
-    def __init__(self, savefile: SaveFile, config: dict, append_mode: bool = False) -> None:
-        self.__savefile = savefile
-        self.__config   = config
-        self.__append_mode = append_mode
-
-        self.__players: list[Player]
-
-    def save(self, history: History, ignmat: IGNMatrix) -> None:
-        """Main class method to save the history data gathered so-far to json/xlsx"""
-        if not exists("saves"):
-            mkdir("saves")
-
-        self.__players = ignmat.get_players()
-        history.update(ignmat)
-        self.__clean_history(history)
-
-        match self.__savefile.ext:
-            case "json":
-                self.__save_json(history)
-            case "xlsx":
-                self.__save_xlsx(history, ignmat)
-            case _:
-                print(f"Unknown save file extension {self.__savefile.ext}")
-    
-    def __clean_history(self, history: History) -> None:
-        """Creates separate clean_killfeed and clean_death attributes to each HistoryRound with all players who aren't in `__players` removed"""
-        indices = [pl.idx for pl in self.__players]
-        for round in history.get_rounds():
-            round.clean_killfeed = [record for record in round.killfeed if record.player.idx in indices and record.target.idx in indices]
-            round.clean_deaths   = [didx for didx in round.deaths if didx in indices]
-
-    def __save_json(self, history: History) -> None:
-        with open(join("saves", str(self.__savefile)), "w") as f_out:
-            json.dump(history.to_json(), f_out, indent=4)
-
-
-    def __save_xlsx(self, history: History, ignmat: IGNMatrix) -> None:
-        savepath = join("saves", str(self.__savefile))
-        workbook, savepath, append = self.__load_workbook(savepath, self.__append_mode)
-
-        ## remove default worksheet
-        if "Sheet" in workbook.sheetnames:
-            del workbook["Sheet"]
-
-        ## get data
-        rounds = [history.roundn] if append else history.get_round_nums()
-        xslx_match = self.__get_xlsx_match(history, ignmat, workbook) if append else self.__get_xlsx_match(history, ignmat)
-        data = xslx_match | self.__get_xlsx_rounds(history, rounds)
-
-        ## Add new sheets and fill them with data
-        for sheet_name, sheet_data in data.items():
-            if sheet_name in workbook.sheetnames:
-                del workbook[sheet_name]
-
-            sheet = workbook.create_sheet(title=sheet_name)
-            for row in sheet_data:
-                sheet.append(row)
-        
-        try:
-            ## Save the workbook
-            workbook.save(savepath)
-        except PermissionError:
-            new_savepath = self.__make_copyfile()
-            workbook.save(new_savepath)
-            print(f"SAVE FILE ERROR: Permission Denied! Cannot save to {savepath}, file may already be open. Saving to {new_savepath}")
-    
-    def __load_workbook(self, savepath: str, append: bool) -> tuple[Workbook, str, bool]:
-        """Loads a workbook, if `append=True`, it attempts to load the existing workbook from `savepath`"""
-        if not append: ## if append=False, return new Workbook object
-            return Workbook(), savepath, False
-
-        if not exists(savepath): ## if savepath does not exist, return new Workbook object
-            print(f"SAVE FILE ERROR: {savepath} does not exist! Defaulting to append-save=False.")
-            return Workbook(), savepath, False
-        
-        temp_file = self.__make_copyfile()
-        try: ## attempts to load existing workbook
-            return load_workbook(savepath), savepath, True
-            
-        except PermissionError as e:
-            print(f"SAVE FILE ERROR: Permission Denied! Cannot open save file {savepath}, file may already be open.\nDefaulting to append-save=False and saving to {temp_file}.\n{str(e)}")
-        except Exception as e:
-            print(f"SAVE FILE ERROR: An error occurred when trying to load the existing xlsx file {savepath}.\nDefaulting to append-save=False and saving to {temp_file}.\n{str(e)}")
-
-        ## existing workbook failed to load, return a new Workbook object
-        return Workbook(), temp_file, False
-    
-
-    def __get_xlsx_match(self, history: History, ignmat: IGNMatrix, workbook: Optional[Workbook] = None) -> dict:
-        """Returns the data present on the Match sheet, statistics across all rounds"""
-        existing_kd = None
-        if workbook is not None and "Match" in workbook.sheetnames:
-            existing_kd = self.__get_existing_kd(ignmat, workbook)
-
-        headers = [
-            ["Statistics"],
-            ["Player", "Team Index", "Rounds", "Kills", "Deaths"]]
-        
-        kills, deaths = self.__get_xlsx_kd(history, existing_kd)
-        data = transpose([
-            [pl.ign for pl in self.__players],
-            [ndefault(pl.team, "") for pl in self.__players],
-            [history.roundn]*len(self.__players),
-            kills,
-            deaths
-        ])
-
-        ## if player[0] is not attacker of first recorded game
-        min_rn = min(history.get_round_nums())
-        rps = self.__config["ROUNDS_PER_SIDE"]
-        team = self.__players[0].team
-        if team is not None:
-            if rps < min_rn <= rps*2:
-                team = 1-team
-
-            hr = history.get_round(min_rn)
-            if hr is not None and hr.atk_side != team:
-                data = self.__table_flip(data)
-
-        return { "Match": headers + data }
-
-    def __get_existing_kd(self, ignmat: IGNMatrix, workbook: Workbook) -> tuple[list[int], list[int]]:
-        """Returns the kills/deaths from an existing Match sheet"""
-        ## TODO: if you are trying to re-append a Round, you will count that round's stat's twice
-        existing_kd = [list(row) for row in workbook["Match"].iter_rows(min_row=3, max_row=12, min_col=4, max_col=5, values_only=True)]
-        existing_names = next(workbook["Match"].iter_cols(min_col=1, max_col=1, min_row=3, max_row=12, values_only=True))
-
-        if ignmat.mode == IGNMatrixMode.FIXED:
-            kills, deaths = transpose([existing_kd[existing_names.index(pl.ign)] for pl in self.__players])
-            return (kills, deaths)
-
-        ## Existing names must be checked against currently-known names
-        pl_map = {} ## maps player.idx to existing_name index
-        for i, name in enumerate(existing_names):
-            scores = [IGNMatrix.compare_names(pl.ign, str(name)) for pl in self.__players] 
-            idx = scores.index(max(scores))
-            pl_map[self.__players[idx].idx] = i
-
-        n_players = len(self.__players) ## select existing_kd for new __player list
-        kills, deaths = [0]*n_players, [0]*n_players
-        for i, pl in enumerate(self.__players):
-            if pl.idx in pl_map:
-                kills[i] = existing_kd[pl_map[pl.idx]][0]
-                deaths[i] = existing_kd[pl_map[pl.idx]][1]
-
-        return (kills, deaths)
-
-    def __get_xlsx_kd(self, history: History, existing_kd: Optional[tuple[list[int], list[int]]] = None) -> tuple[list[int], list[int]]:
-        """Returns the kills/deaths for all players from the history across all rounds"""
-        n_players = len(self.__players)
-        kills, deaths = ([0]*n_players, [0]*n_players) if existing_kd is None else existing_kd
-
-        idx_map = {pl.idx: i for i, pl in enumerate(self.__players)} ## in case player.idx >= 10
-        for round in history.get_rounds():
-            assert round.clean_killfeed is not None and round.clean_deaths is not None
-
-            for record in round.clean_killfeed:
-                if record.player.team != record.target.team: ## do not count tk's as a kill
-                    kills[idx_map[record.player.idx]] += 1
-            for idx in round.clean_deaths:
-                deaths[idx_map[idx]] += 1
-
-        return kills, deaths
-
-    def __get_xlsx_rounds(self, history: History, round_nums: list[int]) -> dict[str, list[list]]:
-        """Creates a dictionary containing the sheet data for each round"""
-        # return {f"Round {rn}": self.__get_xlsx_rdata(round) for rn in round_nums if (round := self.__history.get_round(rn)) is not None}
-        data: dict[str, list[list]] = {}
-        for rn in round_nums:
-            if (round := history.get_round(rn)) is not None:
-                data[f"Round {rn}"] = self.__get_xlsx_rdata(round)
-
-        return data
-
-    def __get_xlsx_rdata(self, round: HistoryRound) -> list[list]:
-        """This method creates the xlsx data appended to each round sheet, from the data gathered in 1 round"""
-        rdata = [
-            ["Statistics"],
-            ["Player", "Team Index", "Kills", "Deaths", "Assissts", "Hs%", "Headshots", "1vX", "Operator"]
-        ]
-        ## Statistics Section
-        idx_map = {pl.idx: i for i, pl in enumerate(self.__players)}
-        teams_known = all([pl.team is not None for pl in self.__players]) and len(self.__players) == 10
-
-        ## calculate the kills/deaths for each player
-        n_players = len(self.__players)
-        kills, deaths = [0]*n_players, [False]*n_players 
-        round_kf = ndefault(round.clean_killfeed, round.killfeed)
-        for record in round_kf:
-            if record.player.team != record.target.team:
-                kills[idx_map[record.player.idx]] += 1
-
-        assert round.clean_deaths is not None
-        for idx in round.clean_deaths:
-            deaths[idx_map[idx]] = True
-
-        onevx = None
-        onevx_count = 0
-        ## TODO: this oneVx calculator won't work for when players and teams are not known
-        # your team won, you were the last alive (not necessarily alive at the end), X = number of opponents alive when your last alive teammate died
-        if (w := round.winner) is not None and teams_known:
-            if deaths[w*5:(w+1)*5].count(False) == 1: ## possible 1vX
-                onevx = deaths.index(False)
-                for record in reversed(round_kf):
-                    if record.player.idx == onevx:
-                        onevx_count += 1
-                    else:
-                        break
-                onevx_count += deaths[(1-w)*5:(2-w)*5].count(False)
-
-        ## compile the statistics table for 1 round
-        stats_table = []
-        for i, pl in enumerate(self.__players):
-            onevx_pl = 0 if pl.idx != onevx else onevx_count
-            stats_table.append([pl.ign, ndefault(pl.team, ""), kills[i], deaths[i], "", "", "", onevx_pl, ""])
-        
-        ## make sure defence team is at the top of the stats table, same as dissect
-        if round.atk_side == self.__players[0].team:
-            stats_table = self.__table_flip(stats_table)
-
-        rdata += stats_table
-
-        ## Winning team
-        prefix = "YOUR TEAM" if round.winner == 0 else "OPPONENTS"
-        winning_team_str = f"{prefix} [{round.winner}]"
-
-        ## Round Info
-        bpat = round.bomb_planted_at
-        ddat = round.disabled_defuser_at
-        rdata.extend([
-            [],
-            ["Round Info"],
-            ["Name", "Value", "Time"],
-            ["Site"],
-            ["Winning team",  winning_team_str],
-            ["Win condition", round.win_condition.value]
-        ])
-
-        if len(round_kf) == 0:
-            rdata.extend([["Opening kill"], ["Opening death"]])
-        else:
-            opening_kd = round_kf[0]
-            rdata.extend([
-                ["Opening kill",  opening_kd.player.ign, str(opening_kd.time)],
-                ["Opening death", opening_kd.target.ign, str(opening_kd.time)]
-            ])
-        
-        rdata.extend([
-            ["Planted at",    str(ndefault(bpat, ""))],
-            ["Defused at",    str(ndefault(ddat, ""))],
-            [],
-            ["Kill/death feed"],
-            ["Player", "Target", "Time", "Traded", "Refragged Death", "Refragged Kill"],
-        ])
-
-        ## Kill/death feed
-        refragged_kills = []
-        n_players = len(round_kf)
-        for i, record in enumerate(round_kf):
-            if i+1 == n_players:
-                rdata.append([record.player.ign, record.target.ign, str(record.time), "FALSE", "FALSE", str(i in refragged_kills)])
-                break
-                
-            ## traded = time between this and last kill is <= 6s, the second kill is a player from the opposition
-            traded = i+1 < n_players \
-                and (record.time - round_kf[i+1].time) <= 6 \
-                and record.target.team != round_kf[i+1].target.team
-            
-            ## refragged = A kills B, A dies in the next 6 seconds
-            refragged_death = False
-            for j, r2 in enumerate(round_kf[i+1:], start=i+1):
-                if record.time - r2.time > 6: break
-                if record.player.idx == r2.target.idx:
-                    refragged_death = True
-                    refragged_kills.append(j)
-
-            rdata.append([record.player.ign, record.target.ign, str(record.time), str(traded), str(refragged_death), str(i in refragged_kills)])
-        
-        return rdata
-
-    def __make_copyfile(self) -> str:
-        """Creates a new savepath based on savefile"""
-        temp_savefile = self.__savefile.copy()
-        temp_savefile.filename += " - Copy"
-        return join("saves", str(temp_savefile))
-
-    def __table_flip(self, data: list[list]) -> list[list]:
-        """Moves the rows 0-4-5-9 to 5-9-0-4"""
-        return data[5:] + data[:5]
-
-
 class ProgressBar:
-    def __init__(self, is_test: bool = False) -> None:
-        self.__tqdmbar = tqdm(total=180,
-                bar_format='{desc}|{bar}')
+    def __init__(self, verbose: int, is_test: bool = False) -> None:
+        bar_format = "{desc}|{bar}"
+        if verbose == 3:
+            bar_format += "|{postfix}"
+
+        self.__tqdmbar = tqdm(total=180, bar_format=bar_format)
         self.__header = ""
         self.__time = ""
         self.__value = "-"
         
         if is_test: ## for a slightly cleaner console output during --test
-            self.__tqdmbar.refresh = lambda *args, **kwargs: ...
-    
-    def set_desc(self, value: str) -> None:
-        self.__value = value
-        self.__tqdmbar.set_description_str(f"{self.__header} | {self.__time} | {value} ")
-
-    def set_time(self, value: Timestamp | int) -> None:
-        if type(value) == Timestamp:
-            self.__time = str(value)
-            value = value.to_int()
-        else:
-            self.__time = str(Timestamp.from_int(value))
-
-        self.__tqdmbar.n = value
-        self.__tqdmbar.set_description_str(f"{self.__header} | {self.__time} | {self.__value} ")
+            self.__tqdmbar.refresh = lambda *args, **kwargs: None
 
     def set_total(self, value: int) -> None:
         self.__tqdmbar.total = value
-    
+
+    def set_desc(self, value: str) -> None:
+        self.__value = value
+        self.__tqdmbar.set_description_str(f"{self.__header} | {self.__time} | {value} ", refresh=False)
+
+    def set_time(self, value: Timestamp | int) -> None:
+        assert type(value) in [Timestamp, int], f"Invalid value type: {type(value)}"
+        if type(value) == Timestamp:
+            self.__time = str(value)
+            value = value.to_int()
+        elif type(value) == int:
+            self.__time = str(Timestamp.from_int(value))
+
+        self.__tqdmbar.n = value
+        self.__tqdmbar.set_description_str(f"{self.__header} | {self.__time} | {self.__value} ", refresh=False)
+
     def set_header(self, nround: int, s1: int, s2: int) -> None:
         self.__header = f"{nround}/{s1}:{s2}"
-        self.__tqdmbar.set_description_str(f"{self.__header} | {self.__time} | {self.__value} ")
+        self.__tqdmbar.set_description_str(f"{self.__header} | {self.__time} | {self.__value} ", refresh=False)
+    
+    def set_postfix(self, value: str) -> None:
+        self.__tqdmbar.set_postfix_str(value, refresh=False)
 
     def refresh(self) -> None:
         self.__tqdmbar.refresh()
-    
+
     def close(self) -> None:
         self.__tqdmbar.close()
-    
+
     def reset(self) -> None:
         self.__tqdmbar.n = 180
         self.__tqdmbar.total = 180
         self.__value = "-"
         self.__time = "3:00"
         self.__tqdmbar.set_description_str(f"{self.__header} | {self.__time} | {self.__value} ")
-    
+
     def bomb(self) -> None:
         self.set_time(45)
         self.set_total(45)
+        self.refresh()
 
     @staticmethod
     def print(*prompt: object, sep: Optional[str] = " ", end: Optional[str] = "\n", flush: bool = False) -> None:
@@ -1005,8 +154,7 @@ class Analyser(ABC):
     Main class `Analyser`
     Operates the main inference loop `run` and records match/round information
     """
-    PROB_THRESHOLD = 0.5
-    KF_ALLOWLIST = ascii_letters + "0123456789.-_"
+    KF_ALLOWLIST = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-_"
     
     def __init__(self, args: Namespace):
         self.config: dict = args.config
@@ -1023,9 +171,10 @@ class Analyser(ABC):
 
         self.state = State(False, True, False)
         self.history = History()
-        self.save_manager = SaveManager(args.save, self.config, append_mode=args.append_save)
+        self.writer = Writer.new(args.save, self.config, args.append_save)
+        self.tempfeed: dict[KFRecord, int] = {}
 
-        self.prog_bar = ProgressBar(args.test)
+        self.prog_bar = ProgressBar(self.verbose, args.test)
         self.current_time: Timestamp
         self.defuse_countdown_timer: Optional[float] = None
         
@@ -1033,19 +182,11 @@ class Analyser(ABC):
         self.reader = easyocr.Reader(['en'], gpu=not args.cpu)
         self._verbose_print(0, "EasyOCR Reader model loaded")
 
-    ## ----- CHECK -----
+    ## ----- CHECK & TEST-----
+    @abstractmethod
     def check(self) -> None:
-        """Called when the --check flag is present in the program call, saves the screenshotted regions as jpg images"""
-        if not exists("images"):
-            mkdir("images")
+        ...
 
-        self._verbose_print(0, "Saving check images")
-        region_keys = self._get_ss_region_keys()
-        regions = self._get_ss_regions(region_keys)
-        for name, img in regions.items():
-            cv2.imwrite(join("images", f"{name}.jpg"), cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
-    
-    # ----- TEST -----
     @abstractmethod
     def test(self) -> None:
         ...
@@ -1081,26 +222,31 @@ class Analyser(ABC):
 
         self.timer = time()
         while self.running:
-            if self.timer + self.tdelta > time():
+            if self.tdelta > 0 and self.timer + self.tdelta > time():
                 continue
 
-            __inference_start = time()
+            __infer_start = time()
 
             regions = self._get_ss_regions()
             self._handle_scoreline(regions)
             self._handle_timer(regions)
             self._handle_feed(regions)
-            self.prog_bar.refresh()
 
-            self._debug_print(f"Inference time {time()-__inference_start:.2f}s")
+            self._debug_infertime(time() - __infer_start)
             self.timer = time()
+            self.prog_bar.refresh()
+    
+    def _debug_infertime(self, dt: float) -> None:
+        if self.verbose == 3:
+            self.prog_bar.set_postfix(f"{dt:.3f}s")
+            self.prog_bar.refresh()
     
     ## ----- OCR -----
     def _screenshot_preprocess(self,
                                image: np.ndarray,
                                to_gray: bool = True,
                                denoise: bool = False,
-                               squeeze_width: float = -1) -> np.ndarray:
+                               squeeze_width: float = 1.0) -> np.ndarray:
         """
         To increase the accuracy of the EasyOCR readtext function, a few preprocessing techniques are used
           - RGB to Grayscale conversion
@@ -1114,7 +260,7 @@ class Analyser(ABC):
             image = cv2.fastNlMeansDenoising(image, None, 5, 7, 21)
 
         scale_factor = self.config["SCREENSHOT_RESIZE"]
-        if squeeze_width != -1:
+        if squeeze_width != 1.0:
             sf_w, sf_h = scale_factor * squeeze_width, scale_factor
         else:
             sf_w = sf_h = scale_factor
@@ -1189,15 +335,15 @@ class InPersonAnalyser(Analyser):
     END_ROUND_SECONDS = 12 ## number of seconds to check no timer to determine round end
     
     NUM_KF_LINES = 3
+    KF_BUF = 4  ## number of pixels buffer around each KF_LINE
     SCREENSHOT_REGIONS = ["TEAM1_SCORE_REGION", "TEAM2_SCORE_REGION",
                           "TEAM1_SIDE_REGION", "TEAM2_SIDE_REGION",
-                          "TIMER_REGION",
-                          "KILLFEED_REGION"]
+                          "TIMER_REGION"] + [f"KF_LINE{i+1}_REGION" for i in range(NUM_KF_LINES)]
     NON_NAMES = ["has found the bomb", "Friendly Fire has been activated for"]
 
     SCORELINE_PROB = 0.25
     TIMER_PROB = 0.35
-    KF_PROB = 0.15
+    KF_PROB = 0.10
 
     PROXIMITY_DIST = 35
 
@@ -1205,6 +351,8 @@ class InPersonAnalyser(Analyser):
     RED_RGB_SPACE = np.array([ ## Defines the range for red color in HSV space
         [240, 10, 10],
         [255, 35, 35]])
+    
+    ASSET_LIST = ["atkside_icon.jpg", "headshot.jpg"]
 
     def __init__(self, args) -> None:
         super(InPersonAnalyser, self).__init__(args)
@@ -1214,38 +362,41 @@ class InPersonAnalyser(Analyser):
         self.last_seconds_count = 0
         self.timer_format = TimerFormat.FULL
 
-        self.atkside_icon = self.__load_side_icon()
-        self.kf_lines = self.__get_kf_lines()
+        self.__set_kfline_config()
+        self.assets = self.__load_assets()
     
-    def __load_side_icon(self) -> np.ndarray:
-        assert exists("res/swords.jpg"), "res/swords.jpg does not exist!"
-        img = cv2.imread("res/swords.jpg", cv2.IMREAD_GRAYSCALE)
-        side_region_size = self.config["TEAM1_SIDE_REGION"][2:]
-        return cv2.resize(img, side_region_size, interpolation=cv2.INTER_LINEAR)
+    def __load_assets(self) -> dict[str, np.ndarray]:
+        """Load the assets used in image detection"""
+        assets: dict[str, np.ndarray] = {}
+        for asset_filename in InPersonAnalyser.ASSET_LIST:
+            filepath = join("assets", asset_filename)
+            assert exists(filepath), f"{filepath} does not exist!"
+            
+            filename, _ = asset_filename.rsplit(".", maxsplit=1)
+            assets[filename] = cv2.imread(filepath, cv2.IMREAD_GRAYSCALE)
+        
+        def __resize(key: str, dsize: list[int]) -> np.ndarray:
+            return cv2.resize(assets[key], dsize, interpolation=cv2.INTER_LINEAR)
+        
+        assets["atkside_icon"] = __resize("atkside_icon", self.config["TEAM1_SIDE_REGION"][2:])
+        
+        h,w = assets["headshot"].shape
+        sf = self.config["SCREENSHOT_RESIZE"] * self.config["KF_LINE_REGION"][3] / h
+        assets["headshot"] = __resize("headshot", [int(sf*w), int(sf*h)])
+
+        return assets
+    
+    def __set_kfline_config(self) -> None:
+        """Create k new regions for each killfeed line"""
+        x,y,w,h = self.config["KF_LINE_REGION"]
+        buf = InPersonAnalyser.KF_BUF
+        for i in range(InPersonAnalyser.NUM_KF_LINES):
+            region = [x, y-int(h*1.25*i)-buf, w, h+buf*2]
+            self.config[f"KF_LINE{i+1}_REGION"] = region
 
     def _get_ss_region_keys(self) -> list[str]:
         return InPersonAnalyser.SCREENSHOT_REGIONS
-    
-    def test(self) -> None:
-        """
-        This method is called when the `--test` flag is added to the program call,
-        runs inference on a single screenshot.
-        """
-        regions   = self._get_ss_regions()
-        scoreline = self.__read_scoreline(regions["TEAM1_SCORE_REGION"], regions["TEAM2_SCORE_REGION"])
-        atkside   = self.__read_atkside(regions["TEAM1_SIDE_REGION"], regions["TEAM2_SIDE_REGION"])
-        time_read = self.__read_timer(regions["TIMER_REGION"])
-        feed_read = self.__read_feed(regions["KILLFEED_REGION"])
-        print(feed_read)
 
-        print(f"\nTest: {scoreline=} | {atkside=} | {time_read} | ", end="")
-        for line in feed_read:
-            if len(line.ocr_results) == 1:
-                print(f"{line.ocr_results[0]} -> {line.ocr_results[0]}", end="")
-            else:
-                headshot = "(X) " if line.headshot else ""
-                print(f"{line.ocr_results[0]} -> {headshot}{line.ocr_results[1]}, ", end="")
-        print()
 
     ## ----- SCORELINE -----
     def _handle_scoreline(self, regions: Analyser.Regions_t) -> None:
@@ -1285,9 +436,9 @@ class InPersonAnalyser(Analyser):
         icon1 = self._screenshot_preprocess(side1, to_gray=True, denoise=True)
         icon2 = self._screenshot_preprocess(side2, to_gray=True, denoise=True)
 
-        res_icon1 = cv2.matchTemplate(self.atkside_icon, icon1, cv2.TM_CCOEFF_NORMED)
-        res_icon2 = cv2.matchTemplate(self.atkside_icon, icon2, cv2.TM_CCOEFF_NORMED)
-
+        res_icon1 = cv2.matchTemplate(self.assets["atkside_icon"], icon1, cv2.TM_CCOEFF_NORMED)
+        res_icon2 = cv2.matchTemplate(self.assets["atkside_icon"], icon2, cv2.TM_CCOEFF_NORMED)
+        ## TODO: prob only need to match 1 side, then threshold
         # Get the maximum match value for each icon
         _, max_val_icon1, _, _ = cv2.minMaxLoc(res_icon1)
         _, max_val_icon2, _, _ = cv2.minMaxLoc(res_icon2)
@@ -1307,7 +458,8 @@ class InPersonAnalyser(Analyser):
         timer_image = regions["TIMER_REGION"]
         new_time = self.__read_timer(timer_image)
 
-        if new_time is not None: ## timer is showing
+        ## timer is showing
+        if new_time is not None:
             self.current_time = new_time
             self.defuse_countdown_timer = None
 
@@ -1315,9 +467,10 @@ class InPersonAnalyser(Analyser):
             self.end_round_seconds = None
             
             self.prog_bar.set_time(new_time)
+            self.prog_bar.refresh()
         
+        ## The bomb uses a separate countdown timer as the visual timer cannot be accurately tracked
         elif self.__is_bomb_countdown(timer_image):
-            ## The bomb uses a separate countdown timer as the visual timer cannot be accurately tracked
             if self.defuse_countdown_timer is None: ## bomb planted
                 self.defuse_countdown_timer = time()
                 self.state.bomb_planted = True
@@ -1331,6 +484,7 @@ class InPersonAnalyser(Analyser):
                 tdelta = int(time() - self.defuse_countdown_timer)
                 self.current_time = Timestamp.from_int(bpat_int - tdelta)
                 self.prog_bar.set_time(int(45-tdelta))
+                self.prog_bar.refresh()
 
         elif self.last_kf_seconds is None and self.end_round_seconds is None and self.state.in_round:
             self.last_kf_seconds = time()
@@ -1393,92 +547,81 @@ class InPersonAnalyser(Analyser):
         if not self.history.is_ready: return
         if not self.state.in_round and self.last_kf_seconds is None: return
 
-        image = regions["KILLFEED_REGION"]
-        for line in self.__read_feed(image):
+        image_lines = [regions[f"KF_LINE{i+1}_REGION"] for i in range(InPersonAnalyser.NUM_KF_LINES)]
+        for line in self.__read_feed(image_lines)[0]:
             if len(line.ocr_results) == 1:
                 ## suicides?
-                player = self.ign_matrix.get(line.ocr_results[0].text, 0.75)
-                target = self.ign_matrix.get(line.ocr_results[0].text, 0.75)
+                player = self.ign_matrix.get(line.ocr_results[0].text)
+                target = self.ign_matrix.get(line.ocr_results[0].text)
 
             elif len(line.ocr_results) == 2:
-                player = self.ign_matrix.get(line.ocr_results[0].text, 0.75)
-                target = self.ign_matrix.get(line.ocr_results[1].text, 0.75)
+                player = self.ign_matrix.get(line.ocr_results[0].text)
+                target = self.ign_matrix.get(line.ocr_results[1].text)
                 
             if player is None or target is None:
                 continue ## invalid igns
 
             record = KFRecord(player, target, self.current_time, line.headshot)
-            if record not in self.history.cround.killfeed:
+            if record not in self.tempfeed: ## a record requires at least 2 instances to add to kf
+                self.tempfeed[record] = 1
+            
+            elif self.tempfeed[record] < 1: ## TODO: make variable for accuracy control
+                self.tempfeed[record] += 1
+
+            elif record not in self.history.cround.killfeed:
                 self.history.cround.killfeed.append(record)
                 self.history.cround.deaths.append(target.idx)
-
                 self.ign_matrix.update_team_table(player.idx, target.idx)
-                self._verbose_print(1, f"{self.current_time} | {player.ign}\t-> {target.ign}")
-                self.prog_bar.set_desc(f"{player.ign} -> {target.ign}")
+
+                self._verbose_print(2, record.to_str())
+                self.prog_bar.set_desc(record.to_str())
+                self.prog_bar.refresh()
     
-    def __read_feed(self, image: np.ndarray) -> list[OCRLine]:
+    OCResult_t: TypeAlias = tuple[list[list], str, float]
+    def __read_feed(self, image_lines: list[np.ndarray]) -> tuple[list[OCRLine], list[np.ndarray]]:
         """
         Reading of the killfeed requires a few steps
         1. Preprocessing with grayscale, fastNlMeansDenoising and width squeezing
         2. EasyOCR reading and cleaning
-        3. Line Sorting - sorting each OCResult into KF lines
+        3. Line Sorting & Cleaning
         """
-        image = self._screenshot_preprocess(image, to_gray=True, denoise=True, squeeze_width=0.75)
-
-        ocr_results = self.reader.readtext(image, allowlist=Analyser.KF_ALLOWLIST)
-        ocr_results = [OCResult(res) for res in ocr_results]
-        for res in ocr_results:
-            res.eval(self.ign_matrix)
-
-        lines = self.__get_rawlines(ocr_results)
-        ocr_lines = self.__get_ocrlines(lines)
-        if self.prog_args.test:
-            # self.__test_lines(image, lines)
-            self.__test_lines(image, ocr_lines)
-
-        return ocr_lines
-    
-    def __get_rawlines(self, results: list[OCResult]) -> list[list[OCResult]]:
-        """This helper method cleans and sorted a raw list of OCResults into a list of NUM_KF_LINES OCRLines"""
-        ## clean OCResults by removing prob < KF_PROB, len(text) < 2 and text in NON_NAMES
-        temp_results: list[OCResult] = []
-        for res in results:
-            if res.prob < InPersonAnalyser.KF_PROB or len(res.text) < 2: continue
-            if max([IGNMatrix.compare_names(res.text, non_name) for non_name in InPersonAnalyser.NON_NAMES]) > 0.5: continue
-            temp_results.append(res)
+        image_lines = [self._screenshot_preprocess(image, denoise=True)#0.75)
+                       for image in image_lines]
         
-        ## Check which OCResult is in which line using the midline of each OCResult rect
-        lines: list[list[OCResult]] = [[] for _ in range(InPersonAnalyser.NUM_KF_LINES)]
-        kfr = self.config["KILLFEED_REGION"]
-        for res in temp_results:
-            midy = (res.rect[1] + res.rect[3]//2) // self.config["SCREENSHOT_RESIZE"]
-            for i, lrect in enumerate(self.kf_lines):
-                if lrect[1] <= kfr[1]+midy <= lrect[1]+lrect[3]:
-                    lines[i].append(res)
-
-        return lines
+        ocr_results = self.reader.readtext_batched(image_lines,
+                            add_margin=0.15,
+                            slope_ths=0.5,
+                            allowlist=Analyser.KF_ALLOWLIST)
+        headshots = [self.__is_headshot(img_line) for img_line in image_lines]
+        ocr_lines = self.__get_ocrlines(ocr_results, headshots)
+        return ocr_lines, image_lines
     
-    def __get_ocrlines(self, lines: list[list[OCResult]]) -> list[OCRLine]:
-        """
-        Converts a list of raw OCR lines into OCRLine objects,
-        if more than 2 OCResults are in a line, a join call is required
-        """
-        ocr_lines = []
-        for line in lines:
-            if len(line) == 0: continue
-            if len(line) == 1:
-                ocr_lines.append(OCRLine(line))
-            elif len(line) == 2:
-                if line[0].rect[0] < line[1].rect[0]:
-                    ocr_lines.append(OCRLine(line))
-                else:
-                    ocr_lines.append(OCRLine([line[1], line[0]]))
-            else: ## join call is required
-                jline = self.__join_line(line)
-                ocr_lines.append(OCRLine(jline))
+    def __get_ocrlines(self, lines: list[list[OCResult_t]], headshot_rects: list[list[int]]) -> list[OCRLine]:
+        output = []
+        for rawline, hsr in zip(lines, headshot_rects):
+            ## cleaning stage 1
+            results: list[OCResult] = []
+            for res in rawline:
+                res = OCResult(res)
+                if res.prob < InPersonAnalyser.KF_PROB or len(res.text) < 2: continue
+                if max([IGNMatrix.compare_names(res.text, non_name) for non_name in InPersonAnalyser.NON_NAMES]) > 0.5: continue
+                
+                # if hsr and compute_iou(hsr, res.rect) > 0.75:
+                #     continue
 
-        return ocr_lines
-    
+                res.eval(self.ign_matrix)
+                results.append(res)
+            
+            if len(results) == 0: continue
+            elif len(results) == 2 and results[0].rect[0] > results[1].rect[0]:
+                results[0], results[1] = results[1], results[0]
+            elif len(results) >= 3: ## join call is required
+                results = self.__join_line(results)
+
+            output.append(OCRLine(results, headshot=bool(hsr)))
+
+        return output
+
     def __join_line(self, line: list[OCResult]) -> list[OCResult]:
         """Determines which OCResults to join"""
         prox_dist = InPersonAnalyser.PROXIMITY_DIST * (self.config["SCREENSHOT_RESIZE"] / 4)
@@ -1518,18 +661,16 @@ class InPersonAnalyser(Analyser):
 
         return new_line
 
-    def __get_kf_lines(self) -> list[list[int]]:
-        kflr = self.config["KF_LINE_REGION"]
-        return [[kflr[0], int(kflr[1]-i*1.25*kflr[3]), kflr[2], kflr[3]] for i in range(InPersonAnalyser.NUM_KF_LINES)]
+    def __is_headshot(self, image_line: np.ndarray, threshold: float = 0.6) -> list[int]:
+        hs_img = self.assets["headshot"]
+        result = cv2.matchTemplate(image_line, hs_img, cv2.TM_CCOEFF_NORMED)
+        _, max_val, _, best_pt = cv2.minMaxLoc(result)
+        
+        if max_val < threshold:
+            return []
 
-
-    def __test_lines(self, image: np.ndarray, lines: list[OCRLine]) -> None:
-        rect_img = cv2.cvtColor(image.copy(), cv2.COLOR_GRAY2BGR)
-        line_cols = [(0, 0, 255), (0, 255, 0), (255, 0, 0)]
-        for line, col in zip(lines, line_cols):
-            for ores in line.ocr_results:
-                cv2.rectangle(rect_img, ores.rect[:2],  [ores.rect[0]+ores.rect[2], ores.rect[1]+ores.rect[3]], col, 3)
-        cv2.imwrite("images/TEST_KFLINE_BOXES.jpg", rect_img)
+        h,w = hs_img.shape
+        return [best_pt[0], best_pt[1], w, h]
 
     # ----- GAME STATE -----
     def __pre_new_round(self, score2: int, save: bool = True) -> None:
@@ -1554,9 +695,9 @@ class InPersonAnalyser(Analyser):
             self.history.cround.disabled_defuser_at = reat
             self._verbose_print(1, f"Disabled defsuer at: {reat}")
         
-        self._verbose_print(0, f"Team {winner} wins round {self.history.roundn} by {win_con} at {reat}.")
+        self._verbose_print(0, f"Team {winner} wins round {self.history.roundn} by {win_con.value} at {reat}.")
         if save:
-            self.save_manager.save(self.history, self.ign_matrix)
+            self.writer.write(self.history, self.ign_matrix)
 
     def _new_round(self, score1: int, score2: int) -> None:
         """
@@ -1573,10 +714,12 @@ class InPersonAnalyser(Analyser):
 
         self.history.new_round(new_round)
         self.history.cround.scoreline = [score1, score2]
+        self.tempfeed.clear()
 
         self._verbose_print(1, f"New Round: {new_round} | Scoreline: {score1}-{score2}")
         self.prog_bar.reset()
         self.prog_bar.set_header(new_round, score1, score2)
+        self.prog_bar.refresh()
     
     def _end_round(self) -> None:
         """A game state method called when the program determines that the current round has ended"""
@@ -1584,6 +727,8 @@ class InPersonAnalyser(Analyser):
         self.state = State(False, True, False)
         self.last_seconds_count = 0
         self.prog_bar.set_time(0)
+        self.prog_bar.set_desc("ROUND END")
+        self.prog_bar.refresh()
 
         mx_rnd = self.config["MAX_ROUNDS"]
         rps = self.config["ROUNDS_PER_SIDE"]
@@ -1636,7 +781,7 @@ class InPersonAnalyser(Analyser):
             scoreline[winner] += 1
             self.__pre_new_round(scoreline[1], save=False)
 
-        self.save_manager.save(self.history, self.ign_matrix)
+        self.writer.write(self.history, self.ign_matrix)
         self._verbose_print(0, f"Data Saved to {self.prog_args.save}, program terminated.")
         sys.exit()
     
@@ -1653,6 +798,57 @@ class InPersonAnalyser(Analyser):
         
         self.history.fix_round()
 
+    ## ----- CHECK & TEST -----
+    def check(self) -> None:
+        """Called when the --check flag is present in the program call, saves the screenshotted regions as jpg images"""
+        if not exists("images"):
+            mkdir("images")
+
+        self._verbose_print(0, "Saving check images")
+        self.__set_kfline_config()
+        region_keys = self._get_ss_region_keys()
+        regions = self._get_ss_regions(region_keys)
+        for name, img in regions.items():
+            cv2.imwrite(join("images", f"{name}.jpg"), cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+    
+    
+    def test(self) -> None:
+        """
+        This method is called when the `--test` flag is added to the program call,
+        runs inference on a single screenshot.
+        """
+        regions   = self._get_ss_regions()
+        scoreline = self.__read_scoreline(regions["TEAM1_SCORE_REGION"], regions["TEAM2_SCORE_REGION"])
+        atkside   = self.__read_atkside(regions["TEAM1_SIDE_REGION"], regions["TEAM2_SIDE_REGION"])
+        time_read = self.__read_timer(regions["TIMER_REGION"])
+        feed_read, image_lines = self.__read_feed([regions[f"KF_LINE{i+1}_REGION"] for i in range(InPersonAnalyser.NUM_KF_LINES)])
+
+        headshots = [self.__is_headshot(img_line) for img_line in image_lines]
+        self.__test_drawocr(image_lines, feed_read, headshots)
+
+        print(f"\nTest: {scoreline=} | {atkside=} | {time_read} | ", end="")
+        for line in feed_read:
+            if len(line.ocr_results) == 1:
+                print(f"{line.ocr_results[0]} -> {line.ocr_results[0]}", end="")
+            elif len(line.ocr_results) == 2:
+                headshot = "(X) " if line.headshot else ""
+                print(f"{line.ocr_results[0]} -> {headshot}{line.ocr_results[1]}, ", end="")
+            else:
+                headshot = "(X) " if line.headshot else ""
+                print(headshot, "|".join([str(res) for res in line.ocr_results]))
+        print()
+
+    def __test_drawocr(self, image_lines: list[np.ndarray], lines: list[OCRLine], hs_rects: list[list[int]]) -> None:
+        line_cols: list[tuple[int, int, int]] = [(0, 0, 255), (0, 255, 0), (255, 0, 0)]
+        for i, (image, line, col, hs) in enumerate(zip(image_lines, lines, line_cols, hs_rects)):
+            rect_img = cv2.cvtColor(image.copy(), cv2.COLOR_GRAY2BGR)
+            for ocres in line.ocr_results:
+                cv2.rectangle(rect_img, ocres.rect[:2],  [ocres.rect[0]+ocres.rect[2], ocres.rect[1]+ocres.rect[3]], col, 2)
+            if hs:
+                cv2.rectangle(rect_img, hs[:2],  [hs[0]+hs[2], hs[1]+hs[3]], (255, 225, 0), 2)
+            
+            cv2.imwrite(f"images/TEST_KFLINE{i+1}.jpg", rect_img)
+
 
 class SpectatorAnalyser(Analyser):
     NUM_LAST_SECONDS = 4
@@ -1665,9 +861,6 @@ class SpectatorAnalyser(Analyser):
 
     def _get_ss_region_keys(self) -> list[str]:
         return SpectatorAnalyser.SCREENSHOT_REGIONS
-    
-    def test(self) -> None:
-        ...
 
     ## ----- IN ROUND OCR FUNCTIONS -----
     def _handle_scoreline(self, team1_scoreline: np.ndarray, team2_scoreline: np.ndarray) -> None:
@@ -1691,3 +884,14 @@ class SpectatorAnalyser(Analyser):
     
     def _fix_state(self) -> None:
         ...
+    
+    ## ----- CHECK & TEST -----
+    def check(self) -> None:
+        ...
+    
+    def test(self) -> None:
+        ...
+
+
+if __name__ == "__main__":
+    print("Please run R6Analyser from run.py")
