@@ -1,50 +1,49 @@
 import argparse
 from datetime import datetime
-from json import load as json_load
+from json import load as _json_load
 from os.path import exists, join
 from sys import exit
 from time import sleep
 from enum import Enum
-from typing import TypeVar, Type, Any
+from typing import TypeAlias, TypeVar, Type, Any, Callable, Optional
 
+from capture import CaptureMode
 from ignmatrix import IGNMatrixMode
 from writer import SUPPORTED_SAVEFILE_EXTS
-from utils import SaveFile
+from utils import SaveFile, Config, topological_sort
 
 
-__all__ = ["main"]
+__all__ = [
+    "main",
+    "Config"
+]
 
 
 ## ----- HELPER FUNCTIONS -----
 ## Config Parser helper function
+def load_json(file_path: str) -> dict:
+    """Loads json from `file_path` and handles any errors"""
+    if not exists(file_path):
+        raise FileNotFoundError(f"'{file_path}' does not exist!")
+    
+    try:
+        with open(file_path, "r", encoding="utf-8") as f_in:
+            return _json_load(f_in)
+
+    except Exception as e:
+        exit(f"JSON LOAD ERROR: Could not open {file_path}!\n{str(e)}")
+
+
+def assert_eq(condition: bool, reason: str) -> None:
+    if not condition:
+        print(reason)
+        exit()
+
+
 def config_arg_error(name: str, reason: str) -> None:
     print(f"CONFIG ERROR: Invalid `{name}` argument, {reason}")
     exit()
 
-
-def __infer_key(config: dict, key: str) -> None:
-    match key:
-        case "MAX_ROUNDS":
-            config["MAX_ROUNDS"] = 12 if config["SCRIM"] else 15
-        case "ROUNDS_PER_SIDE":
-            if config["SCRIM"]: config["ROUNDS_PER_SIDE"] = config["MAX_ROUNDS"] // 2
-            else: config["ROUNDS_PER_SIDE"] = int((config["MAX_ROUNDS"]-3) // 2)
-        case "IGN_MODE":
-            config["IGN_MODE"] = IGNMatrixMode.FIXED if len(config["IGNS"]) == 10 else IGNMatrixMode.INFER
-        case "TEAM1_SCORE_REGION":
-            tr = config["TIMER_REGION"]
-            config["TEAM1_SCORE_REGION"] = [tr[0] - tr[2]//2, tr[1], tr[2]//2, tr[3]]
-        case "TEAM2_SCORE_REGION":
-            tr = config["TIMER_REGION"]
-            config["TEAM2_SCORE_REGION"] = [tr[0] + tr[2], tr[1], tr[2]//2, tr[3]]
-        case "TEAM1_SIDE_REGION":
-            tr = config["TIMER_REGION"]
-            config["TEAM1_SIDE_REGION"]  = [tr[0] - int(tr[2]*0.95), tr[1], tr[2]//2, tr[3]]
-        case "TEAM2_SIDE_REGION":
-            tr = config["TIMER_REGION"]
-            config["TEAM2_SIDE_REGION"]  = [tr[0] + int(tr[2]*1.45), tr[1], tr[2]//2, tr[3]]
-        case _:
-            ...
 
 ## The following _cparse_ functions parse and validate different configuration arguments
 def __cparse_bool(arg: Any, name: str) -> bool:
@@ -88,117 +87,191 @@ def __cparse_IGNS(arg: Any) -> list[str]:
     return arg
 
 
-## config keys
-#    note: MAX_ROUNDS must be inferred before ROUNDS_PER_SIDE
-REQUIRED_CONFIG_KEYS = ["SCRIM", "SPECTATOR", "TIMER_REGION", "KF_LINE_REGION", "IGNS"]
-INFER_CONFIG_KEYS    = ["MAX_ROUNDS", "ROUNDS_PER_SIDE", "IGN_MODE",
-                        "TEAM1_SCORE_REGION", "TEAM2_SCORE_REGION", "TEAM1_SIDE_REGION", "TEAM2_SIDE_REGION"]
-OPTIONAL_CONFIG_KEYS = ["SCREENSHOT_RESIZE", "SCREENSHOT_PERIOD"]
+## ----- CONFIGURATION -----
+DEBUG_KEYS = ["config", "red_percentage"]
+DEBUG_FILENAME = "debug.json"
 DEFAULT_CONFIG_FILENAME = "defaults.json"
 
-DEBUG_KEYS = ["config_keys", "red_percentage"]
-DEBUG_FILENAME = "debug.json"
+## <OPTION> values
+REQUIRED, INFERRED, OPTIONAL = 1, 2, 3
 
-## config parse function for each configuration variable
-__cparse_functions = {
-    ## Required keys
-    "SCRIM":              lambda arg: __cparse_bool(arg, "SCRIM"),
-    "SPECTATOR":          lambda arg: __cparse_bool(arg, "SPECTATOR"),
-    "TIMER_REGION":       lambda arg: __cparse_bounding_box(arg, "TIMER_REGION"),
-    "KF_LINE_REGION":     lambda arg: __cparse_bounding_box(arg, "KF_LINE_REGION"),
-    "IGNS":               lambda arg: __cparse_IGNS(arg),
+"""
+Config Specification `spec` is formatted as such:
+- leaf key     has a value: tuple[<OPTION>, parse function]
+- internal key has a 'sub-config' dictionary value,
+    sub-configs follow the same spec format
 
-    ## Inferred keys
-    "MAX_ROUNDS":         lambda arg: __cparse_type_range(arg, int, "MAX_ROUNDS", 1, 15),
-    "ROUNDS_PER_SIDE":    lambda arg: __cparse_type_range(arg, int, "ROUNDS_PER_SIDE", 1, 6),
-    "IGN_MODE":           lambda arg: __cparse_enum(arg, "IGN_MODE", IGNMatrixMode),
-    "TEAM1_SCORE_REGION": lambda arg: __cparse_bounding_box(arg, "TEAM1_SCORE_REGION"),
-    "TEAM2_SCORE_REGION": lambda arg: __cparse_bounding_box(arg, "TEAM2_SCORE_REGION"),
-    "TEAM1_SIDE_REGION":  lambda arg: __cparse_bounding_box(arg, "TEAM1_SIDE_REGION"),
-    "TEAM2_SIDE_REGION":  lambda arg: __cparse_bounding_box(arg, "TEAM2_SIDE_REGION"),
+The parse functions are implemented above:
+  __cparse_{bool, type_range, bounding_box, enum, IGNS}
 
-    ## Optional keys
-    "SCREENSHOT_RESIZE":  lambda arg: __cparse_type_range(arg, int, "SCREENSHOT_RESIZE", 1, 8),
-    "SCREENSHOT_PERIOD":  lambda arg: __cparse_type_range(arg, float, "SCREENSHOT_PERIOD", 0.25, 2),
+spec format = {
+    key: (<OPTION>, parse func),
+    key2: {
+        "__option": <OPTION>,            ## this key 
+        "key3: (<OPTION>, parse func),
+        "key4": { ... }
+    }
 }
 
-def __parse_config(config_filepath: str) -> dict:
+For inferred config values, `__infer_deps` specifies which config keys
+  must be inferred before others (infer-dependencies)
+  eg. keys A,B are both inferred, A is inferred using B, B must be inferred before A
+
+__infer_deps = {
+    "B": ["A"],
+    "C": ["B", "D"]
+}
+"""
+__spec_t: TypeAlias = dict[str, tuple[int, Callable]|dict]
+__config_spec: __spec_t = {
+    ## Required keys
+    "SCRIM":               (REQUIRED, lambda arg: __cparse_bool(arg, "SCRIM")),
+    "SPECTATOR":           (REQUIRED, lambda arg: __cparse_bool(arg, "SPECTATOR")),
+    "CAPTURE": {
+        "__option":         REQUIRED,
+        "MODE":            (REQUIRED, lambda arg: __cparse_enum(arg, "CAPTURE/MODE", CaptureMode)),
+        "REGIONS": {
+            "__option":     REQUIRED,
+            "TIMER":       (REQUIRED, lambda arg: __cparse_bounding_box(arg, "CAPTURE/REGIONS/TIMER")),
+            "KF_LINE":     (REQUIRED, lambda arg: __cparse_bounding_box(arg, "CAPTURE/REGIONS/KF_LINE")),
+            # Inferred Keys
+            "TEAM1_SCORE": (INFERRED, lambda arg: __cparse_bounding_box(arg, "CAPTURE/REGIONS/TEAM1_SCORE")),
+            "TEAM2_SCORE": (INFERRED, lambda arg: __cparse_bounding_box(arg, "CAPTURE/REGIONS/TEAM2_SCORE")),
+            "TEAM1_SIDE":  (INFERRED, lambda arg: __cparse_bounding_box(arg, "CAPTURE/REGIONS/TEAM1_SIDE")),
+            "TEAM2_SIDE":  (INFERRED, lambda arg: __cparse_bounding_box(arg, "CAPTURE/REGIONS/TEAM2_SIDE"))
+        }
+    },
+    "IGNS":                (REQUIRED, lambda arg: __cparse_IGNS(arg)),
+
+    ## Inferred keys
+    "MAX_ROUNDS":          (INFERRED, lambda arg: __cparse_type_range(arg, int, "MAX_ROUNDS", 1, 15)),
+    "ROUNDS_PER_SIDE":     (INFERRED, lambda arg: __cparse_type_range(arg, int, "ROUNDS_PER_SIDE", 1, 6)),
+    "IGN_MODE":            (INFERRED, lambda arg: __cparse_enum(arg, "IGN_MODE", IGNMatrixMode)),
+
+    ## Optional keys
+    "SCREENSHOT_RESIZE":   (OPTIONAL, lambda arg: __cparse_type_range(arg, int, "SCREENSHOT_RESIZE", 1, 8)),
+    "SCREENSHOT_PERIOD":   (OPTIONAL, lambda arg: __cparse_type_range(arg, float, "SCREENSHOT_PERIOD", 0.0, 2.0)),
+}
+
+## infer-dependencies: dict[key: depends on everything here]
+__infer_deps = {
+    "MAX_ROUNDS": ["ROUNDS_PER_SIDE"]
+}
+
+
+def __parse_config(config_filepath: str) -> Config:
     ## argument checks
     if not (exists(config_filepath) or exists(join("configs", config_filepath))):
         exit(f"CONFIG ERROR: File '{config_filepath}' cannot be found!")
-    
+
     if not exists(config_filepath):
         config_filepath = join("configs", config_filepath)
 
-    ## Load config from json
-    try:
-        with open(config_filepath, "r", encoding="utf-8") as f_in:
-            config: dict = json_load(f_in)
+    ## Load config,defaults from json
+    config = load_json(config_filepath)
+    default_cfg = load_json(DEFAULT_CONFIG_FILENAME)
 
-    except Exception as e:
-        exit(f"CONFIG ERROR: Could not open {config_filepath}!\n{str(e)}")
+    ## Pass config,spec,defaults to recursive validator funciton
+    return __validate_config(Config(config, name="config"), __config_spec, Config(default_cfg, name="defaults"))
 
-    ## check if all required keys are contained in config file
-    for key in REQUIRED_CONFIG_KEYS:
-        if key not in config:
-            exit(f"CONFIG ERROR: Config file does not contain key '{key}'!")
-    
-    parsed_keys = []
-    for key in config.keys():
-        if key not in __cparse_functions:
-            exit(f"CONFIG ERROR: Config file contains an invalid key '{key}'!")
 
-        config[key] = __cparse_functions[key](config[key])
-        parsed_keys.append(key)
-        
-    print(f"Info: Loaded configuration file '{config_filepath}'")
+def __validate_config(config: Config, spec: __spec_t, default_cfg: Config,
+                      key_path: str = "", infer_list: Optional[list[str]] = None) -> Config:
+    """Validates and parses the structure and values in the config given the spec"""
+    __first = False
+    if infer_list is None:
+        infer_list = []
+        __first = True
 
-    ## Infer keys not present in config file
-    keys_to_add = [key for key in INFER_CONFIG_KEYS if key not in config]
-    if len(keys_to_add) > 0:
-        for key in keys_to_add:
-            __infer_key(config, key)
+    for skey, svalue in spec.items():
+        nkey_path = f"{key_path}/{skey}".strip(r"/") ## eg. IGNS, CAPTURE/MODE, CAPTURE/REGIONS/TIMER
 
-    ## if the optional keys weren't provided, use defaults from default.json
-    keys_to_add = [key for key in OPTIONAL_CONFIG_KEYS if key not in config]
-    if len(keys_to_add) > 0:
-        if not exists(DEFAULT_CONFIG_FILENAME):
-            raise FileNotFoundError(f"'{DEFAULT_CONFIG_FILENAME}' does not exist!")
+        if skey == "__option": continue
+        elif skey in config:
+            if type(config[skey]) == Config:
+                assert_eq(type(config[skey]) == Config, f"Invalid Configuration: {nkey_path} must be a dict not value")
+                config[skey] = __validate_config(config[skey], svalue, default_cfg.get(skey, {}), nkey_path, infer_list)
+            else:
+                assert_eq(type(config[skey]) != Config, f"Invalid Configuration: {nkey_path} must be a value not dict")
+                config[skey] = svalue[1](config[skey])
 
-        try:
-            with open(DEFAULT_CONFIG_FILENAME, "r", encoding="utf-8") as f_in:
-                default_config = json_load(f_in)
-        except Exception as e:
-            exit(f"CONFIG ERROR: Could not open {DEFAULT_CONFIG_FILENAME}\n{str(e)}")
+        ## spec key is NOT in the config
+        elif type(svalue) == Config:
+            assert_eq("__option" in svalue, f"SPEC ERROR: The config spec has not set the __option for a sub-config")
+            opt = svalue["__option"]
+            if opt == REQUIRED:
+                exit(f"CONFIG ERROR: Config file does not contain required key '{nkey_path}'!")
+            elif opt == OPTIONAL:
+                assert_eq(skey in default_cfg, f"{nkey_path} is missing from default.json!")
+                config[skey] = default_cfg[skey]
+            elif opt == INFERRED:
+                infer_list.append((nkey_path, skey, config))
+            else:
+                exit(f"SPEC ERROR: The config spec is incorrect, out of valid option {opt}")
 
-        for key in keys_to_add:
-            if key not in default_config:
-                raise Exception(f"defaults.json has been modified, key '{key}' has been removed!")
+        elif svalue[0] == REQUIRED:
+            exit(f"CONFIG ERROR: Config file does not contain required key '{nkey_path}'!")
 
-            config[key] = default_config[key]
+        elif svalue[0] == OPTIONAL:
+            assert_eq(skey in default_cfg, f"{nkey_path} is missing from default.json!")
+            config[skey] = default_cfg[skey]
 
-    ## final checks, in-case default.json was tampered with
-    for key in __cparse_functions.keys() - parsed_keys:
-        config[key] = __cparse_functions[key](config[key])
+        elif svalue[0] == INFERRED:
+            infer_list.append((nkey_path, skey, config))
+
+    if not __first:
+        return config
+
+    ## infer_list must be sorted due to infer-dependencies
+    topological_sort(infer_list, __infer_deps)
+    for key_path, key_last, cfg_parent in infer_list:
+        cfg_parent[key_last] = __infer_from_key(config, key_path)
 
     return config
 
 
-def __load_debug(debug_filepath: str) -> dict:
-    try:
-        with open(debug_filepath, "r", encoding="utf-8") as f_in:
-            dconfig: dict = json_load(f_in)
+def __infer_from_key(config: Config, key: str) -> Any:
+    match key:
+        case "MAX_ROUNDS":
+            return 12 if config.scrim else 15
 
-    except Exception as e:
-        exit(f"CONFIG ERROR: Could not open {debug_filepath}!\n{str(e)}")
+        case "ROUNDS_PER_SIDE":
+            if config.scrim: return config.max_rounds // 2
+            else: return int((config.max_rounds-3) // 2)
+
+        case "IGN_MODE":
+            return IGNMatrixMode.FIXED if len(config.igns) >= 10 else IGNMatrixMode.INFER
+
+        case "CAPTURE/REGIONS/TEAM1_SCORE":
+            tr = config.capture.regions.timer
+            return [tr[0] - tr[2]//2, tr[1], tr[2]//2, tr[3]]
+
+        case "CAPTURE/REGIONS/TEAM2_SCORE":
+            tr = config.capture.regions.timer
+            return [tr[0] + tr[2], tr[1], tr[2]//2, tr[3]]
+
+        case "CAPTURE/REGIONS/TEAM1_SIDE":
+            tr = config.capture.regions.timer
+            return [tr[0] - int(tr[2]*0.95), tr[1], tr[2]//2, tr[3]]
+
+        case "CAPTURE/REGIONS/TEAM2_SIDE":
+            tr = config.capture.regions.timer
+            return [tr[0] + int(tr[2]*1.45), tr[1], tr[2]//2, tr[3]]
+
+        case _:
+            return None
+
+
+def __load_debug(debug_filepath: str) -> Config:
+    dconfig = load_json(debug_filepath)
 
     for key in DEBUG_KEYS:
         if key not in dconfig:
-            raise Exception(f"debug.json has been modified, key '{key}' has been removed!")
+            raise KeyError(f"debug.json has been modified, key '{key}' has been removed!")
         elif type(dconfig[key]) != bool:
-            raise Exception(f"debug/{key} is not boolean type!")
+            raise ValueError(f"debug/{key} is not boolean type!")
     
-    return dconfig
+    return Config(dconfig)
 
 
 def __parse_verbose(arg: str) -> int:
@@ -288,7 +361,7 @@ def main():
         RegionTool(args).run()
     
     elif getattr(args, "config", False):
-        if args.config["SPECTATOR"]:
+        if args.config.spectator:
             from analyser import SpectatorAnalyser
 
             print("Info: In Spectator Mode")

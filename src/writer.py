@@ -156,7 +156,7 @@ class XlsxWriter(Writer):
         ## if player[0] is not attacker of first recorded game
         assert self._config is not None
         min_rn = min(history.get_round_nums())
-        rps = self._config["ROUNDS_PER_SIDE"]
+        rps = self._config.rounds_per_size
         team = self._players[0].team
         if team is not None:
             if rps < min_rn <= rps*2:

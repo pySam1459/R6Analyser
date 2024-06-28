@@ -1,8 +1,13 @@
 {
     "SCRIM": true,
     "SPECTATOR": false,
-    "TIMER_REGION": [1210, 110, 140, 65],
-    "KF_LINE_REGION": [1705, 413, 605, 31],
+    "CAPTURE": {
+        "MODE": "SCREENSHOT",
+        "REGIONS": {
+            "TIMER": [1210, 110, 140, 65],
+            "KF_LINE": [1705, 413, 605, 31]
+        }
+    },
     "IGNS": [
         "Samba.",
         "Player2",

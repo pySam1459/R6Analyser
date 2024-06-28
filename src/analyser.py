@@ -1,7 +1,6 @@
 import cv2
 import easyocr
 import numpy as np
-import pyautogui
 import sys
 from abc import ABC, abstractmethod
 from argparse import Namespace
@@ -14,6 +13,8 @@ from time import time
 from tqdm import tqdm
 from typing import TypeAlias, Optional
 
+from cli import Config
+from capture import Capture, Regions_t
 from ignmatrix import IGNMatrix
 from history import History, KFRecord, WinCondition
 from writer import Writer
@@ -158,18 +159,20 @@ class Analyser(ABC):
     KF_ALLOWLIST = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-_"
     
     def __init__(self, args: Namespace):
-        self.config: dict = args.config
+        self.config: Config = args.config
+        self.debug_config: Config = args.debug
         self.verbose: int = args.verbose
-        self.debug_config = args.debug
         self.prog_args = args
-        self._debug_print("config_keys", f"Config Keys -", list(self.config.keys()))
+        self._debug_print("config", f"Config\n{self.config}")
+        
+        self.capture = Capture.new(self.config)
 
         if args.check:
             self.check()
             if not args.test: sys.exit()
 
         self.running = False
-        self.tdelta: float = self.config["SCREENSHOT_PERIOD"]
+        self.tdelta: float = self.config.screenshot_period
 
         self.state = State(False, True, False)
         self.history = History()
@@ -180,7 +183,7 @@ class Analyser(ABC):
         self.current_time: Timestamp
         self.defuse_countdown_timer: Optional[float] = None
         
-        self.ign_matrix = IGNMatrix.new(self.config["IGNS"], self.config["IGN_MODE"])
+        self.ign_matrix = IGNMatrix.new(self.config.igns, self.config.ign_mode)
         self.reader = easyocr.Reader(['en'], gpu=not args.cpu)
         self._verbose_print(0, "EasyOCR Reader model loaded")
 
@@ -192,29 +195,10 @@ class Analyser(ABC):
     @abstractmethod
     def test(self) -> None:
         ...
-
-    # ----- SCREENSHOTS -----
+    
     @abstractmethod
-    def _get_ss_region_keys(self) -> list[str]:
+    def _get_region_keys(self) -> list[str]:
         ...
-
-    Regions_t: TypeAlias = dict[str, np.ndarray]
-    def _get_ss_regions(self, region_keys: Optional[list[str]] = None) -> Regions_t:
-        """Takes a screenshot of the screen, selects regions, and returns them as numpy.ndarray"""
-        if region_keys is None:
-            region_keys = self._get_ss_region_keys()
-
-        screenshot = pyautogui.screenshot(allScreens=True)
-        return {
-            region: np.array(screenshot.crop(Analyser.convert_region(self.config[region])), copy=False) # type: ignore the line
-            for region in region_keys
-        }
-
-    @staticmethod
-    def convert_region(region: list[int]) -> tuple[int,int,int,int]:
-        """Converts (X,Y,W,H) -> (Left,Top,Right,Bottom)"""
-        left, top, width, height = region
-        return (left, top, left + width, top + height)
 
     # ----- MAIN LOOP -----
     def run(self):
@@ -229,7 +213,7 @@ class Analyser(ABC):
 
             __infer_start = time()
 
-            regions = self._get_ss_regions()
+            regions = self.capture.next(self._get_region_keys())
             self._handle_scoreline(regions)
             self._handle_timer(regions)
             self._handle_feed(regions)
@@ -261,7 +245,7 @@ class Analyser(ABC):
         if denoise:
             image = cv2.fastNlMeansDenoising(image, None, 5, 7, 21)
 
-        scale_factor = self.config["SCREENSHOT_RESIZE"]
+        scale_factor = self.config.screenshot_resize
         if squeeze_width != 1.0:
             sf_w, sf_h = scale_factor * squeeze_width, scale_factor
         else:
@@ -338,9 +322,9 @@ class InPersonAnalyser(Analyser):
     
     NUM_KF_LINES = 3
     KF_BUF = 4  ## number of pixels buffer around each KF_LINE
-    SCREENSHOT_REGIONS = ["TEAM1_SCORE_REGION", "TEAM2_SCORE_REGION",
-                          "TEAM1_SIDE_REGION", "TEAM2_SIDE_REGION",
-                          "TIMER_REGION"] + [f"KF_LINE{i+1}_REGION" for i in range(NUM_KF_LINES)]
+    SCREENSHOT_REGIONS = ["TEAM1_SCORE", "TEAM2_SCORE",
+                          "TEAM1_SIDE", "TEAM2_SIDE",
+                          "TIMER"] + [f"KF_LINE{i+1}" for i in range(NUM_KF_LINES)]
     NON_NAMES = ["has found the bomb", "Friendly Fire has been activated for"]
 
     SCORELINE_PROB = 0.25
@@ -380,28 +364,28 @@ class InPersonAnalyser(Analyser):
         def __resize(key: str, dsize: list[int]) -> np.ndarray:
             return cv2.resize(assets[key], dsize, interpolation=cv2.INTER_LINEAR)
         
-        assets["atkside_icon"] = __resize("atkside_icon", self.config["TEAM1_SIDE_REGION"][2:])
+        assets["atkside_icon"] = __resize("atkside_icon", self.config.capture.regions.team1_side[2:])
         
         h,w = assets["headshot"].shape
-        sf = self.config["SCREENSHOT_RESIZE"] * self.config["KF_LINE_REGION"][3] / h
+        sf = self.config.screenshot_resize * self.config.capture.regions.kf_line[3] / h
         assets["headshot"] = __resize("headshot", [int(sf*w), int(sf*h)])
 
         return assets
     
     def __set_kfline_config(self) -> None:
         """Create k new regions for each killfeed line"""
-        x,y,w,h = self.config["KF_LINE_REGION"]
+        x,y,w,h = self.config.capture.regions.kf_line
         buf = InPersonAnalyser.KF_BUF
         for i in range(InPersonAnalyser.NUM_KF_LINES):
             region = [x, y-int(h*1.40*i)-buf, w, h+buf*2]
-            self.config[f"KF_LINE{i+1}_REGION"] = region
+            self.config.capture.regions[f"KF_LINE{i+1}"] = region
 
-    def _get_ss_region_keys(self) -> list[str]:
+    def _get_region_keys(self) -> list[str]:
         return InPersonAnalyser.SCREENSHOT_REGIONS
 
 
     ## ----- SCORELINE -----
-    def _handle_scoreline(self, regions: Analyser.Regions_t) -> None:
+    def _handle_scoreline(self, regions: Regions_t) -> None:
         """Extracts the current scoreline visible and determines when a new rounds starts"""
         if not self.state.end_round: return
 
@@ -453,7 +437,7 @@ class InPersonAnalyser(Analyser):
 
 
     ## ----- TIMER FUNCTION -----
-    def _handle_timer(self, regions: Analyser.Regions_t) -> None:
+    def _handle_timer(self, regions: Regions_t) -> None:
         """Reads and handles the timer information, used to determine when the bomb is planted and when the round ends"""
         if not self.history.is_ready: return
 
@@ -544,7 +528,7 @@ class InPersonAnalyser(Analyser):
 
 
     ## ----- KILL FEED -----
-    def _handle_feed(self, regions: Analyser.Regions_t) -> None:
+    def _handle_feed(self, regions: Regions_t) -> None:
         """Handles the killfeed by reading the names, querying the ign matrix and the information to History"""
         if not self.history.is_ready: return
         if not self.state.in_round and self.last_kf_seconds is None: return
@@ -633,7 +617,7 @@ class InPersonAnalyser(Analyser):
 
     def __join_line(self, line: list[OCResult]) -> list[OCResult]:
         """Determines which OCResults to join"""
-        prox_dist = InPersonAnalyser.PROXIMITY_DIST * (self.config["SCREENSHOT_RESIZE"] / 4)
+        prox_dist = InPersonAnalyser.PROXIMITY_DIST * (self.config.screenshot_resize / 4)
         line.sort(key=lambda ocr_res: ocr_res.rect[0])
         new_line = []
         used = []
@@ -741,10 +725,10 @@ class InPersonAnalyser(Analyser):
         self.prog_bar.set_desc("ROUND END")
         self.prog_bar.refresh()
 
-        mx_rnd = self.config["MAX_ROUNDS"]
-        rps = self.config["ROUNDS_PER_SIDE"]
+        mx_rnd = self.config.max_rounds
+        rps = self.config.rounds_per_side
         scoreline = self.history.cround.scoreline = [0, 0]
-        is_ot = not self.config["SCRIM"] and scoreline[0] >= rps and scoreline[1] >= rps
+        is_ot = not self.config.scrim and scoreline[0] >= rps and scoreline[1] >= rps
         if self.history.roundn >= mx_rnd \
                 or (not is_ot and max(scoreline) == rps+1) \
                 or (is_ot and abs(scoreline[0]-scoreline[1]) == 2):
@@ -805,7 +789,7 @@ class InPersonAnalyser(Analyser):
         self.state.in_round = True
         self.state.end_round = False
 
-        timer_region = self._get_ss_regions(["TIMER_REGION"])["TIMER_REGION"]
+        timer_region = self.capture.get_region("TIMER_REGION")
         self.state.bomb_planted = self.__is_bomb_countdown(timer_region)
         
         self.history.fix_round()
@@ -818,8 +802,7 @@ class InPersonAnalyser(Analyser):
 
         self._verbose_print(0, "Saving check images")
         self.__set_kfline_config()
-        region_keys = self._get_ss_region_keys()
-        regions = self._get_ss_regions(region_keys)
+        regions = self.capture.next(self._get_region_keys())
         for name, img in regions.items():
             cv2.imwrite(join("images", f"{name}.jpg"), cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
     
@@ -829,11 +812,11 @@ class InPersonAnalyser(Analyser):
         This method is called when the `--test` flag is added to the program call,
         runs inference on a single screenshot.
         """
-        regions   = self._get_ss_regions()
-        scoreline = self.__read_scoreline(regions["TEAM1_SCORE_REGION"], regions["TEAM2_SCORE_REGION"])
-        atkside   = self.__read_atkside(regions["TEAM1_SIDE_REGION"], regions["TEAM2_SIDE_REGION"])
-        time_read = self.__read_timer(regions["TIMER_REGION"])
-        feed_read, image_lines = self.__read_feed([regions[f"KF_LINE{i+1}_REGION"] for i in range(InPersonAnalyser.NUM_KF_LINES)])
+        regions   = self.capture.next(self._get_region_keys())
+        scoreline = self.__read_scoreline(regions["TEAM1_SCORE"], regions["TEAM2_SCORE"])
+        atkside   = self.__read_atkside(regions["TEAM1_SIDE"], regions["TEAM2_SIDE"])
+        time_read = self.__read_timer(regions["TIMER"])
+        feed_read, image_lines = self.__read_feed([regions[f"KF_LINE{i+1}"] for i in range(InPersonAnalyser.NUM_KF_LINES)])
 
         headshots = [self.__is_headshot(img_line) for img_line in image_lines]
         self.__test_drawocr(image_lines, feed_read, headshots)
@@ -863,25 +846,20 @@ class InPersonAnalyser(Analyser):
 
 
 class SpectatorAnalyser(Analyser):
-    NUM_LAST_SECONDS = 4
-    END_ROUND_SECONDS = 12
-    
-    SCREENSHOT_REGIONS = ["TEAM1_SCORE_REGION", "TEAM2_SCORE_REGION", "TIMER_REGION", "KILLFEED_REGION"]
-
     def __init__(self, args) -> None:
         super(SpectatorAnalyser, self).__init__(args)
 
-    def _get_ss_region_keys(self) -> list[str]:
-        return SpectatorAnalyser.SCREENSHOT_REGIONS
+    def _get_region_keys(self) -> list[str]:
+        return []
 
     ## ----- IN ROUND OCR FUNCTIONS -----
-    def _handle_scoreline(self, team1_scoreline: np.ndarray, team2_scoreline: np.ndarray) -> None:
+    def _handle_scoreline(self, regions: Regions_t) -> None:
         ...
     
-    def _handle_timer(self, timer: np.ndarray) -> None:
+    def _handle_timer(self, regions: Regions_t) -> None:
         ...
     
-    def _handle_feed(self, feed: np.ndarray) -> None:
+    def _handle_feed(self, regions: Regions_t) -> None:
         ...
 
     ## ----- GAME STATE FUNCTIONS -----

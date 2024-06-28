@@ -1,6 +1,7 @@
-from enum import Enum
+from collections import deque, defaultdict
 from dataclasses import dataclass
-from typing import Any
+from enum import Enum
+from typing import Any, Optional
 
 
 class StrEnum(Enum):
@@ -148,6 +149,89 @@ def compute_rinr(r1: list[int], r2: list[int]) -> float:
     r1_area = w1 * h1
 
     return inter_area / r1_area if r1_area > 0 else 0
+
+
+class Config:
+    def __init__(self, _inital: dict, *, name: Optional[str] = None) -> None:
+        for key, value in _inital.items():
+            if isinstance(value, dict):
+                value = Config(value)
+            setattr(self, Config.__fixkey(key), value)
+
+        self.name = name
+
+    def __getitem__(self, key: str) -> Any:
+        return getattr(self, Config.__fixkey(key))
+
+    def __setitem__(self, key: str, value: Any) -> None:
+        setattr(self, Config.__fixkey(key), value)
+
+    def __contains__(self, key: str) -> bool:
+        return Config.__fixkey(key) in self.__dict__
+
+    def get(self, key: str, _default: Any = None) -> Any:
+        if key in self:
+            return self.__dict__[key]
+        return _default
+
+    @staticmethod
+    def __fixkey(key: str) -> str:
+        return key.lower().replace(" ", "_")
+
+    def __repr__(self) -> str:
+        return self._repr(0)
+
+    def _repr(self, indent: int) -> str:
+        items = []
+        for key, value in self.__dict__.items():
+            if isinstance(value, Config):
+                items.append(f'{" " * indent}{key}:\n{value._repr(indent + 2)}')
+            else:
+                items.append(f'{" " * indent}{key}: {value}')
+        return '\n'.join(items)
+    
+    def enumerate(self) -> list[str]:
+        key_paths = []
+        
+        for key, value in self.__dict__.items():
+            if type(value) == Config:
+                key_paths += [f"{key}/{val_enum}" for val_enum in value.enumerate()]
+            else:
+                key_paths.append(key)
+
+        return key_paths
+
+
+# Function to perform topological sort
+def topological_sort(uslist: list[str], pd_dict: dict[str, list[str]]) -> None:
+    """Sorts a list based on a precedence dictionary in-place"""
+    graph = defaultdict(list)
+    for key, values in pd_dict.items():
+        for value in values:
+            graph[key].append(value)
+            if value not in graph:
+                graph[value] = []
+    
+    # Count the in-degrees of each node
+    in_degree = {node: 0 for node in graph}
+    for node in graph:
+        for neighbor in graph[node]:
+            in_degree[neighbor] += 1
+
+    # Collect nodes with zero in-degree
+    zero_in_degree = deque([node for node in in_degree if in_degree[node] == 0])
+
+    sorted_order = []
+    while zero_in_degree:
+        node = zero_in_degree.popleft()
+        sorted_order.append(node)
+        for neighbor in graph[node]:
+            in_degree[neighbor] -= 1
+            if in_degree[neighbor] == 0:
+                zero_in_degree.append(neighbor)
+
+    order_index = {element: i for i, element in enumerate(sorted_order)}
+    uslist.sort(key=lambda el: order_index.get(el[0], float("inf")))
 
 
 if __name__ == "__main__":
