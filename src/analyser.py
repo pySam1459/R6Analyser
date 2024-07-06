@@ -805,8 +805,8 @@ class InPersonAnalyser(Analyser):
         regions = self.capture.next(self._get_region_keys())
         for name, img in regions.items():
             cv2.imwrite(join("images", f"{name}.jpg"), cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
-    
-    
+
+
     def test(self) -> None:
         """
         This method is called when the `--test` flag is added to the program call,
@@ -834,7 +834,7 @@ class InPersonAnalyser(Analyser):
         print()
 
     def __test_drawocr(self, image_lines: list[np.ndarray], lines: list[OCRLine], hs_rects: list[list[int]]) -> None:
-        line_cols: list[tuple[int, int, int]] = [(0, 0, 255), (0, 255, 0), (255, 0, 0)]
+        line_cols = [(0, 0, 255), (0, 255, 0), (255, 0, 0)]
         for i, (image, line, col, hs) in enumerate(zip(image_lines, lines, line_cols, hs_rects)):
             rect_img = cv2.cvtColor(image.copy(), cv2.COLOR_GRAY2BGR)
             for ocres in line.ocr_results:

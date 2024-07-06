@@ -1,5 +1,6 @@
 import argparse
 from datetime import datetime
+from functools import partial
 from json import load as _json_load
 from os.path import exists, join
 from sys import exit
@@ -10,7 +11,7 @@ from typing import TypeAlias, TypeVar, Type, Any, Callable, Optional
 from capture import CaptureMode
 from ignmatrix import IGNMatrixMode
 from writer import SUPPORTED_SAVEFILE_EXTS
-from utils import SaveFile, Config, topological_sort
+from utils import SaveFile, Config
 
 
 __all__ = [
@@ -34,7 +35,7 @@ def load_json(file_path: str) -> dict:
         exit(f"JSON LOAD ERROR: Could not open {file_path}!\n{str(e)}")
 
 
-def assert_eq(condition: bool, reason: str) -> None:
+def ASSERT(condition: bool, reason: str) -> None:
     if not condition:
         print(reason)
         exit()
@@ -59,6 +60,9 @@ def __cparse_type_range(arg: Any, _type: T, name: str, lower: T, upper: T) -> T:
         config_arg_error(name, f"must be in range [{lower}-{upper}]")
     return arg
 
+def __partial_type_range(_type: T, lower: T, upper: T) -> partial:
+    return partial(__cparse_type_range, _type=_type, lower=lower, upper=upper)
+
 def __cparse_bounding_box(arg: Any, name: str) -> list[int]:
     if type(arg) != list or len(arg) != 4 or not all([type(el) == int for el in arg]):
         config_arg_error(name, "must be of length=4 and type list[int]")
@@ -75,15 +79,22 @@ def __cparse_enum(arg: Any, name: str, enum: Type[E]) -> E: # type: ignore the l
             return enum_member
     config_arg_error(name, f"{arg} not a valid enum value")
 
-def __cparse_IGNS(arg: Any) -> list[str]:
+def __cparse_IGNS(arg: Any, name: str) -> list[str]:
     if type(arg) != list:
-        config_arg_error("IGNS", "not a list")
+        config_arg_error(name, "not a list")
     if not 0 <= len(arg) <= 10:
-        config_arg_error("IGNS", "list must have a length of [0-10]")
+        config_arg_error(name, "list must have a length of [0-10]")
     if not all([type(el) == str for el in arg]):
-        config_arg_error("IGNS", "not a list of strings")
+        config_arg_error(name, "not a list of strings")
     if not all([1 < len(el) <= 18 for el in arg]): ## max length of an ign is 18?
-        config_arg_error("IGNS", "list contains an invalid IGN")
+        config_arg_error(name, "list contains an invalid IGN")
+    return arg
+
+def __cparse_file(arg: Any, name: str) -> str:
+    if type(arg) != str:
+        config_arg_error(name, "not a string")
+    if not exists(arg):
+        config_arg_error(name, "file does not exist!")
     return arg
 
 
@@ -93,73 +104,104 @@ DEBUG_FILENAME = "debug.json"
 DEFAULT_CONFIG_FILENAME = "defaults.json"
 
 ## <OPTION> values
-REQUIRED, INFERRED, OPTIONAL = 1, 2, 3
+REQUIRED, DEPENDENT, INFERRED, OPTIONAL = 0x1, 0x2, 0x4, 0x8
 
 """
 Config Specification `spec` is formatted as such:
-- leaf key     has a value: tuple[<OPTION>, parse function]
+- leaf key     has a value: tuple[<OPTION>, __cparse_function]
 - internal key has a 'sub-config' dictionary value,
     sub-configs follow the same spec format
+    sub-configs must have an additional `"<|OPTION|>": <OPTION>` property
 
-The parse functions are implemented above:
-  __cparse_{bool, type_range, bounding_box, enum, IGNS}
-
-spec format = {
-    key: (<OPTION>, parse func),
+The parse functions are implemented above: __cparse_{bool, type_range, bounding_box, enum, IGNS}
+  During evaluation, (arg, name) are automatically passed to function
+  therefore, use partial functions in specification for other arguments
+```
+spec_format = {
+    key:              (<OPTION>, parse_func),
     key2: {
-        "__option": <OPTION>,            ## this key 
-        "key3: (<OPTION>, parse func),
-        "key4": { ... }
+        "<|OPTION|>":  <OPTION>,
+        "key3:        (<OPTION>, parse_func),
+        "key4":       { ... }
     }
 }
+```
 
-For inferred config values, `__infer_deps` specifies which config keys
-  must be inferred before others (infer-dependencies)
-  eg. keys A,B are both inferred, A is inferred using B, B must be inferred before A
+Specifications can have dependencies
+  - keys which have the DEPENDENT <OPTION>
+  - keys that infer on other keys must be inferred later
 
-__infer_deps = {
-    "B": ["A"],
-    "C": ["B", "D"]
+A config dependency contains the conditions dependencies
+```
+__deps = {
+    "X": ["<|EXIST_IF|>Y<|=|>EXAMPLE VALUE"]
 }
+```
+The Specification is evaluated in the order it is defined
+  so inferred keys which depend on other keys must defined after
+  all <OPTION>=INFERRED  keys will be inferred after {REQUIRED,OPTIONAL} keys irrespective of definition-order
+  all <OPTION>=DEPENDENT keys will be checked last
 """
 __spec_t: TypeAlias = dict[str, tuple[int, Callable]|dict]
 __config_spec: __spec_t = {
     ## Required keys
-    "SCRIM":               (REQUIRED, lambda arg: __cparse_bool(arg, "SCRIM")),
-    "SPECTATOR":           (REQUIRED, lambda arg: __cparse_bool(arg, "SPECTATOR")),
+    "SCRIM":               (REQUIRED, __cparse_bool),
+    "SPECTATOR":           (REQUIRED, __cparse_bool),
     "CAPTURE": {
-        "__option":         REQUIRED,
-        "MODE":            (REQUIRED, lambda arg: __cparse_enum(arg, "CAPTURE/MODE", CaptureMode)),
+        "<|OPTION|>":       REQUIRED,
+        "MODE":            (REQUIRED, partial(__cparse_enum, enum=CaptureMode)),
+        "FILE":            (DEPENDENT, __cparse_file),
         "REGIONS": {
-            "__option":     REQUIRED,
-            "TIMER":       (REQUIRED, lambda arg: __cparse_bounding_box(arg, "CAPTURE/REGIONS/TIMER")),
-            "KF_LINE":     (REQUIRED, lambda arg: __cparse_bounding_box(arg, "CAPTURE/REGIONS/KF_LINE")),
+            "<|OPTION|>":   REQUIRED,
+            "TIMER":       (REQUIRED, __cparse_bounding_box),
+            "KF_LINE":     (REQUIRED, __cparse_bounding_box),
             # Inferred Keys
-            "TEAM1_SCORE": (INFERRED, lambda arg: __cparse_bounding_box(arg, "CAPTURE/REGIONS/TEAM1_SCORE")),
-            "TEAM2_SCORE": (INFERRED, lambda arg: __cparse_bounding_box(arg, "CAPTURE/REGIONS/TEAM2_SCORE")),
-            "TEAM1_SIDE":  (INFERRED, lambda arg: __cparse_bounding_box(arg, "CAPTURE/REGIONS/TEAM1_SIDE")),
-            "TEAM2_SIDE":  (INFERRED, lambda arg: __cparse_bounding_box(arg, "CAPTURE/REGIONS/TEAM2_SIDE"))
+            "TEAM1_SCORE": (INFERRED, __cparse_bounding_box),
+            "TEAM2_SCORE": (INFERRED, __cparse_bounding_box),
+            "TEAM1_SIDE":  (INFERRED, __cparse_bounding_box),
+            "TEAM2_SIDE":  (INFERRED, __cparse_bounding_box)
         }
     },
-    "IGNS":                (REQUIRED, lambda arg: __cparse_IGNS(arg)),
+    "IGNS":                (REQUIRED, __cparse_IGNS),
 
     ## Inferred keys
-    "MAX_ROUNDS":          (INFERRED, lambda arg: __cparse_type_range(arg, int, "MAX_ROUNDS", 1, 15)),
-    "ROUNDS_PER_SIDE":     (INFERRED, lambda arg: __cparse_type_range(arg, int, "ROUNDS_PER_SIDE", 1, 6)),
-    "IGN_MODE":            (INFERRED, lambda arg: __cparse_enum(arg, "IGN_MODE", IGNMatrixMode)),
+    "IGN_MODE":            (INFERRED, partial(__cparse_enum, enum=IGNMatrixMode)),
+    "MAX_ROUNDS":          (INFERRED, __partial_type_range(int, 1, 15)),
+    "ROUNDS_PER_SIDE":     (INFERRED, __partial_type_range(int, 1, 6)),
 
     ## Optional keys
-    "SCREENSHOT_RESIZE":   (OPTIONAL, lambda arg: __cparse_type_range(arg, int, "SCREENSHOT_RESIZE", 1, 8)),
-    "SCREENSHOT_PERIOD":   (OPTIONAL, lambda arg: __cparse_type_range(arg, float, "SCREENSHOT_PERIOD", 0.0, 2.0)),
+    "SCREENSHOT_RESIZE":   (OPTIONAL, __partial_type_range(int, 1, 8)),
+    "SCREENSHOT_PERIOD":   (OPTIONAL, __partial_type_range(float, 0.0, 2.0)),
 }
 
-## infer-dependencies: dict[key: depends on everything here]
-__infer_deps = {
-    "MAX_ROUNDS": ["ROUNDS_PER_SIDE"]
+## dependencies: dict[key: required if everything here == true]
+__deps_t: TypeAlias = dict[str, list[str]]
+__config_deps = {
+    "CAPTURE": {
+        "FILE": [lambda cfg: cfg.capture.mode != CaptureMode.SCREENSHOT],
+    }
+}
+
+__regiontool_spec: __spec_t = {
+    "SPECTATOR":           (REQUIRED, __cparse_bool),
+    "CAPTURE": {
+        "<|OPTION|>":       REQUIRED,
+        "MODE":            (REQUIRED, partial(__cparse_enum, enum=CaptureMode)),
+        "FILE":            (DEPENDENT, __cparse_file),
+        "REGIONS": {
+            "<|OPTION|>":   REQUIRED,
+        }
+    },
+}
+
+__regiontool_deps = {
+    "CAPTURE": {
+        "FILE": [lambda cfg: cfg.capture.mode != CaptureMode.SCREENSHOT],
+    }
 }
 
 
-def __parse_config(config_filepath: str) -> Config:
+def __parse_config(config_filepath: str, args: argparse.Namespace) -> Config | list[Config]:
     ## argument checks
     if not (exists(config_filepath) or exists(join("configs", config_filepath))):
         exit(f"CONFIG ERROR: File '{config_filepath}' cannot be found!")
@@ -169,63 +211,87 @@ def __parse_config(config_filepath: str) -> Config:
 
     ## Load config,defaults from json
     config = load_json(config_filepath)
-    default_cfg = load_json(DEFAULT_CONFIG_FILENAME)
+    default_cfg = Config(load_json(DEFAULT_CONFIG_FILENAME), name="defaults")
 
-    ## Pass config,spec,defaults to recursive validator funciton
-    return __validate_config(Config(config, name="config"), __config_spec, Config(default_cfg, name="defaults"))
+    spec = __config_spec
+    deps = __config_deps
+    if args.region_tool:
+        spec = __regiontool_spec
+        deps = __regiontool_deps
+
+    if type(config) == list:
+        if len(config) == 1:
+            config = config[0]
+        elif len(config) > 1:
+            config[0]["CFG_FILE_PATH"] = config_filepath
+            cfg0 = __validate_config(Config(config[0], name="config0"), default_cfg, spec, deps)
+            other_cfgs = [__infer_config(Config(cfg, name=f"config{i}"), cfg0) for i, cfg in enumerate(config[1:], start=1)]
+            return [cfg0] + other_cfgs
+        else:
+            raise TypeError("CONFIG ERROR: Config list is empty")
+
+    if type(config) == dict:
+        ## Pass config,spec,defaults to recursive validator function
+        config["CFG_FILE_PATH"] = config_filepath
+        return __validate_config(Config(config, name="config"), default_cfg, spec, deps)
+
+    else:
+        raise TypeError("CONFIG ERROR: Invalid config root type")
 
 
-def __validate_config(config: Config, spec: __spec_t, default_cfg: Config,
-                      key_path: str = "", infer_list: Optional[list[str]] = None) -> Config:
+def __validate_config(config: Config, default_cfg: Config,
+                      spec: __spec_t, deps: __deps_t,
+                      key_path: str = "",
+                      infer_list: Optional[list[tuple]] = None, dep_list: Optional[list[tuple]] = None) -> Config:
     """Validates and parses the structure and values in the config given the spec"""
     __first = False
     if infer_list is None:
         infer_list = []
+        dep_list = []
         __first = True
 
     for skey, svalue in spec.items():
         nkey_path = f"{key_path}/{skey}".strip(r"/") ## eg. IGNS, CAPTURE/MODE, CAPTURE/REGIONS/TIMER
 
-        if skey == "__option": continue
-        elif skey in config:
+        if skey == "<|OPTION|>": continue
+        if skey in config:
             if type(config[skey]) == Config:
-                assert_eq(type(config[skey]) == Config, f"Invalid Configuration: {nkey_path} must be a dict not value")
-                config[skey] = __validate_config(config[skey], svalue, default_cfg.get(skey, {}), nkey_path, infer_list)
+                ASSERT(type(svalue) == dict, f"CONFIG ERROR: {nkey_path} must be a dict not value")
+                config[skey] = __validate_config(config[skey], default_cfg.get(skey, {}), svalue, deps.get(skey, {}),
+                                                 nkey_path, infer_list, dep_list)
             else:
-                assert_eq(type(config[skey]) != Config, f"Invalid Configuration: {nkey_path} must be a value not dict")
-                config[skey] = svalue[1](config[skey])
+                ASSERT(type(svalue) != dict, f"CONFIG ERROR: {nkey_path} must be a value not dict")
+                ASSERT(len(svalue) == 2, f"SPEC ERROR: {nkey_path} is not valid (<OPTION>, __parse_func)")
+                config[skey] = svalue[1](arg=config[skey], name=nkey_path)
 
-        ## spec key is NOT in the config
-        elif type(svalue) == Config:
-            assert_eq("__option" in svalue, f"SPEC ERROR: The config spec has not set the __option for a sub-config")
-            opt = svalue["__option"]
-            if opt == REQUIRED:
+        else:
+            if type(svalue) == dict:
+                ASSERT("<|OPTION|>" in svalue, f"SPEC ERROR: The config spec has not set the <|OPTION|> for a sub-config")
+                opt = svalue["<|OPTION|>"]
+            else:
+                opt = svalue[0]
+
+            if opt & REQUIRED:
                 exit(f"CONFIG ERROR: Config file does not contain required key '{nkey_path}'!")
-            elif opt == OPTIONAL:
-                assert_eq(skey in default_cfg, f"{nkey_path} is missing from default.json!")
+            if opt & DEPENDENT:
+                dep_list.append((nkey_path, skey, deps))
+            if opt & OPTIONAL:
+                ASSERT(skey in default_cfg, f"{nkey_path} is missing from default.json!")
                 config[skey] = default_cfg[skey]
-            elif opt == INFERRED:
+            if opt & INFERRED:
                 infer_list.append((nkey_path, skey, config))
-            else:
-                exit(f"SPEC ERROR: The config spec is incorrect, out of valid option {opt}")
-
-        elif svalue[0] == REQUIRED:
-            exit(f"CONFIG ERROR: Config file does not contain required key '{nkey_path}'!")
-
-        elif svalue[0] == OPTIONAL:
-            assert_eq(skey in default_cfg, f"{nkey_path} is missing from default.json!")
-            config[skey] = default_cfg[skey]
-
-        elif svalue[0] == INFERRED:
-            infer_list.append((nkey_path, skey, config))
 
     if not __first:
         return config
 
-    ## infer_list must be sorted due to infer-dependencies
-    topological_sort(infer_list, __infer_deps)
+    ## infer properties after required,optional key validations
     for key_path, key_last, cfg_parent in infer_list:
         cfg_parent[key_last] = __infer_from_key(config, key_path)
+
+    ## check dependencies of DEPENDENT properties last
+    for key_path, key_last, dep_parent in dep_list:
+        ASSERT(not all([func(config) for func in dep_parent[key_last]]),
+               f"CONFIG ERROR: Dependent property {key_path}'s condition is not met.")
 
     return config
 
@@ -260,6 +326,10 @@ def __infer_from_key(config: Config, key: str) -> Any:
 
         case _:
             return None
+
+
+def __infer_config(config: Config, src_cfg: Config) -> None:
+    return config
 
 
 def __load_debug(debug_filepath: str) -> Config:
@@ -303,15 +373,8 @@ def main():
         prog="R6 Analyser",
         description="A Rainbow Six Siege VOD Analyser to record live information from a game.")
 
-    parser.add_argument("-c", "--config",
-                        type=__parse_config,
-                        help="Filename of the .json config file containing information bounding boxes",
-                        dest="config")
-    parser.add_argument("-d", "--delay",
-                        type=int,
-                        help="Time delay between starting the program and recording",
-                        dest="delay",
-                        default=0)
+    parser.add_argument("config",
+                        help="JSON configuration file located in . or ./configs")
     parser.add_argument("-v", "--verbose",
                         type=__parse_verbose,
                         help="Determines how detailed the console output is, 0-nothing, 1-some, 2-all, 3-debug",
@@ -339,7 +402,13 @@ def main():
     parser.add_argument("--cpu",
                         action="store_true",
                         help="Flag for only cpu execution, if your machine does not support gpu acceleration")
-    
+
+    parser.add_argument("-d", "--delay",
+                        type=int,
+                        help="Time delay between starting the program and recording",
+                        dest="delay",
+                        default=0)
+
     parser.add_argument("--region-tool",
                         action="store_true",
                         help="Runs the Region tool instead of R6Analyser.")
@@ -350,6 +419,7 @@ def main():
 
     args = parser.parse_args()
     args.debug = __load_debug(DEBUG_FILENAME)
+    args.config = __parse_config(args.config, args)
 
     if args.delay > 0:
         sleep(args.delay)
@@ -358,18 +428,19 @@ def main():
         from tools.regiontool import RegionTool
 
         print("Info: Running Region Tool...")
-        RegionTool(args).run()
+        rt = RegionTool.new(args)
+        rt.run()
     
     elif getattr(args, "config", False):
         if args.config.spectator:
             from analyser import SpectatorAnalyser
 
-            print("Info: In Spectator Mode")
+            print("Info: Spectator Mode Active")
             analyser = SpectatorAnalyser(args)
         else:
             from analyser import InPersonAnalyser
 
-            print("Info: In Person Mode")
+            print("Info: Person Mode Active")
             analyser = InPersonAnalyser(args)
 
         if args.test:
