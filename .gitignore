@@ -4,6 +4,8 @@ saves/
 images/
 test/
 
+.vscode/
+
 build/
 dist/
 *.spec

@@ -44,10 +44,12 @@ class RegionTool(ABC):
         self.sf = 1
 
         self.selection = None
-    
+
+        self.__photoimage = None
+
     @staticmethod
     def new(args: argparse.Namespace) -> "RegionTool":
-        cfg = args.config if type(args.config) == Config else args.config[0]
+        cfg = args.config if isinstance(args.config) == Config else args.config[0]
         mode = cfg.capture.mode
         match mode:
             case CaptureMode.SCREENSHOT:
@@ -144,15 +146,15 @@ class RegionTool(ABC):
             self._on_arrows(event)
 
         self._draw_boxes()
-    
+
     @abstractmethod
     def _on_return(self) -> None:
         ...
-    
+
     @abstractmethod
     def _on_arrows(self, event: tk.Event) -> None:
         ...
-    
+
     def _save_config(self) -> None:
         self.config.save(self.config.cfg_file_path)
 
@@ -201,7 +203,7 @@ class RTVideoFile(RegionTool):
         self._init(display)
 
         self.__video = None
-        self.is_multi = type(args.config) == list and len(args.config) > 1
+        self.is_multi = isinstance(args.config, list) and len(args.config) > 1
         self.frame_idx, self.max_frame = 0, 0
         if self.is_multi:
             self.new_config(0)

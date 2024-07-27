@@ -5,6 +5,7 @@ from abc import ABC, abstractmethod
 from openpyxl import load_workbook, Workbook
 from typing import Optional, TypeAlias
 
+from config import Config
 from ignmatrix import IGNMatrix, IGNMatrixMode
 from history import Player, History, HistoryRound
 from utils import SaveFile, transpose, ndefault
@@ -20,7 +21,7 @@ SUPPORTED_SAVEFILE_EXTS = ["json", "xlsx"]
 
 
 class Writer(ABC):
-    def __init__(self, savefile: SaveFile, config: Optional[dict], append_mode: bool = False) -> None:
+    def __init__(self, savefile: SaveFile, config: Optional[Config], append_mode: bool = False) -> None:
         self._savefile = savefile
         self._config   = config
         self._append_mode = append_mode
@@ -28,7 +29,7 @@ class Writer(ABC):
         self._players: list[Player]
     
     @staticmethod
-    def new(savefile: SaveFile, config: dict, append_mode: bool = False) -> 'Writer':
+    def new(savefile: SaveFile, config: Config, append_mode: bool = False) -> 'Writer':
         match savefile.ext:
             case "json":
                 return JsonWriter(savefile)
@@ -77,7 +78,7 @@ class JsonWriter(Writer):
 
 
 class XlsxWriter(Writer):
-    def __init__(self, savefile: SaveFile, config: dict, append_mode: bool = False) -> None:
+    def __init__(self, savefile: SaveFile, config: Config, append_mode: bool = False) -> None:
         super(XlsxWriter, self).__init__(savefile, config, append_mode)
 
     def write(self, history: History, ignmat: IGNMatrix) -> None:
@@ -156,7 +157,7 @@ class XlsxWriter(Writer):
         ## if player[0] is not attacker of first recorded game
         assert self._config is not None
         min_rn = min(history.get_round_nums())
-        rps = self._config.rounds_per_size
+        rps = self._config.rounds_per_side
         team = self._players[0].team
         if team is not None:
             if rps < min_rn <= rps*2:

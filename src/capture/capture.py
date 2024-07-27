@@ -1,27 +1,23 @@
 import numpy as np
 from pyautogui import screenshot
+from PIL.Image import Image
 from abc import ABC, abstractmethod
-from typing import TypeAlias, Optional
+from typing import TypeAlias
 
-from utils import StrEnum, Config
+from config import Config
+from .utils import CaptureMode
 
 
 __all__ = [
     "Regions_t",
+    "CaptureMode",
     "Capture"
 ]
 
 
 Regions_t: TypeAlias = dict[str, np.ndarray]
-
-
-class CaptureMode(StrEnum):
-    SCREENSHOT = "SCREENSHOT"
-    VIDEOFILE  = "VIDEOFILE"
-
-
 class Capture(ABC):
-    def __init__(self, config: dict):
+    def __init__(self, config: Config):
         self._config = config
         self._regions = {}
 
@@ -48,27 +44,32 @@ class Capture(ABC):
 
 
 class ScreenshotCapture(Capture):
-    def __init__(self, config: dict) -> None:
+    def __init__(self, config: Config) -> None:
         super(ScreenshotCapture, self).__init__(config)
 
     def next(self, keys: list[str]) -> Regions_t:
         """Takes a screenshot of the screen, selects regions, and returns them as numpy.ndarray"""
         sshot_img = screenshot(allScreens=True)
         self._regions = {
-            region: np.array(sshot_img.crop(ScreenshotCapture.convert_region(self._config.capture.regions[region])), copy=False)
-            for region in keys
+            region_key: self.__select_region(sshot_img, region_key)
+            for region_key in keys
         }
         return self._regions
 
     @staticmethod
-    def convert_region(region: list[int]) -> list[int,int,int,int]:
+    def convert_region(region: list[int]) -> tuple[int,int,int,int]:
         """Converts (X,Y,W,H) -> (Left,Top,Right,Bottom)"""
         x, y, w, h = region
-        return [x, y, x + w, y + h]
+        return (x, y, x + w, y + h)
+
+    def __select_region(self, sshot: Image, region_key: str) -> np.ndarray:
+        region_box = self._config.capture.regions[region_key]
+        img = sshot.crop(ScreenshotCapture.convert_region(region_box))
+        return np.array(img)
 
 
 class VideoFileCapture(Capture):
-    def __init__(self, config: dict) -> None:
+    def __init__(self, config: Config) -> None:
         super(VideoFileCapture, self).__init__(config)
         
         raise NotImplementedError("Video File Capturing is not implemented yet!")

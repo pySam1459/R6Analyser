@@ -156,42 +156,42 @@ class NamesRecord:
     def __init__(self, pign: str):
         self.__vars:   list[str] = [pign]
         self.__counts: list[int] = [1]
-        
+
         self.__noccr = 1
         self.__best = 0 ## idx of most-likely pign so far
-    
+
     def inc(self, idx: int) -> None:
         self.__counts[idx] += 1
         self.__noccr += 1
 
         if self.__counts[idx] > self.__counts[self.__best]:
             self.__best = self.__counts[idx]
-    
+
     def new(self, pign: str) -> None:
         self.__vars.append(pign)
         self.__counts.append(1)
         self.__noccr += 1
-    
+
     def _in(self, pign: str) -> int:
         if pign in self.__vars:
             return self.__vars.index(pign)
         return -1
-    
+
     def fuzzy_cmp(self, pign: str, threshold: float) -> bool:
         for var in self.__vars:
             if IGNMatrix.compare_names(pign, var) >= threshold:
                 return True
         return False
-    
+
     def noccr(self) -> int:
         return self.__noccr
-    
+
     def maxoccr(self) -> int:
         return max(self.__counts)
 
     def best(self) -> str:
         return self.__vars[self.__best]
-    
+
     def __iter__(self):
         return iter(zip(self.__vars, self.__counts))
 
@@ -225,11 +225,11 @@ class IGNMatrixInfer(IGNMatrix):
         self.__team_mat:  dict[int, int]       = {i: int(i>=5) for i in range(self.__fixlen)}
         self.__team_diff: dict[int, list[int]] = {}  ## for each idx, number of kills/deaths to either team
         self.__team_hist: dict[int, list[int]] = {}  ## a list of kill/death relations for each idx
-    
+
     @property
     def mode(self) -> IGNMatrixMode:
         return IGNMatrixMode.INFER
-    
+
     def get(self, pign: str, threshold: float = VALID_THRESHOLD) -> Optional[Player]:
         """
         Returns the most-likely Player from the pseudoIGN
@@ -241,12 +241,12 @@ class IGNMatrixInfer(IGNMatrix):
         ## first check the fixed igns
         if self.__fixlen > 0 and (pl := IGNMatrix._check_fixed(self.__fixmat, pign, threshold)) is not None:
             return pl
-        
+
         ## second, check the semi-fixed igns
         for idx, nr in self.__semi_fixmat.items():
             if (pl := self.__in_names_record(pign, idx, nr, threshold)):
                 return pl
-        
+
         ## if all fixed and semi-fixed igns have been found, assume pseudoIGN is invalid
         if self.__fixlen + self.__semi_fixlen >= 10:
             return None
@@ -261,6 +261,7 @@ class IGNMatrixInfer(IGNMatrix):
         idx = self.__idx_counter
         self.__matrix[idx] = NamesRecord(pign)
         self.__idx_counter += 1
+
         return Player(idx, pign, None)
 
     def __in_names_record(self, pign: str, idx: int, nr: NamesRecord, threshold: float) -> Optional[Player]:
@@ -277,13 +278,13 @@ class IGNMatrixInfer(IGNMatrix):
             return Player(idx, nr.best(), self.get_team_from_idx(idx))
 
         return None
-    
+
     def __check_assimilation(self, idx: int, nr: NamesRecord) -> None:
         """Checks to see if a specified names record has passed over the Assimilation threshold, and if so assimilate to semi-fixed matrix"""
         if nr.noccr() >= IGNMatrixInfer.ASSIMILATE_THRESHOLD:
             self.__semi_fixmat[idx] = self.__matrix.pop(idx)
             self.__semi_fixlen += 1
-    
+
     def get_ign_from_idx(self, idx: int) -> Optional[str]:
         """Returns the player's most-likely ign from their index"""
         if 0 <= idx < self.__fixlen:
@@ -301,7 +302,7 @@ class IGNMatrixInfer(IGNMatrix):
             return None
 
         return Player(idx, ign, self.get_team_from_idx(idx))
-    
+
     def get_team_from_idx(self, idx: int) -> Optional[int]:
         """Returns the team index from a player's index"""
         if self.__fixlen >= 5 or idx <= self.__fixlen:
@@ -311,7 +312,7 @@ class IGNMatrixInfer(IGNMatrix):
             return self.__team_mat[idx]
 
         return None
-    
+
     def update_team_table(self, pidx: int, tidx: int) -> None:
         """
         To infer a player's team, a record of player kills/deaths are recorded to infer the most likely team they belong to
@@ -345,7 +346,7 @@ class IGNMatrixInfer(IGNMatrix):
         """
         if idx not in self.__team_diff:
             self.__team_diff[idx] = [0, 0]
-        
+
         tdiff = self.__team_diff[idx]
         tdiff[opp_team] += 1
 
@@ -362,7 +363,7 @@ class IGNMatrixInfer(IGNMatrix):
             self.__team_hist[idx] = [value]
         else:
             self.__team_hist[idx].append(value)
-        
+
         ## in the case when no player has a set team, declare a team when the # interactions threshold is met
         if len(self.__team_mat) == 0 and len(self.__team_hist[idx]) > IGNMatrixInfer.NO_TEAM_HIST_THRESHOLD:
             self.__set_team_idx(idx, 0)  ## DECLARE TEAMS!
@@ -407,7 +408,7 @@ class IGNMatrixInfer(IGNMatrix):
         players += [Player(idx, nr.best(), self.get_team_from_idx(idx)) for idx, nr in self.__semi_fixmat.items()]
         if len(players) == 10:
             return players
-        
+
         if len(players) + len(self.__matrix) <= 10:
             ## Note: may return a list < 10 length
             return players + [Player(idx, nr.best(), self.get_team_from_idx(idx)) for idx, nr in self.__matrix.items()]
@@ -417,7 +418,7 @@ class IGNMatrixInfer(IGNMatrix):
             indices = sorted(self.__matrix, key=lambda k: self.__matrix[k].noccr(), reverse=True)[:10-len(players)]
             return players + [Player(idx, self.__matrix[idx].best(), self.get_team_from_idx(idx)) for idx in indices]
 
-    
+
     def evaluate(self, pign: str) -> float:
         """
         Evaluates an pseudoIGN, determining how close it is to a real ign
@@ -429,11 +430,11 @@ class IGNMatrixInfer(IGNMatrix):
 
         for ign in self.__fixmat:
             max_val = max(max_val, IGNMatrix.compare_names(pign, ign))
-        
+
         for nr in self.__semi_fixmat.values():
             if nr._in(pign):
                 return 1.0
-        
+
         evals = [IGNMatrix.compare_names(pign, name) * (IGNMatrixInfer.EVAL_DECAY ** (nr.maxoccr() - occr)) for mat in self.__mats for nr in mat.values() for name, occr in nr]
         return max(max_val, *evals)
 

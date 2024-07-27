@@ -1,6 +1,10 @@
-import json
+import sys
+from tqdm import tqdm
 from dataclasses import dataclass
 from enum import Enum
+from io import StringIO
+from os.path import exists
+from json import load as __json_load
 from typing import Any, Optional
 
 
@@ -16,78 +20,6 @@ class StrEnum(Enum):
 
     def __str__(self):
         return self.value
-
-
-class Config:
-    DONT_SAVE = ["cfg_file_path", "name"]
-
-    def __init__(self, _inital: dict, *, name: Optional[str] = None) -> None:
-        for key, value in _inital.items():
-            if isinstance(value, dict):
-                value = Config(value)
-            setattr(self, Config.__fixkey(key), value)
-
-        if name is not None:
-            self.name = name
-
-    def __getitem__(self, key: str) -> Any:
-        return getattr(self, Config.__fixkey(key))
-
-    def __setitem__(self, key: str, value: Any) -> None:
-        setattr(self, Config.__fixkey(key), value)
-
-    def __contains__(self, key: str) -> bool:
-        return Config.__fixkey(key) in self.__dict__
-
-    def get(self, key: str, _default: Any = None) -> Any:
-        if key in self:
-            return self.__dict__[key]
-        return _default
-
-    @staticmethod
-    def __fixkey(key: str) -> str:
-        return key.lower().replace(" ", "_")
-
-    def __repr__(self) -> str:
-        return self._repr(0)
-
-    def _repr(self, indent: int) -> str:
-        items = []
-        for key, value in self.__dict__.items():
-            if isinstance(value, Config):
-                items.append(f'{" " * indent}{key}:\n{value._repr(indent + 2)}')
-            else:
-                items.append(f'{" " * indent}{key}: {value}')
-        return '\n'.join(items)
-    
-    def enumerate(self) -> list[str]:
-        key_paths = []
-        
-        for key, value in self.__dict__.items():
-            if type(value) == Config:
-                key_paths += [f"{key}/{val_enum}" for val_enum in value.enumerate()]
-            else:
-                key_paths.append(key)
-
-        return key_paths
-
-    def to_dict(self) -> dict:
-        func = lambda v: v.to_dict() if type(v) == Config else Config._to_dict(v)
-        return {k: func(v) for k,v in self.__dict__.items()}
-
-    @staticmethod
-    def _to_dict(value: Any) -> Any:
-        if isinstance(value, Enum):
-            return str(value)
-        else:
-            return value
-
-    def save(self, file_path: str) -> None:
-        for key in Config.DONT_SAVE:
-            self.__dict__.pop(key)
-        with open(file_path, "w") as f_out:
-            json.dump(self.to_dict(), f_out, indent=4)
-    
 
 
 @dataclass
@@ -143,7 +75,88 @@ class PhantomTqdm:
         ...
 
 
+class ProgressBar:
+    def __init__(self, verbose: int, disable: bool = False) -> None:
+        bar_format = "{desc}|{bar}"
+        if verbose == 3:
+            bar_format += "|{postfix}"
+
+        if not disable:
+            self.__tqdmbar = tqdm(total=180, bar_format=bar_format)
+        else:
+            self.__tqdmbar = PhantomTqdm()
+
+        self.__header = ""
+        self.__time = ""
+        self.__value = "-"
+
+    def set_total(self, value: int) -> None:
+        self.__tqdmbar.total = value
+
+    def set_desc(self, value: str) -> None:
+        self.__value = value
+        self.__tqdmbar.set_description_str(f"{self.__header} | {self.__time} | {value} ", refresh=False)
+
+    def set_time(self, value: Timestamp | int) -> None:
+        assert type(value) in [Timestamp, int], f"Invalid value type: {type(value)}"
+        if isinstance(value, Timestamp):
+            self.__time = str(value)
+            value = value.to_int()
+        elif isinstance(value, int):
+            self.__time = str(Timestamp.from_int(value))
+
+        self.__tqdmbar.n = value
+        self.__tqdmbar.set_description_str(f"{self.__header} | {self.__time} | {self.__value} ", refresh=False)
+
+    def set_header(self, nround: int, s1: int, s2: int) -> None:
+        self.__header = f"{nround}/{s1}:{s2}"
+        self.__tqdmbar.set_description_str(f"{self.__header} | {self.__time} | {self.__value} ", refresh=False)
+    
+    def set_postfix(self, value: str) -> None:
+        self.__tqdmbar.set_postfix_str(value, refresh=False)
+
+    def refresh(self) -> None:
+        self.__tqdmbar.refresh()
+
+    def close(self) -> None:
+        self.__tqdmbar.close()
+
+    def reset(self) -> None:
+        self.__tqdmbar.n = 180
+        self.__tqdmbar.total = 180
+        self.__value = "-"
+        self.__time = "3:00"
+        self.__tqdmbar.set_description_str(f"{self.__header} | {self.__time} | {self.__value} ")
+
+    def bomb(self) -> None:
+        self.set_time(45)
+        self.set_total(45)
+        self.refresh()
+
+    @staticmethod
+    def print(*prompt: object, sep: Optional[str] = " ", end: Optional[str] = "\n", flush: bool = False) -> None:
+        """Replaces the builtin `print` function with one which works with the tqdm progress bar"""
+        temp_out = StringIO()
+        sys.stdout = temp_out
+        print(*prompt, sep=sep, end=end, flush=flush)
+        sys.stdout = sys.__stdout__
+        tqdm.write(temp_out.getvalue(), end='')
+
+
 # ----- HELPER FUNCTIONS -----
+def load_json(file_path: str) -> dict:
+    """Loads json from `file_path` and handles any errors"""
+    if not exists(file_path):
+        raise FileNotFoundError(f"'{file_path}' does not exist!")
+    
+    try:
+        with open(file_path, "r", encoding="utf-8") as f_in:
+            return __json_load(f_in)
+
+    except Exception as e:
+        exit(f"JSON LOAD ERROR: Could not open {file_path}!\n{str(e)}")
+
+
 def ndefault(value: Any, default: Any) -> Any:
     """return value is None ? default : value"""
     if value is None: return default

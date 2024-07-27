@@ -31,7 +31,7 @@ class KFRecord:
     target:   Player
     time:     Timestamp
     headshot: bool = False
-    
+
     def __eq__(self, other: 'KFRecord') -> bool:
         """Equality check only requires index, not time/headshot (A can only kill B once)"""
         return self.player.idx == other.player.idx and self.target.idx == other.target.idx

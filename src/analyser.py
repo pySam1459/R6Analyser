@@ -5,15 +5,13 @@ import sys
 from abc import ABC, abstractmethod
 from argparse import Namespace
 from dataclasses import dataclass
-from io import StringIO
 from os import mkdir
 from os.path import join, exists
 from re import search, fullmatch
 from time import time
-from tqdm import tqdm
 from typing import TypeAlias, Optional
 
-from cli import Config
+from config import Config
 from capture import Capture, Regions_t
 from ignmatrix import IGNMatrix
 from history import History, KFRecord, WinCondition
@@ -33,74 +31,6 @@ class State:
     in_round:     bool
     end_round:    bool ## ready's the program to start a new round
     bomb_planted: bool
-
-
-class ProgressBar:
-    def __init__(self, verbose: int, disable: bool = False) -> None:
-        bar_format = "{desc}|{bar}"
-        if verbose == 3:
-            bar_format += "|{postfix}"
-
-        if not disable:
-            self.__tqdmbar = tqdm(total=180, bar_format=bar_format)
-        else:
-            self.__tqdmbar = PhantomTqdm()
-
-        self.__header = ""
-        self.__time = ""
-        self.__value = "-"
-
-    def set_total(self, value: int) -> None:
-        self.__tqdmbar.total = value
-
-    def set_desc(self, value: str) -> None:
-        self.__value = value
-        self.__tqdmbar.set_description_str(f"{self.__header} | {self.__time} | {value} ", refresh=False)
-
-    def set_time(self, value: Timestamp | int) -> None:
-        assert type(value) in [Timestamp, int], f"Invalid value type: {type(value)}"
-        if type(value) == Timestamp:
-            self.__time = str(value)
-            value = value.to_int()
-        elif type(value) == int:
-            self.__time = str(Timestamp.from_int(value))
-
-        self.__tqdmbar.n = value
-        self.__tqdmbar.set_description_str(f"{self.__header} | {self.__time} | {self.__value} ", refresh=False)
-
-    def set_header(self, nround: int, s1: int, s2: int) -> None:
-        self.__header = f"{nround}/{s1}:{s2}"
-        self.__tqdmbar.set_description_str(f"{self.__header} | {self.__time} | {self.__value} ", refresh=False)
-    
-    def set_postfix(self, value: str) -> None:
-        self.__tqdmbar.set_postfix_str(value, refresh=False)
-
-    def refresh(self) -> None:
-        self.__tqdmbar.refresh()
-
-    def close(self) -> None:
-        self.__tqdmbar.close()
-
-    def reset(self) -> None:
-        self.__tqdmbar.n = 180
-        self.__tqdmbar.total = 180
-        self.__value = "-"
-        self.__time = "3:00"
-        self.__tqdmbar.set_description_str(f"{self.__header} | {self.__time} | {self.__value} ")
-
-    def bomb(self) -> None:
-        self.set_time(45)
-        self.set_total(45)
-        self.refresh()
-
-    @staticmethod
-    def print(*prompt: object, sep: Optional[str] = " ", end: Optional[str] = "\n", flush: bool = False) -> None:
-        """Replaces the builtin `print` function with one which works with the tqdm progress bar"""
-        temp_out = StringIO()
-        sys.stdout = temp_out
-        print(*prompt, sep=sep, end=end, flush=flush)
-        sys.stdout = sys.__stdout__
-        tqdm.write(temp_out.getvalue(), end='')
 
 
 @dataclass
@@ -163,8 +93,8 @@ class Analyser(ABC):
         self.debug_config: Config = args.debug
         self.verbose: int = args.verbose
         self.prog_args = args
-        self._debug_print("config", f"Config\n{self.config}")
-        
+        self._debug_print("config_keys", f"Config\n{self.config}")
+
         self.capture = Capture.new(self.config)
 
         if args.check:
@@ -182,7 +112,7 @@ class Analyser(ABC):
         self.prog_bar = ProgressBar(self.verbose, args.test)
         self.current_time: Timestamp
         self.defuse_countdown_timer: Optional[float] = None
-        
+
         self.ign_matrix = IGNMatrix.new(self.config.igns, self.config.ign_mode)
         self.reader = easyocr.Reader(['en'], gpu=not args.cpu)
         self._verbose_print(0, "EasyOCR Reader model loaded")
@@ -211,14 +141,14 @@ class Analyser(ABC):
             if self.tdelta > 0 and self.timer + self.tdelta > time():
                 continue
 
-            __infer_start = time()
+            infer_start = time()
 
             regions = self.capture.next(self._get_region_keys())
             self._handle_scoreline(regions)
             self._handle_timer(regions)
             self._handle_feed(regions)
 
-            self._debug_infertime(time() - __infer_start)
+            self._debug_infertime(time() - infer_start)
             self.timer = time()
             self.prog_bar.refresh()
     
