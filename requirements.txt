@@ -7,3 +7,5 @@ levenshtein
 screeninfo
 openpyxl
 tqdm
+requests
+python-dotenv

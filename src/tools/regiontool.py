@@ -10,7 +10,7 @@ from screeninfo import get_monitors, Monitor
 from typing import Optional
 
 from capture import CaptureMode
-from utils import Config
+from config import Config
 
 
 __all__ = ["RegionTool"]
@@ -49,7 +49,7 @@ class RegionTool(ABC):
 
     @staticmethod
     def new(args: argparse.Namespace) -> "RegionTool":
-        cfg = args.config if isinstance(args.config) == Config else args.config[0]
+        cfg = args.config if isinstance(args.config, Config) else args.config[0]
         mode = cfg.capture.mode
         match mode:
             case CaptureMode.SCREENSHOT:
@@ -171,10 +171,10 @@ class RTScreenShot(RegionTool):
     def __init__(self, args: argparse.Namespace) -> None:
         super(RTScreenShot, self).__init__()
         monitors = get_monitors()
-        self.monitor: Monitor = monitors[args.display]
+        self.monitor: Monitor = monitors[args.display-1]
 
         display = [self.monitor.x, self.monitor.y, self.monitor.width, self.monitor.height]
-        self.image = np.array(screenshot(region=display, allScreens=True))
+        self.image = np.array(screenshot(region=display, allScreens=True)) # type: ignore
 
         self._set_config(args.config)
         self._init(display)
@@ -203,12 +203,17 @@ class RTVideoFile(RegionTool):
         self._init(display)
 
         self.__video = None
+        if isinstance(args.config, list):
+            self.is_multi = len(args.config) > 1
+        else:
+            self.is_multi = False
+
         self.is_multi = isinstance(args.config, list) and len(args.config) > 1
         self.frame_idx, self.max_frame = 0, 0
         if self.is_multi:
             self.new_config(0)
         else:
-            self._set_config(args.config)
+            self._set_config(args.config) # type: ignore
             self.new_video(self.config)
     
     def new_config(self, idx: int) -> None:
@@ -224,7 +229,7 @@ class RTVideoFile(RegionTool):
         self.max_frame = int(self.__video.get(cv2.CAP_PROP_FRAME_COUNT))
 
         self.image = self.__get_frame(self.__video, self.frame_idx)
-        self._set_image(self.image)
+        self._set_image(self.image) # type: ignore
     
     def __get_frame(self, video: cv2.VideoCapture, frame_idx: int) -> Optional[np.ndarray]:
         video.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)

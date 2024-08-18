@@ -5,12 +5,11 @@ from abc import ABC, abstractmethod
 from typing import TypeAlias
 
 from config import Config
-from .utils import CaptureMode
+from enums import CaptureMode
 
 
 __all__ = [
     "Regions_t",
-    "CaptureMode",
     "Capture"
 ]
 

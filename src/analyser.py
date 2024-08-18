@@ -5,6 +5,7 @@ import sys
 from abc import ABC, abstractmethod
 from argparse import Namespace
 from dataclasses import dataclass
+from enum import Enum
 from os import mkdir
 from os.path import join, exists
 from re import search, fullmatch
@@ -319,7 +320,7 @@ class InPersonAnalyser(Analyser):
         """Extracts the current scoreline visible and determines when a new rounds starts"""
         if not self.state.end_round: return
 
-        scores = self.__read_scoreline(regions["TEAM1_SCORE_REGION"], regions["TEAM2_SCORE_REGION"])
+        scores = self.__read_scoreline(regions["TEAM1_SCORE"], regions["TEAM2_SCORE"])
         if not scores: return
 
         new_roundn = sum(scores)+1
@@ -329,7 +330,7 @@ class InPersonAnalyser(Analyser):
 
         self._new_round(*scores)
 
-        atkside = self.__read_atkside(regions["TEAM1_SIDE_REGION"], regions["TEAM2_SIDE_REGION"])
+        atkside = self.__read_atkside(regions["TEAM1_SIDE"], regions["TEAM2_SIDE"])
         self.history.cround.atk_side = atkside
         self._verbose_print(1, f"Atk Side: {atkside}")
 
@@ -371,7 +372,7 @@ class InPersonAnalyser(Analyser):
         """Reads and handles the timer information, used to determine when the bomb is planted and when the round ends"""
         if not self.history.is_ready: return
 
-        timer_image = regions["TIMER_REGION"]
+        timer_image = regions["TIMER"]
         new_time = self.__read_timer(timer_image)
 
         ## timer is showing
@@ -410,14 +411,14 @@ class InPersonAnalyser(Analyser):
             self.last_kf_seconds = None
 
         if self.end_round_seconds is not None and self.end_round_seconds + InPersonAnalyser.END_ROUND_SECONDS < time() \
-                and self.__read_scoreline(regions["TEAM1_SCORE_REGION"], regions["TEAM2_SCORE_REGION"]) is None:
+                and self.__read_scoreline(regions["TEAM1_SCORE"], regions["TEAM2_SCORE"]) is None:
             self._end_round()
             self.end_round_seconds = None
 
 
     def __read_timer(self, image: np.ndarray) -> Optional[Timestamp]:
         """
-        Reads the current time displayed in the region `TIMER_REGION`
+        Reads the current time displayed in the region `TIMER`
         If the timer is not present, None is returned
         """
         image = self._screenshot_preprocess(image, to_gray=True, denoise=True, squeeze_width=0.75)
@@ -463,7 +464,7 @@ class InPersonAnalyser(Analyser):
         if not self.history.is_ready: return
         if not self.state.in_round and self.last_kf_seconds is None: return
 
-        image_lines = [regions[f"KF_LINE{i+1}_REGION"] for i in range(InPersonAnalyser.NUM_KF_LINES)]
+        image_lines = [regions[f"KF_LINE{i+1}"] for i in range(InPersonAnalyser.NUM_KF_LINES)]
         for line in self.__read_feed(image_lines)[0]:
             if len(line.ocr_results) == 1:
                 ## suicides?

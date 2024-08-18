@@ -1,25 +1,10 @@
 import sys
 from tqdm import tqdm
 from dataclasses import dataclass
-from enum import Enum
 from io import StringIO
 from os.path import exists
 from json import load as __json_load
 from typing import Any, Optional
-
-
-class StrEnum(Enum):
-    """Helper class to implement `from_string` for Enum's with String values"""
-    @classmethod
-    def from_string(cls, value: str):
-        """Class method to convert a string to an Enum value, with validity checks."""
-        for enum_member in cls:
-            if enum_member.value == value:
-                return enum_member
-        raise ValueError(f"'{value}' is not a valid {cls.__name__}")
-
-    def __str__(self):
-        return self.value
 
 
 @dataclass

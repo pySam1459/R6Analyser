@@ -2,23 +2,15 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from ignmatrix import Player, IGNMatrix, IGNMatrixMode
-from utils import Timestamp, StrEnum
+from utils import Timestamp
+from enums import WinCondition
 
 
 __all__ = [
-    "WinCondition",
     "History",
     "HistoryRound",
     "KFRecord"
 ]
-
-
-class WinCondition(StrEnum):
-    KILLED_OPPONENTS = "KilledOpponents"
-    TIME             = "Time"
-    DEFUSED_BOMB     = "DefusedBomb"
-    DISABLED_DEFUSER = "DisabledDefuser"
-    UNKNOWN          = "Unknown" 
 
 
 @dataclass

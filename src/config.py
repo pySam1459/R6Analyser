@@ -5,12 +5,12 @@ from functools import partial
 from os.path import exists, join
 from typing import Any, Optional, Type, TypeVar, TypeAlias, Callable
 
-from capture.utils import CaptureMode
 from ignmatrix import IGNMatrixMode
 from utils import load_json
+from enums import CaptureMode
 
 
-__all__ = [ "Config" ]
+__all__ = [ "Config", "create_config" ]
 
 
 def config_arg_error(name: str, reason: str) -> None:
@@ -204,6 +204,8 @@ class Config:
     screenshot_resize: int
     screenshot_period: float
 
+    cfg_file_path: str
+
     def __init__(self, _inital: dict, *, name: Optional[str] = None) -> None:
         for key, value in _inital.items():
             if isinstance(value, dict):
@@ -226,6 +228,7 @@ class Config:
         return Config.__fixkey(key) in self.__dict__
 
     def get(self, key: str, _default: Any = None) -> Any:
+        key = Config.__fixkey(key)
         if key in self:
             return self.__dict__[key]
         return _default
@@ -275,27 +278,26 @@ class Config:
             json.dump(self.to_dict(), f_out, indent=4)
 
 
-    @staticmethod
-    def parse(config_filepath: str, args: argparse.Namespace) -> 'Config' | list['Config']:
-        ## argument checks
-        if not (exists(config_filepath) or exists(join("configs", config_filepath))):
-            exit(f"CONFIG ERROR: File '{config_filepath}' cannot be found!")
+def create_config(config_filepath: str, args: argparse.Namespace) -> Config | list[Config]:
+    ## argument checks
+    if not (exists(config_filepath) or exists(join("configs", config_filepath))):
+        exit(f"CONFIG ERROR: File '{config_filepath}' cannot be found!")
 
-        if not exists(config_filepath):
-            config_filepath = join("configs", config_filepath)
+    if not exists(config_filepath):
+        config_filepath = join("configs", config_filepath)
 
-        ## Load config,defaults from json
-        config = load_json(config_filepath)
+    ## Load config,defaults from json
+    config = load_json(config_filepath)
 
-        spec = __config_spec
-        deps = __config_deps
-        default_cfg = Config(load_json(Config.DEFAULTS_FILENAME), name="defaults")
-        if args.region_tool:
-            spec = __regiontool_spec
-            deps = __regiontool_deps
-            default_cfg = Config(__regiontool_defaults, name="defaults")
+    spec = __config_spec
+    deps = __config_deps
+    default_cfg = Config(load_json(Config.DEFAULTS_FILENAME), name="defaults")
+    if args.region_tool:
+        spec = __regiontool_spec
+        deps = __regiontool_deps
+        default_cfg = Config(__regiontool_defaults, name="defaults")
 
-        return __validate_config(config, default_cfg, spec, deps, config_filepath)
+    return __validate_config(config, default_cfg, spec, deps, config_filepath)
 
 
 ## ----- HELPER FUNCTIONS -----
@@ -347,7 +349,7 @@ def __check_config_spec(config: Config, default_cfg: Config,
                 config[skey] = __check_config_spec(config[skey], default_cfg.get(skey, {}), svalue, deps.get(skey, {}),
                                                    nkey_path, infer_list, dep_list)
             else:
-                assert isinstance(svalue, dict), f"CONFIG ERROR: {nkey_path} must be a value not dict"
+                assert not isinstance(svalue, dict), f"CONFIG ERROR: {nkey_path} must be a value not dict"
                 assert len(svalue) == 2, f"SPEC ERROR: {nkey_path} is not valid (<OPTION>, __parse_func)"
                 config[skey] = svalue[1](arg=config[skey], name=nkey_path)
 

@@ -2,12 +2,12 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from Levenshtein import ratio as leven_ratio
 from typing import Optional
-from utils import StrEnum, ndefault
+from utils import ndefault
+from enums import IGNMatrixMode
 
 
 __all__ = [
     "Player",
-    "IGNMatrixMode",
     "IGNMatrix",
 ]
 
@@ -18,16 +18,6 @@ class Player:
     idx: int
     ign: str
     team: int | None = None
-
-
-class IGNMatrixMode(StrEnum):
-    """
-    Mode for the IGN Matrix
-        fixed - all 10 IGNs are present before program starts and remains unchanged throughout
-        infer - <10 IGNs are present, the remaining IGNs will be inferred through the killfeed
-    """
-    FIXED = "fixed"
-    INFER = "infer"
 
 
 class IGNMatrix(ABC):

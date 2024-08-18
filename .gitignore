@@ -6,6 +6,7 @@ test/
 
 .vscode/
 
+.mypy_cache/
 build/
 dist/
 *.spec

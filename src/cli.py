@@ -1,9 +1,14 @@
 import argparse
+import requests as r
 from datetime import datetime
+from re import fullmatch
+from sys import exit
 from time import sleep
+from dotenv import dotenv_values
+from typing import Optional
 
 from writer import SUPPORTED_SAVEFILE_EXTS
-from config import Config
+from config import Config, create_config
 from utils import SaveFile, load_json
 
 
@@ -24,6 +29,13 @@ def __load_debug(debug_filepath: str) -> Config:
             raise ValueError(f"debug/{key} is not boolean type!")
     
     return Config(dconfig)
+
+
+def __parse_key(arg: str) -> str:
+    if fullmatch("^[a-f0-9]{64}$", arg.strip()):
+        return arg
+    
+    raise argparse.ArgumentTypeError("Invalid software key! Must be a 32-length hex string")
 
 
 def __parse_verbose(arg: str) -> int:
@@ -47,6 +59,39 @@ def __parse_save(arg: str) -> SaveFile:
     raise argparse.ArgumentTypeError(f"Invalid save file type {ext}, only json/xlsx allowed")
 
 
+def __choose_secret_key(env_key: Optional[str], arg_key: Optional[str]) -> Optional[str]:
+    if env_key is None and arg_key is None:
+        return None
+    if arg_key is not None:
+        return arg_key
+    return env_key
+
+
+def __validate_secret_key(secret_key: str) -> Optional[dict]:
+    data = {"key": secret_key}
+    headers = {"Content-Type": "application/json"}
+    res = r.post("https://sambar6analyser.com/keycheck", json=data, headers=headers)
+
+    res_data: dict = res.json()
+    if res.status_code == 200 and res_data.get("status", None) == "success":
+        print("Valid Secret Key")
+        return res_data
+    
+    error_res = res.json().get("detail")
+    print(f"Secret Key validation error code {res.status_code}: {error_res}")
+    return None
+
+
+def validate_secret_key(arg_key: str):
+    env = dotenv_values()
+    secret_key = __choose_secret_key(env.get("SOFTWARE-KEY", None), arg_key)
+    if not secret_key:
+        print("No software key provided, please either add `SECRET-KEY=` to .env or use --key cli argument")
+        exit()
+    if not __validate_secret_key(secret_key):
+        exit()
+
+
 def __default_json_savefile() -> str:
     return datetime.now().strftime('%Y-%m-%d_%H-%M-%S') + ".json"
 
@@ -58,6 +103,11 @@ def main():
 
     parser.add_argument("config",
                         help="JSON configuration file located in . or ./configs")
+    parser.add_argument("-k", "--key",
+                        type=__parse_key,
+                        help="Software Key",
+                        dest="key",
+                        default=None)
     parser.add_argument("-v", "--verbose",
                         type=__parse_verbose,
                         help="Determines how detailed the console output is, 0-nothing, 1-some, 2-all, 3-debug",
@@ -101,8 +151,12 @@ def main():
                         default=0)
 
     args = parser.parse_args()
+    
+    if not (args.test or args.check or args.region_tool):
+        validate_secret_key(args.key)
+
     args.debug = __load_debug(DEBUG_FILENAME)
-    args.config = Config.parse(args.config, args)
+    args.config = create_config(args.config, args)
 
     if args.delay > 0:
         sleep(args.delay)
