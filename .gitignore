@@ -16,6 +16,7 @@ configs/*.json
 !example.json
 
 notes.txt
+dev-notes.md
 test.ipynb
 test.py
 
