@@ -1,0 +1,26 @@
+{
+    "combine": {
+        "src-order": [
+            "utils.py",
+            "enums.py",
+            "ignmatrix.py",
+            "history.py",
+            "config.py",
+            "capture.py",
+            "writer.py",
+            "tools/regiontool.py",
+            "analyser.py",
+            "cli.py"
+        ]
+    },
+    "include": [
+        "assets/atkside_icon.jpg",
+        "assets/headshot.jpg",
+        "debug.json",
+        "defaults.json",
+        "LICENSE"
+    ],
+    "include-no-exe": [
+        "requirements.txt"
+    ]
+}

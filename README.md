@@ -117,6 +117,21 @@ The program works by taking screenshots of the game window at regular intervals 
 - **Team 2 Side**: Used to extract team 2's side.
 Although, only the Timer and Kill Feed regions are used every inference cycle, the other regions are used to infer the game state and are only used when a new round is detected.
 
+## How to build
+To build R6Analyser, run:
+```ps1
+.\scripts\build.ps1
+.\scripts\build.sh
+```
+
+The build process goes as follows:
+1a. Combine all source code files into a single file with some details removed
+1b. Convert combined file into a bytecode .pyc file
+2. Run PyInstaller on combined.pyc and a run.py file (which calls combined.main())
+
+Steps 1a, 1b is achieved using the `combined-script.py` and providing a `build_config.json`.
+Steps 2 needs a `build.spec` file which specifies how to build into a `.exe`
+
 ## Requirements
 This program uses:
 - [Python](https://www.python.org/)

@@ -1,6 +1,6 @@
 import numpy as np
 from pyautogui import screenshot
-from PIL.Image import Image
+from PIL.Image import Image as Image_t
 from abc import ABC, abstractmethod
 from typing import TypeAlias
 
@@ -61,7 +61,7 @@ class ScreenshotCapture(Capture):
         x, y, w, h = region
         return (x, y, x + w, y + h)
 
-    def __select_region(self, sshot: Image, region_key: str) -> np.ndarray:
+    def __select_region(self, sshot: Image_t, region_key: str) -> np.ndarray:
         region_box = self._config.capture.regions[region_key]
         img = sshot.crop(ScreenshotCapture.convert_region(region_box))
         return np.array(img)

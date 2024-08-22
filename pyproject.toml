@@ -1,0 +1,10 @@
+[project]
+name = "R6Analyser"
+version = "0.1.0"
+requires-python = ">= 3.10"
+authors = [
+    {name = "Samuel Barnett", email = "pysam1459@gmail.com"}
+]
+description = "A tool for extracting statistical data from Rainbow Six Vods and gameplay videos"
+readme = "README.md"
+license = { file = "LICENSE" }
