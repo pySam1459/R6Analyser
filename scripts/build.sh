@@ -17,6 +17,10 @@ fi
 
 source "$VENV_BIN/activate"
 
+echo "Running tests..."
+
+"$VENV_BIN/pytest.exe"
+
 echo "Running build script..."
 
 "$VENV_BIN/python.exe" scripts/combine-script.py -b build_config.json  -O combined

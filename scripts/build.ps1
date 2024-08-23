@@ -20,6 +20,10 @@ else {
 # Activate the virtual environment
 & "$VENV_BIN\Activate.ps1"
 
+Write-Host "Running tests..."
+
+& "$VENV_BIN\pytest.exe"
+
 Write-Host "Running build script..."
 
 # Run the combine script
