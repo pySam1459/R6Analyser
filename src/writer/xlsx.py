@@ -1,91 +1,25 @@
-import json
-from os import mkdir
-from os.path import exists, join
-from abc import ABC, abstractmethod
+from pathlib import Path
 from openpyxl import load_workbook, Workbook
 from typing import Optional, TypeAlias
 
 from config import Config
-from ignmatrix import IGNMatrix, IGNMatrixMode
-from history import Player, History, HistoryRound
-from utils import SaveFile, transpose, ndefault
+from ignmatrix import IGNMatrix
+from history import History, HistoryRound
+from utils import transpose, ndefault
+from utils.enums import IGNMatrixMode, SaveFileType
 
-
-__all__ = [
-    "SUPPORTED_SAVEFILE_EXTS",
-    "Writer",
-]
-
-
-SUPPORTED_SAVEFILE_EXTS = ["json", "xlsx"]
-
-
-class Writer(ABC):
-    def __init__(self, savefile: SaveFile, config: Optional[Config], append_mode: bool = False) -> None:
-        self._savefile = savefile
-        self._config   = config
-        self._append_mode = append_mode
-
-        self._players: list[Player]
-    
-    @staticmethod
-    def new(savefile: SaveFile, config: Config, append_mode: bool = False) -> 'Writer':
-        match savefile.ext:
-            case "json":
-                return JsonWriter(savefile)
-            case "xlsx":
-                return XlsxWriter(savefile, config, append_mode)
-            case _:
-                raise ValueError(f"Invalid save file extension {savefile.ext}, supported exts: {SUPPORTED_SAVEFILE_EXTS}")
-
-    @abstractmethod
-    def write(self, history: History, ignmat: IGNMatrix) -> None:
-        ...
-    
-    def _pre_write(self, history: History, ignmat: IGNMatrix) -> None:
-        """Helper method which preps the data which the writer will save"""
-        if not exists("saves"):
-            mkdir("saves")
-
-        self._players = ignmat.get_players()
-        history.update(ignmat)
-        self._clean_history(history)
-    
-    def _clean_history(self, history: History) -> None:
-        """Creates separate clean_killfeed and clean_death attributes to each HistoryRound with all players who aren't in `__players` removed"""
-        indices = [pl.idx for pl in self._players]
-        for round in history.get_rounds():
-            round.clean_killfeed = [record for record in round.killfeed if record.player.idx in indices and record.target.idx in indices]
-            round.clean_deaths   = [didx for didx in round.deaths if didx in indices]
-    
-    def _make_copyfile(self) -> str:
-        """Creates a new savepath based on savefile"""
-        temp_savefile = self._savefile.copy()
-        temp_savefile.filename += " - Copy"
-        return join("saves", str(temp_savefile))
-
-
-class JsonWriter(Writer):
-    def __init__(self, savefile: SaveFile) -> None:
-        super(JsonWriter, self).__init__(savefile, None, False)
-
-    def write(self, history: History, ignmat: IGNMatrix) -> None:
-        """Writes the history to a json file"""
-        self._pre_write(history, ignmat)
-
-        with open(join("saves", str(self._savefile)), "w") as f_out:
-            json.dump(history.to_json(), f_out, indent=4)
+from .base import Writer
+from .utils import make_copyfile
 
 
 class XlsxWriter(Writer):
-    def __init__(self, savefile: SaveFile, config: Config, append_mode: bool = False) -> None:
-        super(XlsxWriter, self).__init__(savefile, config, append_mode)
+    def __init__(self, save_path: Path, config: Config, append_mode = False) -> None:
+        super(XlsxWriter, self).__init__(SaveFileType.XLSX, save_path, config, append_mode)
 
     def write(self, history: History, ignmat: IGNMatrix) -> None:
         self._pre_write(history, ignmat)
 
-        savepath = join("saves", str(self._savefile))
-        workbook, savepath, append = self.__load_workbook(savepath, self._append_mode)
+        workbook, save_path, append = self.__load_workbook(self._save_path, self._append_mode)
 
         ## remove default worksheet
         if "Sheet" in workbook.sheetnames:
@@ -107,29 +41,29 @@ class XlsxWriter(Writer):
         
         try:
             ## Save the workbook
-            workbook.save(savepath)
+            workbook.save(save_path)
         except PermissionError:
-            new_savepath = self._make_copyfile()
+            new_savepath = make_copyfile()
             workbook.save(new_savepath)
-            print(f"SAVE FILE ERROR: Permission Denied! Cannot save to {savepath}, file may already be open. Saving to {new_savepath}")
+            print(f"SAVE FILE ERROR: Permission Denied! Cannot save to {save_path}, file may already be open. Saving to {new_savepath}")
     
-    def __load_workbook(self, savepath: str, append: bool) -> tuple[Workbook, str, bool]:
+    def __load_workbook(self, save_path: Path, append: bool) -> tuple[Workbook, Path, bool]:
         """Loads a workbook, if `append=True`, it attempts to load the existing workbook from `savepath`"""
         if not append: ## if append=False, return new Workbook object
-            return Workbook(), savepath, False
+            return Workbook(), save_path, False
 
-        if not exists(savepath): ## if savepath does not exist, return new Workbook object
-            print(f"SAVE FILE ERROR: {savepath} does not exist! Defaulting to append-save=False.")
-            return Workbook(), savepath, False
+        if not save_path.exists(): ## if save_path does not exist, return new Workbook object
+            print(f"SAVE FILE ERROR: {save_path} does not exist! Defaulting to append-save=False.")
+            return Workbook(), save_path, False
         
-        temp_file = self._make_copyfile()
+        temp_file = make_copyfile()
         try: ## attempts to load existing workbook
-            return load_workbook(savepath), savepath, True
+            return load_workbook(save_path), save_path, True
             
         except PermissionError as e:
-            print(f"SAVE FILE ERROR: Permission Denied! Cannot open save file {savepath}, file may already be open.\nDefaulting to append-save=False and saving to {temp_file}.\n{str(e)}")
+            print(f"SAVE FILE ERROR: Permission Denied! Cannot open save file {save_path}, file may already be open.\nDefaulting to append-save=False and saving to {temp_file}.\n{str(e)}")
         except Exception as e:
-            print(f"SAVE FILE ERROR: An error occurred when trying to load the existing xlsx file {savepath}.\nDefaulting to append-save=False and saving to {temp_file}.\n{str(e)}")
+            print(f"SAVE FILE ERROR: An error occurred when trying to load the existing xlsx file {save_path}.\nDefaulting to append-save=False and saving to {temp_file}.\n{str(e)}")
 
         ## existing workbook failed to load, return a new Workbook object
         return Workbook(), temp_file, False
@@ -329,7 +263,3 @@ class XlsxWriter(Writer):
     def __table_flip(self, data: list[list]) -> list[list]:
         """Moves the rows 0-4-5-9 to 5-9-0-4"""
         return data[5:] + data[:5]
-
-
-if __name__ == "__main__":
-    print("Please run R6Analyser from run.py")

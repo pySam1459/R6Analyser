@@ -1,4 +1,6 @@
 {
-    "config_keys": true,
-    "red_percentage": false
+    "config_keys": false,
+    "red_percentage": false,
+    "headshot_perc": true,
+    "infer_time": true
 }

@@ -2,6 +2,7 @@ __pycache__/
 venv/
 saves/
 images/
+archive/
 
 my-tests/
 .coverage

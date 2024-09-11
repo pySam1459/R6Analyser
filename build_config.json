@@ -1,26 +1,48 @@
 {
     "combine": {
         "src-order": [
-            "utils.py",
-            "enums.py",
-            "ignmatrix.py",
+            "utils/constants.py",
+            "utils/enums.py",
+            "utils/keycheck.py",
+            "utils/_types.py",
+            "utils/_funcs.py",
+            "utils/_classes.py",
+            "utils/cli.py",
+            "assets/_assets.py",
+            "config/utils.py",
+            "config/analyser_cfg.py",
+            "config/regiontool_cfg.py",
+            "config/__init__.py",
+            "ignmatrix/utils.py",
+            "ignmatrix/base.py",
+            "ignmatrix/fixed.py",
+            "ignmatrix/infer.py",
+            "ignmatrix/__init__.py",
+            "ocr/engine.py",
             "history.py",
-            "config.py",
-            "capture.py",
+            "capture/utils.py",
+            "capture/capture.py",
             "writer.py",
             "tools/regiontool.py",
-            "analyser.py",
-            "cli.py"
+            "tools/deps_check.py",
+            "analyser/utils.py",
+            "analyser/base.py",
+            "analyser/inperson.py",
+            "analyser/spectator.py",
+            "controller.py",
+            "cli/_cli.py"
         ]
     },
     "include": [
         "assets/atkside_icon.jpg",
         "assets/headshot.jpg",
+        "settings.json",
         "debug.json",
         "defaults.json",
         "LICENSE"
     ],
     "include-no-exe": [
-        "requirements.txt"
+        "requirements.txt",
+        "README.md"
     ]
 }

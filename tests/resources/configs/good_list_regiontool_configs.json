@@ -1,0 +1,120 @@
+[
+    [
+        {
+            "name": "grt_list_test1.1-same",
+            "game_type": "comp",
+            "spectator": false,
+            "capture": {
+                "mode": "screenshot",
+                "regions": {
+                    "timer": [3752, 177, 159, 72],
+                    "kf_line": [4273, 469, 410, 26]
+                }
+            }
+        },
+        {
+            "name": "grt_list_test1.2-same",
+            "game_type": "comp",
+            "spectator": false,
+            "capture": {
+                "mode": "screenshot",
+                "regions": {
+                    "timer": [3752, 177, 159, 72],
+                    "kf_line": [4273, 469, 410, 26]
+                }
+            }
+        }
+    ],
+    [
+        {
+            "name": "grt_list_test2.1-same_missing_fields",
+            "game_type": "scrim",
+            "spectator": false,
+            "capture": {
+                "mode": "screenshot"
+            }
+        },
+        {
+            "name": "grt_list_test2.2-same_missing_fields",
+            "game_type": "scrim",
+            "spectator": false,
+            "capture": {
+                "mode": "screenshot"
+            }
+        }
+    ],
+    [
+        {
+            "name": "grt_list_test3.1-fullcopy",
+            "game_type": "ranked",
+            "spectator": false,
+            "capture": {
+                "mode": "screenshot",
+                "regions": {
+                    "timer": [3752, 177, 159, 72],
+                    "kf_line": [4273, 469, 410, 26]
+                }
+            }
+        },
+        {
+            "name": "grt_list_test3.2-fullcopy"
+        },
+        {
+            "name": "grt_list_test3.3-fullcopy"
+        }
+    ],
+    [
+        {
+            "name": "grt_list_test4.1-fullcopy_missing_fields",
+            "game_type": "scrim",
+            "spectator": false,
+            "capture": {
+                "mode": "screenshot"
+            }
+        },
+        {
+            "name": "grt_list_test4.2-fullcopy_missing_fields"
+        }
+    ],
+    [
+        {
+            "name": "grt_list_test5.1-videofile_samefile_fullcopy",
+            "game_type": "scrim",
+            "spectator": false,
+            "capture": {
+                "mode": "videofile",
+                "file": "./resources/mock-videos/mock.mp4",
+                "regions": {
+                    "timer": [3752, 177, 159, 72],
+                    "kf_line": [4273, 469, 410, 26]
+                }
+            }
+        },
+        {
+            "name": "grt_list_test5.2-videofile_fullcopy"
+        }
+    ],
+    [
+        {
+            "name": "grt_list_test6.1-videofile_diff_file_fullcopy",
+            "game_type": "scrim",
+            "spectator": false,
+            "capture": {
+                "mode": "videofile",
+                "file": "./resources/mock-videos/mock.mp4"
+            }
+        },
+        {
+            "name": "grt_list_test6.2-videofile_diff_file_fullcopy",
+            "capture": {
+                "file": "./resources/mock-videos/mock2.mp4"
+            }
+        },
+        {
+            "name": "grt_list_test6.3-videofile_diff_file_fullcopy",
+            "capture": {
+                "file": "./resources/mock-videos/mock3.mp4"
+            }
+        }
+    ]
+]

@@ -36,7 +36,6 @@ Other optional arguments include:
 - `-s` / `--save`: File to save the game data, either a JSON or XLSX file.
 - `--append-save`: Whether to append the game data to an existing save file or overwrite it.
 - `--test`: (Debugging) Runs the OCR engine for a single instance of each region and prints the output to the console.
-- `--cpu`: (NOT recommended) Use the CPU for OCR instead of the GPU.
 - `--region-tool`: Runs the region tool used to find config region parameters.
 - `--display`: The display number to take the screenshot from (default=0).
 
@@ -45,7 +44,7 @@ This program uses OCR to extract text information from the game window, so it is
 tl;dr The better the quality of the video/game, the more accurate the program will be.</br>
 
 ## Config
-To use R6Analyser, a configuration JSON is required to specify regions of the game window and other program parameters. An example config file can be found at `configs/example.json` and below. `CAPTURE/REGION` parameters can be written using the region tool:
+To use R6Analyser, a configuration JSON file is required to specify regions of the game window and other program parameters. An example config file can be found at `configs/example.json` and below. `capture.regions` parameters can be written using the region tool:
 ```bash
 python src\run.py <config file> --region-tool --display <display number>
 ```
@@ -55,24 +54,18 @@ The following outlines the required and optional paremeters of a config file:
 
 ### Required Parameters
 These parameters must be specified:
-- `SCRIM`: `true`/`false` specifying whether the game is a scrim or not.
-- `SPECTATOR`: `true`/`false` specifying if the game perspective is in spectator mode or in-person.
-- `CAPTURE/REGIONS/TIMER`: A list of 4 integers specifying the region of the game window where the timer is located.
-- `CAPTURE/REGIONS/KF_LINE`: A list of 4 integers specifying the region of the first line in the kill feed. The region should be filled by the IGN boxes, but should extend leftwards to be able to fit in longer names.
-- `IGNS`: A list of 0-10 strings specifying the in-game names (IGNs) of the players in the game. IGNs 1-5 will be considered as one team, with IGNs 6-10 as the other team. It is recommended to specify all 10 IGNs to maximise the accuracy of the program, with a minimum recommendation of 5 IGNs (your team).
+- `game_type: 'comp' | 'scrim' | 'ranked' | 'standard' | 'custom'`
+- `spectator: bool` - specifying if the game perspective is in spectator mode or in-person.
+- `team0: list[str]{0-5}` - A list of max 5 in-game names (IGNS) on team 0 (left hand side), igns will be inferred if not specified
+- `team1: list[str]{0-5}` - A list of max 5 in-game names (IGNS) on team 1 (right hand side), igns will be inferred if not specified
+- `capture.mode: 'screenshot' | 'videofile'` - 
+- `capture.regions.timer: list[int,int,int,int]` - A list of 4 integers specifying the region of the game window where the timer is located.
+- `capture.regions.kf_line: list[int,int,int,int]` - A list of 4 integers specifying the region of the first line in the kill feed. The region should be filled by the IGN boxes, but should extend leftwards to be able to fit in longer names.
 
 ### Inferred Parameters
-These parameters are optional and will be inferred by the program if not explicitly specified:
-- `MAX_ROUNDS`: The maximum number of rounds in the game. If scrim is set to true, this will default to 12; otherwise, it will default to 15. (Infinite OT is not supported yet)
-- `ROUNDS_PER_SIDE`: The number of rounds per atk/def side. Inferred to be (MAX_ROUNDS-3) / 2
-- `IGN_MODE`: Specifies how the IGNs are processed. There are two modes available:
-  - `fixed`: This mode is used when you have a predefined list of IGNs, and any IGN not in this list will not be considered, returned as `None`.
-  - `infer`: Use this mode if you want the program to automatically identify and use IGNs from the game feed. If 10 IGNs are already provided, the mode will default to `fixed`. 
-- `TEAM1_SCORE`: The region where team 1's score is displayed.
-- `TEAM2_SCORE`: The region where team 2's score is displayed.
-- `TEAM1_SIDE`: The region where team 1's side icon is displayed.
-- `TEAM2_SIDE`: The region where team 2's side icon is displayed.
-- `KILLFEED`: The region where the kill feed is displayed. This region is inferred from the `KF_LINE` as approximately 4x the height of the `KF_LINE`.
+These parameters are optional and will be inferred by R6Analyser if not explicitly specified:
+- `max_rounds: int`
+- `rounds_per_side: int`
 
 ### Optional Parameters
 These parameters are optional and will default to values in `default.json` if not specified:
@@ -84,21 +77,28 @@ These parameters are optional and will default to values in `default.json` if no
 Below is an example configuration file that specifies a set of possible parameters for a standard game:
 ```json
 {
-    "SCRIM": true,
-    "SPECTATOR": false,
-    "CAPTURE": {
-        "MODE": "SCREENSHOT",
-        "REGIONS": {
-            "TIMER": [1210, 110, 140, 65],
-            "KF_LINE": [1705, 413, 605, 31]
+    "game_type": "SCRIM",
+    "spectator": false,
+    "capture": {
+        "mode": "screenshot",
+        "regions": {
+            "timer": [1210, 110, 140, 65],
+            "kf_line": [1705, 413, 605, 31]
         }
     },
-    "IGNS": [
+    "team0": [
         "Samba.",
         "Player2",
         "Player3",
         "Player4",
         "Player5"
+    ],
+    "team1": [
+        "Shaiiko.BDS",
+        "BriD.BDS",
+        "LikEfac.BDS",
+        "Solotov.BDS",
+        "Yuzus.BDS"
     ],
     "MAX_ROUNDS": 12,
     "SCREENSHOT_PERIOD": 0.5

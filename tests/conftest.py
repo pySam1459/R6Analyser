@@ -1,9 +1,11 @@
+import io
+import sys
 import pytest
 
+
 @pytest.fixture
-def mock_config_args():
-    """Fixture to provide mock command line arguments."""
-    class MockArgs:
-        def __init__(self):
-            self.region_tool = False
-    return MockArgs()
+def suppress_stdout():
+    original_stdout = sys.stdout
+    sys.stdout = io.StringIO()
+    yield
+    sys.stdout = original_stdout

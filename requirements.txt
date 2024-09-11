@@ -1,13 +1,17 @@
 easyocr >= 1.7.1
-opencv-python >= 4.9.0
-pyautogui
-numpy
-pillow
 levenshtein
-screeninfo
+numpy
+opencv-python >= 4.9.0
 openpyxl
-tqdm
-requests
-python-dotenv
+pillow
+pyautogui
+pydantic >= 2.8.0
+pydantic_settings
 pytest
 pytest-cov
+python-dotenv
+requests
+screeninfo
+torch==2.0.0+cu
+torchvision > 0.5.0
+tqdm

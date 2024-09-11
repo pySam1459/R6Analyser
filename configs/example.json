@@ -1,19 +1,26 @@
 {
-    "SCRIM": true,
-    "SPECTATOR": false,
-    "CAPTURE": {
-        "MODE": "SCREENSHOT",
-        "REGIONS": {
-            "TIMER": [1210, 110, 140, 65],
-            "KF_LINE": [1705, 413, 605, 31]
+    "game_type": "scrim",
+    "spectator": false,
+    "capture": {
+        "mode": "screenshot",
+        "regions": {
+            "timer": [1210, 110, 140, 65],
+            "kf_line": [1705, 413, 605, 31]
         }
     },
-    "IGNS": [
+    "team0": [
         "Samba.",
         "Player2",
         "Player3",
         "Player4",
         "Player5"
+    ],
+    "team1": [
+        "Shaiiko.BDS",
+        "BriD.BDS",
+        "LikEfac.BDS",
+        "Solotov.BDS",
+        "Yuzus.BDS"
     ],
     "MAX_ROUNDS": 12,
     "SCREENSHOT_PERIOD": 0.5
