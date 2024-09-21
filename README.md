@@ -11,33 +11,49 @@ The following information gathered per round includes:
 - **Atk/Def Side**
 
 ## How to run
+### Dependencies
 To run the program, you will need to have Python (3.10>=) installed on your system. You can download Python from the [official website](https://www.python.org/downloads/). A Nvidia GPU and [CUDA](https://developer.nvidia.com/cuda-toolkit) is also recommended for real-time data extraction, although this program does provide a CPU-only option (NOT RECOMMENDED).</br>
 Before running the program, you will need to install the required packages using the following command:
 ```bash
 pip install -r requirements.txt
 ```
+You can check if all dependencies have been successfully installed using:
+```bash
+python src\run.py --check
+```
+
+### Configuration
 You must also have made a configuration file (see below) to specify certain regions of the game window and other parameters. 
 To check the regions defined in the configuration file, you can run the following command:
 ```bash
-python src\run.py <config file> --check
+python src\run.py -c <config file> --check-regions
 ```
 which will save the screenshots of the regions defined into a new `images` directory. If these screenshot's do not contain the relevant information, they should be re-defined.</br>
 To run the program, use the following command:
 ```bash
-python src\run.py <config file>
+python src\run.py -c <config file>
 ```
-and it is recommended to add a save path, where to save the game data to a JSON or XLSX file:
-```bash
-python src\run.py <config file> --save <save file>
-```
-Other optional arguments include:
+
+### All CLI args
+- `-c` / `--config`: JSON configuration file located in . or ./configs
+- `-k` / `--key`: Software Key, 64 hex key
 - `-v` / `--verbose`: Print additional information to the console (0-3).
-- `-d` / `--delay`: The delay in seconds before the program starts capturing the game window.
-- `-s` / `--save`: File to save the game data, either a JSON or XLSX file.
-- `--append-save`: Whether to append the game data to an existing save file or overwrite it.
-- `--test`: (Debugging) Runs the OCR engine for a single instance of each region and prints the output to the console.
+- `--check-regions`: (Debugging) Saves the capture regions as images for quality check
+- `--test-regions`: (Debugging) Runs the OCR engine for a single instance of each capture region and prints the output to the console.
 - `--region-tool`: Runs the region tool used to find config region parameters.
+- `--check`: Runs a script to check program validity and function
+- `--region-tool`: Runs the Region tool instead of R6Analyser.
+- `-d` / `--delay`: The delay in seconds before the program starts capturing the game window.
 - `--display`: The display number to take the screenshot from (default=0).
+
+### Software Key
+A software key is required to use R6Analyser. It will be a hex string of length 64.
+E.g. `431739c9f591b2630503341e6f84afa7f9f60580e0de4d59abedfeed3262387f`
+
+A key should generated when you initially acquire the program.
+A key can be specified by:
+- `.env` file, with field `SOFTWARE_KEY="<KEY>"`
+- `-k` / `--key` cli argument
 
 ## How to use
 This program uses OCR to extract text information from the game window, so it is important to have a good quality video and high resolution. If you cannot read the text on the screen, the program will not be able to either. That being said, the program can handle relatively low quality (720p).</br>
@@ -46,11 +62,14 @@ tl;dr The better the quality of the video/game, the more accurate the program wi
 ## Config
 To use R6Analyser, a configuration JSON file is required to specify regions of the game window and other program parameters. An example config file can be found at `configs/example.json` and below. `capture.regions` parameters can be written using the region tool:
 ```bash
-python src\run.py <config file> --region-tool --display <display number>
+python src\run.py -c <config file> --region-tool --delay 2 --display <display number>
 ```
 This tool takes a screenshot of the window and allows you to select regions using the mouse. The region parameter values are then printed to the console.
 
 The following outlines the required and optional paremeters of a config file:
+
+### Recommended Parameters
+- `name: str`
 
 ### Required Parameters
 These parameters must be specified:
@@ -66,18 +85,20 @@ These parameters must be specified:
 These parameters are optional and will be inferred by R6Analyser if not explicitly specified:
 - `max_rounds: int`
 - `rounds_per_side: int`
+- `overtime_rounds: int`
 
 ### Optional Parameters
 These parameters are optional and will default to values in `default.json` if not specified:
-- `SCREENSHOT_RESIZE`: (default=4) A number specifying the factor by which the screenshot is resized before OCR-processing.
-- `SCREENSHOT_PERIOD`: (default=0.5) This number determines how frequently the program captures the game feed for analysis, the period in seconds between screenshots
+- `screenshot_resize`: (default=4) A number specifying the factor by which the screenshot is resized before OCR-processing.
+- `screenshot_period`: (default=0.5) This number determines how frequently the program captures the game feed for analysis, the period in seconds between screenshots
 
 
 ### Config File Example
 Below is an example configuration file that specifies a set of possible parameters for a standard game:
 ```json
 {
-    "game_type": "SCRIM",
+    "name": "Example Config",
+    "game_type": "scrim",
     "spectator": false,
     "capture": {
         "mode": "screenshot",
@@ -99,12 +120,9 @@ Below is an example configuration file that specifies a set of possible paramete
         "LikEfac.BDS",
         "Solotov.BDS",
         "Yuzus.BDS"
-    ],
-    "MAX_ROUNDS": 12,
-    "SCREENSHOT_PERIOD": 0.5
+    ]
 }
 ```
-With this config file, the remaining 5 player IGNs will be inferred from the game feed. Since standard only has 1 round of overtime, the `MAX_ROUNDS` and `ROUNDS_PER_SIDE` needed to be specified as the inferred `(MAX_ROUNDS-3) / 2` assumes a normal 3 round overtime.
 
 ## Process
 ### CaptureMode = SCREENSHOT
