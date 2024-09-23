@@ -25,8 +25,8 @@ class CliArgs(BaseModel):
                                           pattern=SOFTWARE_KEY_PATTERN,
                                           validation_alias="key",
                                           exclude=True)
-    verbose:       int            = Field(default=1, ge=0, le=3)
-    settings_path: Path           = Field(default=SETTINGS_PATH, validation_alias="settings")
+    verbose:  int             = Field(default=1, ge=0, le=3)
+    sets_path: Path           = Field(default=SETTINGS_PATH, validation_alias="settings")
 
     check_regions: bool
     test_regions:  bool
@@ -57,8 +57,8 @@ class CliArgs(BaseModel):
     
     @model_validator(mode="after")
     def validate_settings(self) -> Self:
-        if not self.settings_path.exists():
-            raise ValueError(f"settings.json cannot be found {self.settings_path}")
+        if not self.sets_path.exists():
+            raise ValueError(f"settings.json cannot be found {self.sets_path}")
         return self
 
 

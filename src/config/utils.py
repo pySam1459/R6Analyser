@@ -3,7 +3,7 @@ from pydantic import BaseModel
 from typing import Any, TypeVar, Callable
 
 from settings import Settings
-from utils import load_json
+from utils import load_json, recursive_union
 
 
 def load_config_json(config_path: Path) -> dict[str,Any] | list[dict[str,Any]]:
@@ -14,16 +14,6 @@ def load_config_json(config_path: Path) -> dict[str,Any] | list[dict[str,Any]]:
         return [el | {"config_path": config_path} for el in cfg_json]
 
     raise ValueError(f"Invalid config file {config_path}")
-
-
-def recursive_union(src: dict[str,Any], add: dict[str,Any]):
-    result = src.copy()
-    for key, value in add.items():
-        if isinstance(value, dict) and key in result and isinstance(result[key], dict):
-            result[key] = recursive_union(result[key], value)
-        else:
-            result[key] = value
-    return result
 
 
 T = TypeVar('T', bound=BaseModel)

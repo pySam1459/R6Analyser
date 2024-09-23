@@ -1,5 +1,6 @@
 import numpy as np
 from abc import ABC, abstractmethod
+from time import time
 from pyautogui import screenshot
 from typing import Optional
 
@@ -18,6 +19,10 @@ class Capture(ABC):
 
     @abstractmethod
     def next(self, region_bboxes: RegionBBoxes) -> ImageRegions_t:
+        ...
+    
+    @abstractmethod
+    def get_time(self) -> float:
         ...
 
     def get(self) -> Optional[ImageRegions_t]:
@@ -45,6 +50,9 @@ class ScreenshotCapture(Capture):
             self._region_images = InPersonRegions.model_validate(_images.model_dump(exclude_none=True))
         
         return self._region_images
+    
+    def get_time(self) -> float:
+        return time()
 
 
 class VideoFileCapture(Capture):
@@ -54,6 +62,9 @@ class VideoFileCapture(Capture):
         raise NotImplementedError("Video File Capturing is not implemented yet!")
     
     def next(self, region_bboxes: RegionBBoxes) -> RegionImages:
+        ...
+    
+    def get_time(self) -> float:
         ...
 
 

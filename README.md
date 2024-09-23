@@ -82,15 +82,15 @@ These parameters must be specified:
 - `capture.regions.kf_line: list[int,int,int,int]` - A list of 4 integers specifying the region of the first line in the kill feed. The region should be filled by the IGN boxes, but should extend leftwards to be able to fit in longer names.
 
 ### Inferred Parameters
-These parameters are optional and will be inferred by R6Analyser if not explicitly specified:
+These parameters are inferred by the game_type, but must be provided if `game_type == "custom"`
 - `max_rounds: int`
 - `rounds_per_side: int`
 - `overtime_rounds: int`
 
 ### Optional Parameters
 These parameters are optional and will default to values in `default.json` if not specified:
-- `screenshot_resize`: (default=4) A number specifying the factor by which the screenshot is resized before OCR-processing.
-- `screenshot_period`: (default=0.5) This number determines how frequently the program captures the game feed for analysis, the period in seconds between screenshots
+- `capture.scale_by`: (default=2) A number specifying the factor by which each region is resized before OCR-processing.
+- `capture.period`: (default=0.5) This number determines how frequently the program captures the game feed for analysis, the period in seconds between region analysis
 
 
 ### Config File Example
@@ -105,7 +105,8 @@ Below is an example configuration file that specifies a set of possible paramete
         "regions": {
             "timer": [1210, 110, 140, 65],
             "kf_line": [1705, 413, 605, 31]
-        }
+        },
+        "period": 0.25
     },
     "team0": [
         "Samba.",
@@ -120,13 +121,16 @@ Below is an example configuration file that specifies a set of possible paramete
         "LikEfac.BDS",
         "Solotov.BDS",
         "Yuzus.BDS"
-    ]
+    ],
+    "save": {
+        "path": "/some/path/here.xlsx"
+    }
 }
 ```
 
 ## Process
 ### CaptureMode = SCREENSHOT
-The program works by taking screenshots of the game window at regular intervals `SCREENSHOT_PERIOD` and using OCR to extract the necessary information. Currently, 6 regions of the screenshot are used for OCR:
+The program works by taking screenshots of the game window at regular intervals `capture.period` and using OCR to extract the necessary information. Currently, 6 regions of the screenshot are used for OCR:
 - **Timer**: Used to extract the round timer.
 - **Kill Feed**: Used to extract the kill feed.
 - **Team 1 Score**: Used to extract team 1's score.

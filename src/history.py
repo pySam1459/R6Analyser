@@ -1,10 +1,10 @@
 from dataclasses import dataclass
-from pydantic import BaseModel, ConfigDict, Field, computed_field, field_serializer
-from typing import Optional
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_serializer, field_validator, model_serializer
+from typing import Any, Optional, Generator
 
 from ignmatrix import Player
 from utils import Timestamp, Scoreline
-from utils.enums import WinCondition
+from utils.enums import Team, WinCondition
 
 
 __all__ = [
@@ -25,6 +25,11 @@ class KFRecord(BaseModel):
     headshot: bool = False
 
     model_config = ConfigDict(extra="ignore")
+
+    @property
+    def is_valid(self) -> bool:
+        """If team for both player and target is known"""
+        return self.player.team != Team.UNKNOWN and self.target.team != Team.UNKNOWN
 
     def __eq__(self, other: 'KFRecord') -> bool:
         """Equality check only requires index, not time/headshot (A can only kill B once)"""
@@ -52,29 +57,47 @@ class KFRecord(BaseModel):
         return str(ts)
 
 
+class _KillFeed(list[KFRecord]):
+    def __iter__(self) -> Generator[KFRecord, None, None]:
+        for record in super().__iter__():
+            if record.is_valid:
+                yield record
+
+
+@dataclass
+class Disconnect:
+    player: Player
+    time: Timestamp
+
+
 class HistoryRound(BaseModel):
     """Model containing all of the data gathered from 1 round"""
+    round_number:        int
 
     scoreline:           Optional[Scoreline] = None
-    atk_side:            Optional[int]       = None
+    atk_side:            Optional[Team]      = None
     bomb_planted_at:     Optional[Timestamp] = None
     disabled_defuser_at: Optional[Timestamp] = None
     round_end_at:        Optional[Timestamp] = None
     win_condition:       WinCondition        = WinCondition.UNKNOWN
-    winner:              Optional[int]       = None
-    killfeed:            list[KFRecord]      = Field(default_factory=list, exclude=True)
-    deaths:              list[str]           = Field(default_factory=list, exclude=True)
+    winner:              Team                = Team.UNKNOWN
+    __killfeed:          _KillFeed           = PrivateAttr(default_factory=_KillFeed)
 
-    clean_killfeed:      list[KFRecord]      = Field(default_factory=list, exclude=True)
-    clean_deaths:        list[str]           = Field(default_factory=list, exclude=True)
+    disconnects:         list[Disconnect]    = Field(default_factory=list)
+    deaths:              list[Player]        = Field(default_factory=list)
 
     model_config = ConfigDict(extra="ignore")
 
-    @computed_field
     @property
-    def out_feed(self) -> list[KFRecord]:
-        return self.clean_killfeed or self.killfeed
-    
+    def killfeed(self) -> _KillFeed:
+        return self.__killfeed
+
+    @model_serializer(mode='wrap')
+    def serialize_model(self, serializer):
+        data = serializer(self)
+        data['killfeed'] = [record.model_dump() for record in self.killfeed]
+        return data
+
     @field_serializer("bomb_planted_at", "disabled_defuser_at", "round_end_at")
     def serialize_timestamps(self, ts: Optional[Timestamp]) -> Optional[str]:
         if ts is None:
@@ -91,7 +114,7 @@ class History:
     def __init__(self) -> None:
         self.__roundn = -1
         self.__round_data: dict[int, HistoryRound] = {}
-        self.__phantom_round = HistoryRound()
+        self.__phantom_round = HistoryRound(round_number=-1)
 
     @property
     def is_ready(self) -> bool:
@@ -101,16 +124,6 @@ class History:
     def roundn(self) -> int:
         return self.__roundn
 
-    def get_round(self, roundn: int) -> Optional[HistoryRound]:
-        return self.__round_data.get(roundn, None)
-
-    def get_rounds(self) -> list[HistoryRound]:
-        return list(self.__round_data.values())
-    def get_round_nums(self) -> list[int]:
-        return list(self.__round_data.keys())
-    def __contains__(self, key: int) -> bool:
-        return key in self.__round_data
-
     @property
     def cround(self) -> HistoryRound:
         """
@@ -118,11 +131,23 @@ class History:
         Returns a Phantom round in-case history is not ready (__roundn <= 0)
         """
         return self.__round_data.get(self.__roundn, self.__phantom_round)
+    
+    def get_rounds(self) -> list[HistoryRound]:
+        return list(self.__round_data.values())
+    
+    def get_first_round(self) -> HistoryRound:
+        assert self.is_ready
+
+        first_roundn = min(self.__round_data.keys())
+        return self.__round_data[first_roundn]
 
     def new_round(self, round_number: int) -> None:
         """This method should be called at the start of a new round"""
+        self.__round_data[round_number] = HistoryRound(round_number=round_number)
         self.__roundn = round_number
-        self.__round_data[round_number] = HistoryRound() # type: ignore
+    
+    def __contains__(self, other: int) -> bool:
+        return other in self.__round_data
 
     def fix_round(self) -> None:
         """Should be called by _fix_state, in-case program incorrectly thinks round ended"""
@@ -130,8 +155,4 @@ class History:
 
     def model_dump(self) -> dict:
         """Converts all game data recorded to json-handlable"""
-        return {ridx: round.model_dump() for ridx, round in self.__round_data.items()}
-
-
-if __name__ == "__main__":
-    print("Please run R6Analyser from run.py")
+        return {ridx: hround.model_dump() for ridx, hround in self.__round_data.items()}

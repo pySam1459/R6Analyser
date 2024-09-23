@@ -58,7 +58,7 @@
     },
     {
         "name": "brt_test4d-videofile_missing_file_field",
-        "game_type": "quickmatch",
+        "game_type": "standard",
         "spectator": false,
         "capture": {
             "mode": "videofile"
@@ -66,7 +66,7 @@
     },
     {
         "name": "brt_test4e-videofile_extra_capture_field",
-        "game_type": "quickmatch",
+        "game_type": "ranked",
         "spectator": false,
         "capture": {
             "mode": "videofile",

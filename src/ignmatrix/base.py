@@ -40,6 +40,7 @@ class IGNMatrix(ABC):
     
     @abstractmethod
     def get_teams(self) -> tuple[list[Player], list[Player]]:
+        """Returns a a pair of lists containing the valid players"""
         ...
     
     @abstractmethod

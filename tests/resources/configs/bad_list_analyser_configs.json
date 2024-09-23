@@ -23,10 +23,7 @@
                 "Player8",
                 "Player9",
                 "Player10"
-            ],
-            "last_winner": 0,
-            "screenshot_period": 0.5,
-            "screenshot_resize": 2
+            ]
         },
         {
             "name": "ba_list_test1.2-bad_first",
@@ -52,10 +49,7 @@
                 "Player8",
                 "Player9",
                 "Player10"
-            ],
-            "last_winner": 0,
-            "screenshot_period": 0.5,
-            "screenshot_resize": 2
+            ]
         }
     ]
 ]

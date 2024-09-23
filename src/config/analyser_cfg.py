@@ -3,10 +3,10 @@ from collections import Counter
 from functools import partial
 from pathlib import Path
 from pydantic import BaseModel, Field, field_validator, computed_field, model_validator, ConfigDict
-from typing import Any, Optional, Self
+from typing import Any, Optional, Self, Type
 
 from settings import Settings
-from utils import load_file, gen_default_name, GameTypeRoundMap, BBox_t
+from utils import load_file, recursive_union, gen_default_name, GameTypeRoundMap, BBox_t
 from utils.enums import GameType, CaptureMode, IGNMatrixMode, Team, SaveFileType
 from utils.constants import DEFAULT_SAVE_DIR, IGN_REGEX, RED, WHITE
 from .utils import validate_config
@@ -35,11 +35,14 @@ class SaveCfg(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
 
-class Defaults(BaseModel):
-    screenshot_resize: int   = Field(default=4)
-    screenshot_period: float = Field(default=0.5)
+class CaptureDefaults(BaseModel):
+    scale_by: float
+    period:  float
 
-    save: SaveCfg
+
+class Defaults(BaseModel):
+    capture: CaptureDefaults
+    save:    SaveCfg
 
     max_rounds_map:      GameTypeRoundMap
     rounds_per_side_map: GameTypeRoundMap
@@ -104,6 +107,9 @@ class CaptureParser(BaseModel):
     regions: RegionsParser
     file:    Optional[Path] = None
 
+    scale_by: float = Field(default=2, ge=0.5, le=8)
+    period:   float = Field(default=0.5, ge=0.0, le=2.0)
+
     model_config = ConfigDict(extra="forbid")
 
     @model_validator(mode="after")
@@ -119,8 +125,8 @@ class CaptureParser(BaseModel):
 
 
 class SaveParser(BaseModel):
-    file_type: SaveFileType   = Field(default=SaveFileType.XLSX)
-    save_dir:  Optional[Path] = Field(default=DEFAULT_SAVE_DIR)
+    file_type: SaveFileType   = SaveFileType.XLSX
+    save_dir:  Path           = DEFAULT_SAVE_DIR
     path:      Optional[Path] = None
 
     @model_validator(mode="after")
@@ -145,7 +151,7 @@ class SaveParser(BaseModel):
 
 
 class ConfigParser(BaseModel):
-    name:        str = Field(default_factory=gen_default_name)
+    name:        Optional[str]         = Field(default=None, min_length=1, max_length=64)
     config_path: Path
 
     ## required
@@ -162,8 +168,6 @@ class ConfigParser(BaseModel):
     last_winner:         Team          = Team.UNKNOWN
 
     ## defaults
-    screenshot_resize:   int           = Field(ge=1, le=4)
-    screenshot_period:   float         = Field(ge=0.0, le=2.0)
     max_rounds_map:      GameTypeRoundMap
     rounds_per_side_map: GameTypeRoundMap
     overtime_rounds_map: GameTypeRoundMap
@@ -221,6 +225,18 @@ class ConfigParser(BaseModel):
             setattr(self, prop, round_map.get(self.game_type))
 
         return self
+    
+    @model_validator(mode="after")
+    def create_name(self) -> Self:
+        if self.name is not None:
+            return self
+        
+        if self.capture.mode == CaptureMode.VIDEOFILE and self.capture.file is not None:
+            self.name = self.capture.file.stem
+            return self
+        
+        self.name = gen_default_name()
+        return self
 
 
 class RegionsCfg(BaseModel):
@@ -244,6 +260,9 @@ class CaptureCfg(BaseModel):
     regions: RegionsCfg
     file:    Optional[Path] = None
 
+    scale_by: float
+    period:  float
+
     model_config = ConfigDict(extra="ignore")
 
 
@@ -264,34 +283,19 @@ class Config(BaseModel):
     rounds_per_side:   int           = Field(exclude=True)
     overtime_rounds:   int           = Field(exclude=True)
 
-    screenshot_resize: int
-    screenshot_period: float
-
     save:              SaveCfg
     debug:             DebugCfg      = Field(exclude=True)
 
     model_config = ConfigDict(extra="ignore", use_enum_values=True)
 
 
-def _get_defaults(df_path: Path) -> dict[str, Any]:
-    df_raw = load_file(df_path)
-
+def _load_model_dict(path: Path, model_cls: Type[BaseModel]) -> dict[str, Any]:
+    raw_data = load_file(path)
     try:
-        df_config = Defaults.model_validate_json(df_raw)
-        return df_config.model_dump()
+        config = model_cls.model_validate_json(raw_data)
+        return config.model_dump()
     except Exception as e:
-        print(f"{RED}CONFIG PARSE ERROR{WHITE} - Invalid DEFAULTS file\n{str(e)}")
-        raise e
-
-
-def _get_debug(dbg_path: Path) -> dict[str, Any]:
-    df_raw = load_file(dbg_path)
-
-    try:
-        dbg_config = DebugCfg.model_validate_json(df_raw)
-        return { "debug": dbg_config.model_dump() }
-    except Exception as e:
-        print(f"{RED}CONFIG PARSE ERROR{WHITE} - Invalid DEBUG file\n{str(e)}")
+        print(f"{RED}CONFIG PARSE ERROR{WHITE} - Invalid config file at {path}\n{str(e)}")
         raise e
 
 
@@ -299,13 +303,14 @@ def validate_analyser_dict(cfg: dict[str, Any],
                            df:  dict[str, Any],
                            dbg: dict[str, Any]) -> Config:
 
-    cfg_parsed = ConfigParser.model_validate(df | cfg | dbg)
+    cfg = recursive_union(df, cfg)
+    cfg_parsed = ConfigParser.model_validate(cfg | dbg)
     return Config.model_validate(cfg_parsed.model_dump(exclude_none=True))
 
 
 def create_analyser_config(config_path: Path, settings: Settings) -> Config | list[Config]:
-    validate_func = partial(validate_analyser_dict,
-                            df =_get_defaults(settings.defaults_filepath),
-                            dbg=_get_debug(settings.debug_filepath))
+    df = _load_model_dict(settings.defaults_filepath, Defaults)
+    dbg = {"debug": _load_model_dict(settings.debug_filepath, DebugCfg)}
 
+    validate_func = partial(validate_analyser_dict, df=df, dbg=dbg)
     return validate_config(validate_func, config_path, settings)

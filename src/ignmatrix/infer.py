@@ -24,6 +24,10 @@ class AdaptivePlayer(Player):
         self.__team = team
         self.__team_counter = [0, 0]
         self.__opps: dict[int, int] = {}
+    
+    @property
+    def uid(self) -> int:
+        return self.__id
 
     @property
     def ign(self) -> str:
@@ -41,10 +45,6 @@ class AdaptivePlayer(Player):
             return Team.TEAM1
         else:
             return Team.UNKNOWN
-
-    @property
-    def id(self) -> int:
-        return self.__id
 
     @property
     def noccr(self) -> int:
@@ -165,7 +165,7 @@ class IGNMatrixInfer(IGNMatrix):
             pap.inc_oppteam(tap.team, self.team_det_callback)
 
         elif isinstance(tap, AdaptivePlayer):
-            tap.add_opp(pap.id)
+            tap.add_opp(pap.uid)
             
     
     def __mat_add(self, pign: str) -> AdaptivePlayer:
@@ -179,5 +179,5 @@ class IGNMatrixInfer(IGNMatrix):
     
     def team_det_callback(self, pap: AdaptivePlayer) -> None:
         for tap in self.__mat:
-            if not tap.has_team() and (count := tap.rem_opp(pap.id)) > 0:
+            if not tap.has_team() and (count := tap.rem_opp(pap.uid)) > 0:
                 tap.inc_oppteam(pap.team, self.team_det_callback, count=count)

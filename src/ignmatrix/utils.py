@@ -25,10 +25,19 @@ class Player:
         self._type = Player_t.FIXED
         self.ign = ign
         self.team = team
+
+        self.__id = hash(ign)
+    
+    @property
+    def uid(self) -> int:
+        return self.__id
     
     @property
     def type(self) -> Player_t:
         return self._type
+    
+    def __eq__(self, other: 'Player') -> bool:
+        return self.uid == other.uid
 
 
 class TeamTable(dict[str, Team]):

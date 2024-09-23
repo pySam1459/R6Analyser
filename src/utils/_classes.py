@@ -44,6 +44,9 @@ class Timestamp(BaseModel):
 
     def __sub__(self, other: 'Timestamp') -> int:
         return self.to_int() - other.to_int()
+    
+    def __lt__(self, other: 'Timestamp') -> bool:
+        return self.to_int() < other.to_int()
 
     def to_int(self) -> int:
         return self.minutes * 60 + self.seconds

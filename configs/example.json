@@ -1,4 +1,5 @@
 {
+    "name": "Example_Config",
     "game_type": "scrim",
     "spectator": false,
     "capture": {
@@ -22,6 +23,8 @@
         "Solotov.BDS",
         "Yuzus.BDS"
     ],
-    "MAX_ROUNDS": 12,
-    "SCREENSHOT_PERIOD": 0.5
+    "save": {
+        "file_type": "xlsx",
+        "save_dir": "./save/here"
+    }
 }

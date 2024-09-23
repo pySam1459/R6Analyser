@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from time import time
 from typing import Optional
 
-from capture import create_capture, RegionBBoxes, ImageRegions_t
+from capture import Timer, RegionBBoxes, create_capture, ImageRegions_t
 from config import Config
 from history import History
 from ignmatrix import create_ignmatrix
@@ -35,18 +35,19 @@ class Analyser(ABC):
     def __init__(self, args: AnalyserArgs, config: Config):
         self.args = args
         self.config = config
-        self.settings = create_settings(args.settings_path)
+        self.settings = create_settings(args.sets_path)
         self._debug_print("config_keys", f"Config\n{self.config}")
 
         self.capture = create_capture(self.config)
 
-        if self.test_and_checks():
+        self.test_and_checks()
+        if self.is_a_test:
             return
 
         self.running = False
-        self.tdelta = self.config.screenshot_period
+        self.timer = Timer(self.capture.get_time, period=self.config.capture.period)
 
-        self.state = State(False, True, False)
+        self.state = State(in_round=False, end_round=True, bomb_planted=False)
         self.history = History()
         self.writer = create_writer(self.config)
 
@@ -58,17 +59,21 @@ class Analyser(ABC):
         self.ocr_engine = OCREngine.new(self.settings.ocr_engine, "en")
         self._verbose_print(0, self.ocr_engine.load_msg())
 
+        self.handlers = [
+            self._handle_scoreline,
+            self._handle_timer,
+            self._handle_feed,
+        ]
+
     ## ----- CHECK & TEST -----
-    def test_and_checks(self) -> bool:
-        ret_true = False
+    def test_and_checks(self) -> None:
+        self.is_a_test = False
         if self.args.check_regions:
             self._check_regions()
-            ret_true = True
+            self.is_a_test = True
         if self.args.test_regions:
             self._test_regions()
-            ret_true = True
-
-        return ret_true
+            self.is_a_test = True
 
     @abstractmethod
     def _check_regions(self) -> None:
@@ -80,24 +85,23 @@ class Analyser(ABC):
 
     # ----- MAIN LOOP -----
     def run(self):
-        """Main program loop, calls each _handle method every `tdelta` seconds"""
+        """Main program loop, calls the handlers every `capture.period` seconds"""
         self.running = True
         self._verbose_print(0, "Running...")
 
-        self.timer = time()
+        self.timer.update()
         while self.running:
-            if self.tdelta > 0 and self.timer + self.tdelta > time():
+            if not self.timer.step():
                 continue
 
-            infer_start = time()
+            _infer_start = time()
 
             regions = self.capture.next(self._get_regions())
-            self._handle_scoreline(regions)
-            self._handle_timer(regions)
-            self._handle_feed(regions)
+            for handler_func in self.handlers:
+                handler_func(regions)
 
-            self._debug_infertime(time() - infer_start)
-            self.timer = time()
+            self._debug_infertime(time() - _infer_start)
+            self.timer.update()
             self.prog_bar.refresh()
     
     def _debug_infertime(self, dt: float) -> None:
@@ -123,11 +127,11 @@ class Analyser(ABC):
         if denoise:
             image = cv2.fastNlMeansDenoising(image, None, 5, 7, 21)
 
-        scale_factor = self.config.screenshot_resize
+        scale_by = self.config.capture.scale_by
         if squeeze_width != 1.0:
-            sf_w, sf_h = scale_factor * squeeze_width, scale_factor
+            sf_w, sf_h = scale_by * squeeze_width, scale_by
         else:
-            sf_w = sf_h = scale_factor
+            sf_w = sf_h = scale_by
 
         new_width = int(image.shape[1] * sf_w)
         new_height = int(image.shape[0] * sf_h)
@@ -181,7 +185,7 @@ class Analyser(ABC):
     def _stop_analyser(self) -> None:
         self.running = False
     
-    def _get_last_winner(self) -> int:
+    def _get_last_winner(self) -> Team:
         """The program cannot currently detect who wins the final round, so get the user to input that info"""
         if self.config.last_winner != Team.UNKNOWN:
             return self.config.last_winner
@@ -190,7 +194,7 @@ class Analyser(ABC):
             print("Invalid option, pick either 0 or 1")
             continue
 
-        return int(winner)
+        return Team(int(winner))
 
     ## ----- PRINT FUNCTION -----
     def _verbose_print(self, verbose_value: int, *prompt) -> None:

@@ -44,7 +44,6 @@ class GameType(str, Enum):
     SCRIM      = "scrim"
     RANKED     = "ranked"
     STANDARD   = "standard"
-    QUICKMATCH = "quickmatch"
     CUSTOM     = "custom"
 
 

@@ -3,10 +3,11 @@ from colorsys import hsv_to_rgb
 from datetime import datetime
 from json import load as __json_load
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeVar
 
 
 # ----- HELPER FUNCTIONS -----
+# Resource loaders
 def load_file(file_path: Path) -> str:
     """Loads text from `file_path` and handles any errors"""
     if not file_path.exists():
@@ -32,16 +33,56 @@ def load_json(file_path: Path):
         exit(f"JSON ERROR: Exception occurred when trying to open {file_path}!\n{str(e)}")
 
 
+# non-builtin functions
 def ndefault(value: Any, default: Any) -> Any:
     """return value is None ? default : value"""
     if value is None: return default
     return value
 
-def transpose(matrix: list[list[Any]]) -> list[list[Any]]:
+Ta = TypeVar('Ta')
+def transpose(matrix: list[list[Ta]]) -> list[list[Ta]]:
     """Transposes a 2d matrix"""
     return [list(row) for row in zip(*matrix)]
 
+def recursive_union(src: dict[str,Any], add: dict[str,Any]):
+    result = src.copy()
+    for key, value in add.items():
+        if isinstance(value, dict) and key in result and isinstance(result[key], dict):
+            result[key] = recursive_union(result[key], value)
+        else:
+            result[key] = value
+    return result
 
+def gen_random_colour() -> tuple[int,int,int]:
+    h = random.random()
+    s = random.uniform(0.5, 1.0)
+    v = random.uniform(0.7, 1.0)
+    
+    r,g,b = hsv_to_rgb(h, s, v)
+    return (int(r*255), int(g*255), int(b*255))
+
+def argmax(x):
+    """https://github.com/cjohnson318/til/blob/main/python/argmax-without-numpy.md"""
+    return max(range(len(x)), key=lambda i: x[i])
+
+Tb = TypeVar('Tb')
+def flatten(arr: list[list[Tb]]) -> list[Tb]:
+    return [el for inner in arr for el in inner]
+
+Tc = TypeVar('Tc')
+def listsub(src: list[Tc], sub: list[Tc]) -> list[Tc]:
+    """Removes the elements in sub from src"""
+    return [v for v in src if v not in sub]
+
+def gen_default_name() -> str:
+    return datetime.now().strftime("r6analyser-%d_%m_%Y-%H:%M:%S")
+
+def str2f(v: float) -> str:
+    """Converts v to a 2f rounded string"""
+    return f"{v:.2f}"
+
+
+# bounding box functions
 def rect_collision(r1: list[int], r2: list[int]) -> bool:
     """Checks if 2 [x,y,w,h] rectangles are colliding"""
     return r1[0] <= r2[0]+r2[2] and r1[1] <= r2[1]+r2[3] \
@@ -112,25 +153,3 @@ def compute_rinr(r1: list[int], r2: list[int]) -> float:
     r1_area = w1 * h1
 
     return inter_area / r1_area if r1_area > 0 else 0
-
-
-def gen_random_colour() -> tuple[int,int,int]:
-    h = random.random()
-    s = random.uniform(0.5, 1.0)
-    v = random.uniform(0.7, 1.0)
-    
-    r,g,b = hsv_to_rgb(h, s, v)
-    return (int(r*255), int(g*255), int(b*255))
-
-
-def argmax(x):
-    """https://github.com/cjohnson318/til/blob/main/python/argmax-without-numpy.md"""
-    return max(range(len(x)), key=lambda i: x[i])
-
-
-def flatten(arr: list[list[Any]]) -> list[Any]:
-    return [el for inner in arr for el in inner]
-
-
-def gen_default_name() -> str:
-    return datetime.now().strftime("r6analyser-%d_%m_%Y-%H:%M:%S")

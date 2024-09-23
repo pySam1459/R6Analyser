@@ -25,6 +25,7 @@ def create_parser() -> argparse.ArgumentParser:
                         help="Determines how detailed the console output is, 0-nothing, 1-some, 2-all, 3-debug",
                         dest="verbose")
 
+    ## tests
     parser.add_argument("--check-regions", 
                         action="store_true",
                         help="Does not perform data extract but saves the regions of interest as images for quality check",
@@ -38,6 +39,7 @@ def create_parser() -> argparse.ArgumentParser:
                         help="Runs a script to check program validity and function",
                         dest="deps_check")
 
+    ## region tool
     parser.add_argument("--region-tool",
                         action="store_true",
                         help="Runs the Region tool instead of R6Analyser.",

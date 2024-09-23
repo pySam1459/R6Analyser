@@ -22,10 +22,7 @@
             "Player8",
             "Player9",
             "Player10"
-        ],
-        "last_winner": 0,
-        "screenshot_period": 0.5,
-        "screenshot_resize": 2
+        ]
     },
     {
         "name": "ba_test1b-invalid_game_type",
@@ -51,10 +48,7 @@
             "Player8",
             "Player9",
             "Player10"
-        ],
-        "last_winner": 0,
-        "screenshot_period": 0.5,
-        "screenshot_resize": 2
+        ]
     },
     {
         "name": "ba_test2a-no_spectator",
@@ -79,10 +73,7 @@
             "Player8",
             "Player9",
             "Player10"
-        ],
-        "last_winner": 0,
-        "screenshot_period": 0.5,
-        "screenshot_resize": 2
+        ]
     },
     {
         "name": "ba_test2b-invalid_spectator",
@@ -107,10 +98,7 @@
             "Player8",
             "Player9",
             "Player10"
-        ],
-        "last_winner": 0,
-        "screenshot_period": 0.5,
-        "screenshot_resize": 2
+        ]
     },
     {
         "name": "ba_test3a-no_capture",
@@ -129,10 +117,7 @@
             "Player8",
             "Player9",
             "Player10"
-        ],
-        "last_winner": 0,
-        "screenshot_period": 0.5,
-        "screenshot_resize": 2
+        ]
     },
     {
         "name": "ba_test3b-invalid_capture",
@@ -151,10 +136,7 @@
             "Player8",
             "Player9",
             "Player10"
-        ],
-        "last_winner": 0,
-        "screenshot_period": 0.5,
-        "screenshot_resize": 2
+        ]
     },
     {
         "name": "ba_test3c-missing_capture_fields",
@@ -175,10 +157,7 @@
             "Player8",
             "Player9",
             "Player10"
-        ],
-        "last_winner": 0,
-        "screenshot_period": 0.5,
-        "screenshot_resize": 2
+        ]
     },
     {
         "name": "ba_test3d-no_capture/region",
@@ -200,10 +179,7 @@
             "Player8",
             "Player9",
             "Player10"
-        ],
-        "last_winner": 0,
-        "screenshot_period": 0.5,
-        "screenshot_resize": 2
+        ]
     },
     {
         "name": "ba_test3e_extra_capture_field",
@@ -230,10 +206,7 @@
             "Player8",
             "Player9",
             "Player10"
-        ],
-        "last_winner": 0,
-        "screenshot_period": 0.5,
-        "screenshot_resize": 2
+        ]
     },
     {
         "name": "ba_test4a-len(team0)>5",
@@ -253,10 +226,7 @@
             "Player4",
             "Player5",
             "Player6"
-        ],
-        "last_winner": 0,
-        "screenshot_period": 0.5,
-        "screenshot_resize": 2
+        ]
     },
     {
         "name": "ba_test4b-len(team1)>5",
@@ -283,10 +253,7 @@
             "Player4",
             "Player5",
             "Player6"
-        ],
-        "last_winner": 0,
-        "screenshot_period": 0.5,
-        "screenshot_resize": 2
+        ]
     },
     {
         "name": "ba_test4c-duplicate_player",
@@ -312,10 +279,7 @@
             "Player8",
             "Player9",
             "Player10"
-        ],
-        "last_winner": 0,
-        "screenshot_period": 0.5,
-        "screenshot_resize": 2
+        ]
     },
     {
         "name": "ba_test4d-invalid_ign",

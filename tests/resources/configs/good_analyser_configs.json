@@ -8,7 +8,9 @@
             "regions": {
                 "timer": [3752, 177, 159, 72],
                 "kf_line": [4273, 469, 410, 26]
-            }
+            },
+            "period": 0.5,
+            "scale_by": 2
         },
         "team0": [
             "Player1",
@@ -24,9 +26,7 @@
             "Player9",
             "Player10"
         ],
-        "last_winner": 0,
-        "screenshot_period": 0.5,
-        "screenshot_resize": 2
+        "last_winner": 0
     },
     {
         "name": "ga_test2a-empty_teams",
@@ -63,7 +63,9 @@
             "regions": {
                 "timer": [3752, 177, 159, 72],
                 "kf_line": [4273, 469, 410, 26]
-            }
+            },
+            "period": 0,
+            "scale_by": 2
         },
         "team0": [
             "Player1",
@@ -81,13 +83,11 @@
         ],
         "max_rounds": 20,
         "rounds_per_side": 1,
-        "overtime_rounds": 1,
-        "screenshot_period": 0,
-        "screenshot_resize": 2
+        "overtime_rounds": 1
     },
     {
         "name": "ga_test4a-ign_infer",
-        "game_type": "quickmatch",
+        "game_type": "ranked",
         "spectator": false,
         "capture": {
             "mode": "screenshot",
@@ -111,7 +111,7 @@
     },
     {
         "name": "ga_test4b-ign_infer",
-        "game_type": "quickmatch",
+        "game_type": "ranked",
         "spectator": false,
         "capture": {
             "mode": "screenshot",
@@ -133,7 +133,7 @@
     },
     {
         "name": "ga_test4c-ign_infer",
-        "game_type": "quickmatch",
+        "game_type": "ranked",
         "spectator": false,
         "capture": {
             "mode": "screenshot",
@@ -153,7 +153,7 @@
     },
     {
         "name": "ga_test4d-ign_infer",
-        "game_type": "quickmatch",
+        "game_type": "ranked",
         "spectator": false,
         "capture": {
             "mode": "screenshot",

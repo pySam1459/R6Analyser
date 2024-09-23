@@ -16,7 +16,7 @@ from ignmatrix import Player_t
 from ocr import OCResult, OCRLine
 from utils.cli import AnalyserArgs
 from utils.constants import BOMB_COUNTDOWN_RT, DIGITS, IGN_ALPHABET, TIMER_LAST_SECONDS_RT
-from utils.enums import WinCondition
+from utils.enums import Team, WinCondition, IGNMatrixMode
 from utils import *
 
 from .base import Analyser, State
@@ -50,6 +50,7 @@ class InPersonAnalyser(Analyser):
         self.end_round_seconds = None
 
         self.tempfeed: dict[KFRecord, int] = {}
+        self.tempfeed_threshold = config.ign_mode == IGNMatrixMode.INFER
 
         self.assets = self.__load_assets()
     
@@ -67,7 +68,7 @@ class InPersonAnalyser(Analyser):
     ## ----- SCORELINE -----
     def _handle_scoreline(self, regions: InPersonRegions) -> None:
         """Extracts the current scoreline visible and determines when a new rounds starts"""
-        if not self.state.end_round: return
+        if not self.running or not self.state.end_round: return
 
         scoreline = self.__read_scoreline(regions.team1_score, regions.team2_score)
         if not scoreline: return
@@ -80,7 +81,7 @@ class InPersonAnalyser(Analyser):
         self._new_round(scoreline)
 
         atkside = self.__read_atkside(regions.team1_side, regions.team2_side)
-        self.history.cround.atk_side = atkside
+        self.history.cround.atk_side = Team(atkside)
         self._verbose_print(1, f"Atk Side: {atkside}")
 
     def __read_scoreline(self, scoreline1: np.ndarray, scoreline2: np.ndarray) -> Optional[Scoreline]:
@@ -120,7 +121,7 @@ class InPersonAnalyser(Analyser):
     ## ----- TIMER FUNCTION -----
     def _handle_timer(self, regions: InPersonRegions) -> None:
         """Reads and handles the timer information, used to determine when the bomb is planted and when the round ends"""
-        if not self.history.is_ready: return
+        if not self.running or not self.history.is_ready: return
 
         red_perc = get_timer_redperc(regions.timer)
         self._debug_print("red_percentage", f"{red_perc=}")
@@ -202,7 +203,7 @@ class InPersonAnalyser(Analyser):
     ## ----- KILL FEED -----
     def _handle_feed(self, regions: InPersonRegions) -> None:
         """Handles the killfeed by reading the names, querying the ign matrix and the information to History"""
-        if not self.history.is_ready: return
+        if not self.running or not self.history.is_ready: return
         if not self.state.in_round and self.last_kf_seconds is None: return
 
         image_lines = [regions.kf_lines[i] for i in range(self.config.capture.regions.num_kf_lines)]
@@ -222,9 +223,9 @@ class InPersonAnalyser(Analyser):
             record = KFRecord(player=player, target=target,
                               time=self.current_time, headshot=line.headshot)
             if record not in self.tempfeed: ## a record requires at least 2 instances to add to kf
-                self.tempfeed[record] = 1
+                self.tempfeed[record] = 0
             
-            elif self.tempfeed[record] < 1: ## TODO: make variable for accuracy control
+            if self.tempfeed[record] < self.tempfeed_threshold:
                 self.tempfeed[record] += 1
 
             elif record not in self.history.cround.killfeed:
@@ -232,7 +233,7 @@ class InPersonAnalyser(Analyser):
                 
     def __add_record(self, record: KFRecord) -> None:
         self.history.cround.killfeed.append(record)
-        self.history.cround.deaths.append(record.target.ign)
+        self.history.cround.deaths.append(record.target)
 
         if record.player.type == Player_t.INFER or record.target.type == Player_t.INFER:
             self.ign_matrix.update_mats(record.player.ign, record.target.ign)
@@ -293,7 +294,8 @@ class InPersonAnalyser(Analyser):
 
     def __join_line(self, line: list[OCResult]) -> list[OCResult]:
         """Determines which OCResults to join"""
-        prox_dist = InPersonAnalyser.PROXIMITY_DIST * (self.config.screenshot_resize / 4)
+        ## TODO: check this
+        prox_dist = InPersonAnalyser.PROXIMITY_DIST * (self.config.capture.scale_by / 4)
         line.sort(key=lambda ocr_res: ocr_res.rect[0])
         new_line: list[OCResult] = []
         used = []
@@ -347,8 +349,8 @@ class InPersonAnalyser(Analyser):
         ## infer winner of previous round based on new scoreline
         winner = self.history.cround.winner
         if winner is None and self.history.cround.scoreline is not None:
-            _sl = self.history.cround.scoreline
-            winner = int(_sl.right < sl.right)
+            sl_new = self.history.cround.scoreline
+            winner = Team(sl_new.right < sl.right)
             self.history.cround.winner = winner ## if _score1+1 == score1, return 0
 
         win_con = self._get_wincon()
@@ -424,10 +426,10 @@ class InPersonAnalyser(Analyser):
         elif bpat is not None:
             return WinCondition.DEFUSED_BOMB
 
-        elif 0 <= self.current_time.to_int() <= 1 \
-                and winner == defside \
-                and self.__wincon_alive_count(atkside) > 0 \
-                and self.__wincon_alive_count(defside) > 0:
+        elif (0 <= self.current_time.to_int() <= 1
+                and winner == defside
+                and self.__wincon_alive_count(atkside) > 0
+                and self.__wincon_alive_count(defside) > 0):
             return WinCondition.TIME
 
         elif self.__wincon_alive_count(1-winner) == 0:
@@ -437,11 +439,9 @@ class InPersonAnalyser(Analyser):
     
     def __wincon_alive_count(self, side: int) -> int:
         """Returns the number of alive players on a particular side"""
-        alive = 5 ## TODO: history, ign matrix team count
-        for d_ign in self.history.cround.deaths:
-            if (pl := self.ign_matrix.get(d_ign)) is not None and pl.team == side:
-                alive -= 1
-        return alive
+        alive = 5  ## TODO: history, ign matrix team count
+        ndeaths = len([pl for pl in self.history.cround.deaths if pl.team == side])
+        return alive - ndeaths
     
     def _end_game(self) -> None:
         """This method is called when the program determines the game has ended"""
@@ -452,7 +452,7 @@ class InPersonAnalyser(Analyser):
 
         self.writer.write(self.history, self.ign_matrix)
         self._verbose_print(0, f"Data Saved to {self.config.save}, program terminated.")
-        sys.exit()
+        self._stop_analyser()
     
     def _fix_state(self) -> None:
         """

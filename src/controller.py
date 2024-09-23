@@ -67,7 +67,5 @@ class Controller:
             print("Info: Person Mode Active")
             analyser = InPersonAnalyser(self.args, config)
 
-        if self.args.test_regions:
-            analyser.test()
-        else:
+        if not analyser.is_a_test:
             analyser.run()

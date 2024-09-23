@@ -26,9 +26,9 @@ class Settings(BaseModel):
     debug_filepath:     Path  = DEBUG_PATH
 
     ocr_engine: OCREngineType = OCREngineType.EASYOCR
-    languages:     list[str]  = Field(default_factory=lambda: [DEFAULT_LANGUAGE])
+    languages:      list[str] = Field(default_factory=lambda: [DEFAULT_LANGUAGE])
 
-    config_list_derive: bool  = True
+    config_list_derive:  bool = True
 
     model_config = ConfigDict(extra="ignore")
 
