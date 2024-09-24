@@ -81,6 +81,12 @@ def str2f(v: float) -> str:
     """Converts v to a 2f rounded string"""
     return f"{v:.2f}"
 
+def div_s(n: int|float, d: int|float) -> float:
+    """Performs n / d, returning 0.0 on d == 0"""
+    if d == 0:
+        return 0.0
+    return n / d
+
 
 # bounding box functions
 def rect_collision(r1: list[int], r2: list[int]) -> bool:

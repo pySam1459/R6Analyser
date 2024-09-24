@@ -1,9 +1,25 @@
 from datetime import datetime
+from functools import wraps
 from pathlib import Path
 
 from ignmatrix import IGNMatrix, Player
 from history import HistoryRound, KFRecord
+from utils.constants import RED, WHITE
 from utils.enums import Team
+
+
+def handle_write_errors(func):
+    @wraps(func)
+    def wrapper(self, *args, **kwargs):
+        try:
+            return func(self, *args, **kwargs)
+        except PermissionError as e:
+            print(f"{RED}SAVE PERMISSION ERROR{WHITE} - An error occurred when attempting to save to file {self._save_path}\n{str(e)}")
+        except OSError as e:
+            print(f"{RED}SAVE OS ERROR{WHITE} - An error occurred when attempting to save to file {self._save_path}\n{str(e)}")
+        except Exception as e:
+            print(f"{RED}SAVE ERROR{WHITE} - An error occurred when attempting to save to file {self._save_path}\n{str(e)}")
+    return wrapper
 
 
 def make_copyfile(save_path: Path) -> Path:

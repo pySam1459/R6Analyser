@@ -135,9 +135,6 @@ class SaveParser(BaseModel):
             return self
         if not self.path.parent.exists():
             raise ValueError(f"Directory {self.path.parent} does not exist!")
-        if not os.access(self.path, os.W_OK):
-            raise ValueError(f"Permission Error: Cannot write to location {self.path}")
-
         return self
     
     @model_validator(mode="after")

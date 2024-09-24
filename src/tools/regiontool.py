@@ -110,6 +110,7 @@ class RegionTool(ABC):
             self.__draw_rect(rect, RegionTool.COLOURS[reg_key], reg_key)
     
     def __draw_rect(self, abs_rect: BBox_t, colour: str, tags: str) -> None:
+        ## TODO: dashed lines for projected regions - https://chatgpt.com/share/66f21307-551c-8004-a05a-1ddae93cd2ea
         self.canvas.delete(tags)
         x, y = abs_rect[0]-self.display[0], abs_rect[1]-self.display[1]
         self.canvas.create_rectangle(

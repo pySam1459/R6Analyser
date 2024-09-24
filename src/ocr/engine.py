@@ -2,7 +2,7 @@ import importlib
 import easyocr
 import numpy as np
 from abc import ABC, abstractmethod
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, computed_field, model_validator
 from typing import Any, Optional
 
 from ignmatrix import IGNMatrix
@@ -19,19 +19,18 @@ class OCResult(BaseModel):
         rect - rectangle bounding the text, text, prob - probability assigned by the easyOCR engine, eval_score - IGNMatrix.evaluate score
     """
     bbox: list[list[int]]
-    rect: list[int]
     text: str
     prob: float
     eval_score: Optional[float] = None
 
-    @model_validator(mode='before')
-    @classmethod
-    def compute_rect(cls, data: dict[str, Any]) -> dict[str, Any]:
-        if isinstance(data, dict) and "rect" not in data:
-            bbox = data.get("bbox")
-            if bbox is not None:
-                data["rect"] = bbox_to_rect(bbox)
-        return data
+    @computed_field
+    @property
+    def rect(self) -> list[int]:
+        return bbox_to_rect(self.bbox)
+    
+    @staticmethod
+    def from_raw(raw: tuple[list[list[int]], str, float]) -> 'OCResult':
+        return OCResult(bbox=raw[0], text=raw[1], prob=raw[2])
 
     def eval(self, ign_matrix: IGNMatrix) -> float:
         """Sets the eval_score of self.text given an IGNMatrix"""
@@ -98,7 +97,8 @@ class EasyOCREngine(OCREngine):
         return "EasyOCR Engine loaded!"
     
     def read(self, image: np.ndarray, **kwargs) -> list[OCResult]:
-        return self._reader.readtext(image, **kwargs)
+        return list(map(OCResult.from_raw, self._reader.readtext(image, **kwargs)))
     
-    def read_batch(self, images: list[np.ndarray], **kwargs) -> tuple[list[OCResult]]:
-        return self._reader.readtext_batched(images, **kwargs) # type: ignore
+    def read_batch(self, images: list[np.ndarray], **kwargs) -> list[list[OCResult]]:
+        return [list(map(OCResult.from_raw, result_set))
+                for result_set in self._reader.readtext_batched(images, **kwargs)]

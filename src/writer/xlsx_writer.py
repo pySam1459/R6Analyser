@@ -7,11 +7,11 @@ from config import Config
 from history import History, HistoryRound, KFRecord
 from ignmatrix import IGNMatrix, Player
 from stats import PlayerRoundStats, compile_match_stats, is_kost, MatchStats_t, RoundStats_t
-from utils import ndefault, str2f
+from utils import ndefault, str2f, div_s
 from utils.enums import SaveFileType, Team
 
 from .base import Writer
-from .utils import get_players
+from .utils import get_players, handle_write_errors
 
 
 __all__ = ["XlsxWriter"]
@@ -51,6 +51,9 @@ BOOL_MAP = {
 }
 
 
+def fmt_s(*args): return str2f(div_s(*args))
+
+
 class XlsxWriter(Writer):
     def __init__(self, save_path: Path, config: Config) -> None:
         super(XlsxWriter, self).__init__(SaveFileType.XLSX, save_path, config)
@@ -84,7 +87,7 @@ class XlsxWriter(Writer):
         hs     = sum([r.headshots for r in prs])
         onevx  = sum([r.onevx > 0 for r in prs])
         return [pl.ign, pl.team.value, rnds, kills, deaths,
-                str2f(kost/rnds), str2f(kills/rnds), str2f(1-deaths/rnds), str2f(hs/kills), onevx]
+                fmt_s(kost,rnds), fmt_s(kills,rnds), fmt_s(1-deaths,rnds), fmt_s(hs,kills), onevx]
 
 
     def get_rounds(self, match_stats: MatchStats_t, history: History, ignmat: IGNMatrix) -> dict:
@@ -102,10 +105,13 @@ class XlsxWriter(Writer):
                                hround: HistoryRound,
                                ignmat: IGNMatrix) -> list[list[Any]]:
         return (
+            ROUND_SHEET_STATS_HEADERS +
             self.compile_round_statistics(round_stats, hround, ignmat) +
-                EMPTY_ROW + 
+                EMPTY_ROW +
+            ROUND_SHEET_INFO_HEADERS +
             self.compile_round_info(hround) + 
-                EMPTY_ROW + 
+                EMPTY_ROW +
+            ROUND_SHEET_KILLFEED_HEADERS +
             self.compile_round_killfeed(hround)
         )
 
@@ -125,7 +131,7 @@ class XlsxWriter(Writer):
             prs.kills,
             BOOL_MAP[prs.death == 1],
             "",                             ## cannot track assists
-            str2f(prs.headshots/prs.kills),
+            fmt_s(prs.headshots,prs.kills),
             prs.headshots,
             prs.onevx,
             "",                             ## TODO: track operators
@@ -137,7 +143,7 @@ class XlsxWriter(Writer):
     
     def compile_round_info(self, hround: HistoryRound) -> list[list[Any]]:
         okd_pign, okd_tign, okd_time = self.__get_opening_kd(hround)
-        return ROUND_SHEET_INFO_HEADERS + [
+        return [
             ["Site"],
             ["Winning team",  WINNING_TEAM_TEXT[hround.winner]], ## TODO: custom team names
             ["Win condition", hround.win_condition.value],
@@ -181,6 +187,7 @@ class XlsxWriter(Writer):
             del wb["Sheet"]
         return wb
     
+    @handle_write_errors
     def save_workbook(self, wb: Workbook, data: dict[str,list]) -> None:
         ## Add new sheets and fill them with data
         for sheet_name, sheet_data in data.items():
