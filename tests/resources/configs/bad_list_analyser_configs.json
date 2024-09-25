@@ -1,0 +1,55 @@
+[
+    [
+        {
+            "name": "ba_list_test1.1-bad_first",
+            "spectator": false,
+            "capture": {
+                "mode": "screenshot",
+                "regions": {
+                    "timer": [3752, 177, 159, 72],
+                    "kf_line": [4273, 469, 410, 26]
+                }
+            },
+            "team0": [
+                "Player1",
+                "Player2",
+                "Player3",
+                "Player4",
+                "Player5"
+            ],
+            "team1": [
+                "Player6",
+                "Player7",
+                "Player8",
+                "Player9",
+                "Player10"
+            ]
+        },
+        {
+            "name": "ba_list_test1.2-bad_first",
+            "game_type": "comp",
+            "spectator": false,
+            "capture": {
+                "mode": "screenshot",
+                "regions": {
+                    "timer": [3752, 177, 159, 72],
+                    "kf_line": [4273, 469, 410, 26]
+                }
+            },
+            "team0": [
+                "Player1",
+                "Player2",
+                "Player3",
+                "Player4",
+                "Player5"
+            ],
+            "team1": [
+                "Player6",
+                "Player7",
+                "Player8",
+                "Player9",
+                "Player10"
+            ]
+        }
+    ]
+]

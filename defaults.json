@@ -1,4 +1,32 @@
 {
-    "SCREENSHOT_RESIZE": 4,
-    "SCREENSHOT_PERIOD": 0.5
+    "capture": {
+        "scale_by": 2,
+        "period": 0.5
+    },
+    "save": {
+        "file_type": "xlsx",
+        "save_dir": "saves"
+    },
+
+    "max_rounds_map": {
+        "comp": 15,
+        "scrim": 12,
+        "ranked": 9,
+        "standard": 7,
+        "custom": -1
+    },
+    "rounds_per_side_map": {
+        "comp": 6,
+        "scrim": 6,
+        "ranked": 3,
+        "standard": 3,
+        "custom": -1
+    },
+    "overtime_rounds_map": {
+        "comp": 3,
+        "scrim": 0,
+        "ranked": 3,
+        "standard": 1,
+        "custom": -1
+    }
 }

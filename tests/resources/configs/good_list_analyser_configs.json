@@ -1,0 +1,253 @@
+[
+    [
+        {
+            "name": "ga_list_test1.1-same",
+            "game_type": "comp",
+            "spectator": false,
+            "capture": {
+                "mode": "screenshot",
+                "regions": {
+                    "timer": [3752, 177, 159, 72],
+                    "kf_line": [4273, 469, 410, 26]
+                }
+            },
+            "team0": [
+                "Player1",
+                "Player2",
+                "Player3",
+                "Player4",
+                "Player5"
+            ],
+            "team1": [
+                "Player6",
+                "Player7",
+                "Player8",
+                "Player9",
+                "Player10"
+            ]
+        },
+        {
+            "name": "ga_list_test1.2-same",
+            "game_type": "comp",
+            "spectator": false,
+            "capture": {
+                "mode": "screenshot",
+                "regions": {
+                    "timer": [3752, 177, 159, 72],
+                    "kf_line": [4273, 469, 410, 26]
+                }
+            },
+            "team0": [
+                "Player1",
+                "Player2",
+                "Player3",
+                "Player4",
+                "Player5"
+            ],
+            "team1": [
+                "Player6",
+                "Player7",
+                "Player8",
+                "Player9",
+                "Player10"
+            ]
+        }
+    ],
+    [
+        {
+            "name": "ga_list_test2.1-fullcopy",
+            "game_type": "comp",
+            "spectator": false,
+            "capture": {
+                "mode": "screenshot",
+                "regions": {
+                    "timer": [3752, 177, 159, 72],
+                    "kf_line": [4273, 469, 410, 26]
+                }
+            },
+            "team0": [
+                "Player1",
+                "Player2",
+                "Player3",
+                "Player4",
+                "Player5"
+            ],
+            "team1": [
+                "Player6",
+                "Player7",
+                "Player8",
+                "Player9",
+                "Player10"
+            ]
+        },
+        {
+            "name": "ga_list_test2.2-fullcopy"
+        },
+        {
+            "name": "ga_list_test2.3-fullcopy"
+        },
+        {
+            "name": "ga_list_test2.4-fullcopy"
+        },
+        {
+            "name": "ga_list_test2.5-fullcopy"
+        }
+    ],
+    [
+        {
+            "name": "ga_list_test3.1-round_robin",
+            "game_type": "comp",
+            "spectator": false,
+            "capture": {
+                "mode": "screenshot",
+                "regions": {
+                    "timer": [3752, 177, 159, 72],
+                    "kf_line": [4273, 469, 410, 26]
+                }
+            },
+            "team0": [
+                "ATeam1",
+                "ATeam2",
+                "ATeam3",
+                "ATeam4",
+                "ATeam5"
+            ],
+            "team1": [
+                "BTeam1",
+                "BTeam2",
+                "BTeam3",
+                "BTeam4",
+                "BTeam5"
+            ]
+        },
+        {
+            "name": "ga_list_test3.2-round_robin",
+            "team0": [
+                "CTeam1",
+                "CTeam2",
+                "CTeam3",
+                "CTeam4",
+                "CTeam5"
+            ],
+            "team1": [
+                "BTeam1",
+                "BTeam2",
+                "BTeam3",
+                "BTeam4",
+                "BTeam5"
+            ]
+        },
+        {
+            "name": "ga_list_test3.2-round_robin",
+            "team0": [
+                "CTeam1",
+                "CTeam2",
+                "CTeam3",
+                "CTeam4",
+                "CTeam5"
+            ],
+            "team1": [
+                "ATeam1",
+                "ATeam2",
+                "ATeam3",
+                "ATeam4",
+                "ATeam5"
+            ]
+        }
+    ],
+    [
+        {
+            "name": "ga_list_test4.1-diff_teams",
+            "game_type": "comp",
+            "spectator": false,
+            "capture": {
+                "mode": "screenshot",
+                "regions": {
+                    "timer": [3752, 177, 159, 72],
+                    "kf_line": [4273, 469, 410, 26]
+                }
+            },
+            "team0": [
+                "Player1",
+                "Player2",
+                "Player3",
+                "Player4",
+                "Player5"
+            ],
+            "team1": [
+                "Player6",
+                "Player7",
+                "Player8",
+                "Player9",
+                "Player10"
+            ]
+        },
+        {
+            "name": "ga_list_test4.2-diff_teams",
+            "game_type": "comp",
+            "spectator": false,
+            "capture": {
+                "mode": "screenshot",
+                "regions": {
+                    "timer": [3752, 177, 159, 72],
+                    "kf_line": [4273, 469, 410, 26]
+                }
+            },
+            "team0": [
+                "Player1-",
+                "Player2-",
+                "Player3-",
+                "Player4-",
+                "Player5-"
+            ],
+            "team1": [
+                "Player6-",
+                "Player7-",
+                "Player8-",
+                "Player9-",
+                "Player10-"
+            ]
+        }
+    ],
+    [
+        {
+            "name": "ga_list_test5.1-video_files",
+            "game_type": "comp",
+            "spectator": false,
+            "capture": {
+                "mode": "videofile",
+                "file": "path/to/file/1.mp4",
+                "regions": {
+                    "timer": [3752, 177, 159, 72],
+                    "kf_line": [4273, 469, 410, 26]
+                }
+            },
+            "team0": [
+                "Player1",
+                "Player2",
+                "Player3",
+                "Player4",
+                "Player5"
+            ],
+            "team1": [
+                "Player6",
+                "Player7",
+                "Player8",
+                "Player9",
+                "Player10"
+            ]
+        },
+        {
+            "name": "ga_list_test5.2-video_files",
+            "capture": {
+                "file": "path/to/file/2.mp4"
+            }
+        },
+        {
+            "name": "ga_list_test5.3-video_files",
+            "capture": {
+                "file": "path/to/file/3.mp4"
+            }
+        }
+    ]
+]

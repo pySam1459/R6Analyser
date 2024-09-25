@@ -2,19 +2,24 @@ __pycache__/
 venv/
 saves/
 images/
-test/
+archive/
 
+my-tests/
+.coverage
+.pytest_cache/
+
+.vscode/
+
+.mypy_cache
 build/
 dist/
-*.spec
 
 .env
 configs/*.json
 !example.json
 
 notes.txt
-test.ipynb
-test.py
+dev-notes.md
 
 pyarmor.error.log
 pyarmor.report.bug

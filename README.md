@@ -11,126 +11,148 @@ The following information gathered per round includes:
 - **Atk/Def Side**
 
 ## How to run
+### Dependencies
 To run the program, you will need to have Python (3.10>=) installed on your system. You can download Python from the [official website](https://www.python.org/downloads/). A Nvidia GPU and [CUDA](https://developer.nvidia.com/cuda-toolkit) is also recommended for real-time data extraction, although this program does provide a CPU-only option (NOT RECOMMENDED).</br>
 Before running the program, you will need to install the required packages using the following command:
 ```bash
 pip install -r requirements.txt
 ```
+You can check if all dependencies have been successfully installed using:
+```bash
+python src\run.py --check
+```
+
+### Configuration
 You must also have made a configuration file (see below) to specify certain regions of the game window and other parameters. 
 To check the regions defined in the configuration file, you can run the following command:
 ```bash
-python src\run.py -c <config file> --check
+python src\run.py -c <config file> --check-regions
 ```
 which will save the screenshots of the regions defined into a new `images` directory. If these screenshot's do not contain the relevant information, they should be re-defined.</br>
 To run the program, use the following command:
 ```bash
 python src\run.py -c <config file>
 ```
-and it is recommended to add a save path, where to save the game data to a JSON or XLSX file:
-```bash
-python src\run.py -c <config file> --save <save file>
-```
-Other optional arguments include:
+
+### All CLI args
+- `-c` / `--config`: JSON configuration file located in . or ./configs
+- `-k` / `--key`: Software Key, 64 hex key
 - `-v` / `--verbose`: Print additional information to the console (0-3).
+- `--check-regions`: (Debugging) Saves the capture regions as images for quality check
+- `--test-regions`: (Debugging) Runs the OCR engine for a single instance of each capture region and prints the output to the console.
+- `--region-tool`: Runs the region tool used to find config region parameters.
+- `--check`: Runs a script to check program validity and function
+- `--region-tool`: Runs the Region tool instead of R6Analyser.
 - `-d` / `--delay`: The delay in seconds before the program starts capturing the game window.
-- `-s` / `--save`: File to save the game data, either a JSON or XLSX file.
-- `--append-save`: Whether to append the game data to an existing save file or overwrite it.
-- `--test`: (Debugging) Runs the OCR engine for a single instance of each region and prints the output to the console.
-- `--cpu`: (NOT recommended) Use the CPU for OCR instead of the GPU.
-- `--region-tool`: Runs the region tool used to find config `_REGION` parameters.
 - `--display`: The display number to take the screenshot from (default=0).
+
+### Software Key
+A software key is required to use R6Analyser. It will be a hex string of length 64.
+E.g. `431739c9f591b2630503341e6f84afa7f9f60580e0de4d59abedfeed3262387f`
+
+A key should generated when you initially acquire the program.
+A key can be specified by:
+- `.env` file, with field `SOFTWARE_KEY="<KEY>"`
+- `-k` / `--key` cli argument
 
 ## How to use
 This program uses OCR to extract text information from the game window, so it is important to have a good quality video and high resolution. If you cannot read the text on the screen, the program will not be able to either. That being said, the program can handle relatively low quality (720p).</br>
 tl;dr The better the quality of the video/game, the more accurate the program will be.</br>
 
 ## Config
-To use R6Analyser, a configuration JSON is required to specify regions of the game window and other program parameters. An example config file can be found at `configs/example.json` and below. `_REGION` parameters can be found using the region tool, which can be run.
+To use R6Analyser, a configuration JSON file is required to specify regions of the game window and other program parameters. An example config file can be found at `configs/example.json` and below. `capture.regions` parameters can be written using the region tool:
 ```bash
-python src\run.py --region-tool --display <display number>
+python src\run.py -c <config file> --region-tool --delay 2 --display <display number>
 ```
 This tool takes a screenshot of the window and allows you to select regions using the mouse. The region parameter values are then printed to the console.
 
 The following outlines the required and optional paremeters of a config file:
 
+### Recommended Parameters
+- `name: str`
+
 ### Required Parameters
 These parameters must be specified:
-- `SCRIM`: `true`/`false` specifying whether the game is a scrim or not.
-- `SPECTATOR`: `true`/`false` specifying if the game perspective is in spectator mode or in-person.
-- `TIMER_REGION`: A list of 4 integers specifying the region of the game window where the timer is located.
-- `KF_LINE_REGION`: A list of 4 integers specifying the region of the first line in the kill feed. The region should be filled by the IGN boxes, but should extend leftwards to be able to fit in longer names.
-- `IGNS`: A list of 0-10 strings specifying the in-game names (IGNs) of the players in the game. IGNs 1-5 will be considered as one team, with IGNs 6-10 as the other team. It is recommended to specify all 10 IGNs to maximise the accuracy of the program, with a minimum recommendation of 5 IGNs (your team).
+- `game_type: 'comp' | 'scrim' | 'ranked' | 'standard' | 'custom'`
+- `spectator: bool` - specifying if the game perspective is in spectator mode or in-person.
+- `team0: list[str]{0-5}` - A list of max 5 in-game names (IGNS) on team 0 (left hand side), igns will be inferred if not specified
+- `team1: list[str]{0-5}` - A list of max 5 in-game names (IGNS) on team 1 (right hand side), igns will be inferred if not specified
+- `capture.mode: 'screenshot' | 'videofile'` - 
+- `capture.regions.timer: list[int,int,int,int]` - A list of 4 integers specifying the region of the game window where the timer is located.
+- `capture.regions.kf_line: list[int,int,int,int]` - A list of 4 integers specifying the region of the first line in the kill feed. The region should be filled by the IGN boxes, but should extend leftwards to be able to fit in longer names.
 
 ### Inferred Parameters
-These parameters are optional and will be inferred by the program if not explicitly specified:
-- `MAX_ROUNDS`: The maximum number of rounds in the game. If scrim is set to true, this will default to 12; otherwise, it will default to 15. (Infinite OT is not supported yet)
-- `ROUNDS_PER_SIDE`: The number of rounds per atk/def side. Inferred to be (MAX_ROUNDS-3) / 2
-- `IGN_MODE`: Specifies how the IGNs are processed. There are two modes available:
-  - `fixed`: This mode is used when you have a predefined list of IGNs, and any IGN not in this list will not be considered, returned as `None`.
-  - `infer`: Use this mode if you want the program to automatically identify and use IGNs from the game feed. If 10 IGNs are already provided, the mode will default to `fixed`. 
-- `TEAM1_SCORE_REGION`: The region where team 1's score is displayed.
-- `TEAM2_SCORE_REGION`: The region where team 2's score is displayed.
-- `TEAM1_SIDE_REGION`: The region where team 1's side icon is displayed.
-- `TEAM2_SIDE_REGION`: The region where team 2's side icon is displayed.
-- `KILLFEED_REGION`: The region where the kill feed is displayed. This region is inferred from the `KF_LINE_REGION` as approximately 4x the height of the `KF_LINE_REGION`.
+These parameters are inferred by the game_type, but must be provided if `game_type == "custom"`
+- `max_rounds: int`
+- `rounds_per_side: int`
+- `overtime_rounds: int`
 
 ### Optional Parameters
 These parameters are optional and will default to values in `default.json` if not specified:
-- `SCREENSHOT_RESIZE`: (default=4) A number specifying the factor by which the screenshot is resized before OCR-processing.
-- `SCREENSHOT_PERIOD`: (default=0.5) This number determines how frequently the program captures the game feed for analysis, the period in seconds between screenshots
+- `capture.scale_by`: (default=2) A number specifying the factor by which each region is resized before OCR-processing.
+- `capture.period`: (default=0.5) This number determines how frequently the program captures the game feed for analysis, the period in seconds between region analysis
 
 
 ### Config File Example
 Below is an example configuration file that specifies a set of possible parameters for a standard game:
 ```json
 {
-  "SCRIM": false,
-  "SPECTATOR": false,
-  "TIMER_REGION": [1210, 110, 140, 65],
-  "KF_LINE_REGION": [1705, 413, 605, 31],
-  "IGNS": [
-    "Samba.",
-    "Player2",
-    "Player3",
-    "Player4",
-    "Player5"
-  ],
-  "MAX_ROUNDS": 7,
-  "ROUNDS_PER_SIDE": 3,
+    "name": "Example Config",
+    "game_type": "scrim",
+    "spectator": false,
+    "capture": {
+        "mode": "screenshot",
+        "regions": {
+            "timer": [1210, 110, 140, 65],
+            "kf_line": [1705, 413, 605, 31]
+        },
+        "period": 0.25
+    },
+    "team0": [
+        "Samba.",
+        "Player2",
+        "Player3",
+        "Player4",
+        "Player5"
+    ],
+    "team1": [
+        "Shaiiko.BDS",
+        "BriD.BDS",
+        "LikEfac.BDS",
+        "Solotov.BDS",
+        "Yuzus.BDS"
+    ],
+    "save": {
+        "path": "/some/path/here.xlsx"
+    }
 }
 ```
-With this config file, the remaining 5 player IGNs will be inferred from the game feed. Since standard only has 1 round of overtime, the `MAX_ROUNDS` and `ROUNDS_PER_SIDE` needed to be specified as the inferred `(MAX_ROUNDS-3) / 2` assumes a normal 3 round overtime.
 
 ## Process
-The program works by taking screenshots of the game window at regular intervals `SCREENSHOT_PERIOD` and using OCR to extract the necessary information. Currently, 6 regions of the screenshot are used for OCR:
-- **Timer Region**: Used to extract the round timer.
-- **Kill Feed Region**: Used to extract the kill feed.
-- **Team 1 Score Region**: Used to extract team 1's score.
-- **Team 2 Score Region**: Used to extract team 2's score.
-- **Team 1 Side Region**: Used to extract team 1's side.
-- **Team 2 Side Region**: Used to extract team 2's side.
+### CaptureMode = SCREENSHOT
+The program works by taking screenshots of the game window at regular intervals `capture.period` and using OCR to extract the necessary information. Currently, 6 regions of the screenshot are used for OCR:
+- **Timer**: Used to extract the round timer.
+- **Kill Feed**: Used to extract the kill feed.
+- **Team 1 Score**: Used to extract team 1's score.
+- **Team 2 Score**: Used to extract team 2's score.
+- **Team 1 Side**: Used to extract team 1's side.
+- **Team 2 Side**: Used to extract team 2's side.
 Although, only the Timer and Kill Feed regions are used every inference cycle, the other regions are used to infer the game state and are only used when a new round is detected.
 
-### New Round
-A new round is detected when the score line changes, determines using the score regions. When this occurs, the program will call `_new_round` which will:
-- Set the winner of the previous round.
-- Update the score line.
-- Update the attack side.
-- Create a new record for the new round, including new kill feed, win conditions, and timer information.
+## How to build
+To build R6Analyser, run:
+```ps1
+.\scripts\build.ps1
+.\scripts\build.sh
+```
 
-### Mid Round
-During a round, the program will continuously screenshot the game window, reading the timer and kill feed. When a new kill is detected, the program will record the `player` (killer), `target` (dead) and `time` at which the kill occurred.</br>
-If the defuser is planted, the program will continue to record the time using an internal clock (any video skips will interfere with this internal clock). If the time passes `0:00`, the timer will go into the negative, e.g. `0:-12`.
+The build process goes as follows:
+1a. Combine all source code files into a single file with some details removed
+1b. Convert combined file into a bytecode .pyc file
+2. Run PyInstaller on combined.pyc and a run.py file (which calls combined.main())
 
-### End Round
-A round ends when the program cannot read the timer, the red bomb countdown indicator is not showing, and `END_ROUND_SECONDS = 12` have passed. When this occurs, the program will call `_end_round` which will:
-- Set the win condition for the current round.
-- Set the round end at time.
-- Check if the game has ended (currently detected by the number of rounds passed), and if so, call `_end_game`.
-- Otherwise, reset the state of the program for the next round.
-
-### End Game
-When the `_end_game` method is called, the program will save the recorded game data to a JSON or XLSX file, which can be specified using the `-s` / `--save` argument. (Currently only JSON is supported)
+Steps 1a, 1b is achieved using the `combined-script.py` and providing a `build_config.json`.
+Steps 2 needs a `build.spec` file which specifies how to build into a `.exe`
 
 ## Requirements
 This program uses:

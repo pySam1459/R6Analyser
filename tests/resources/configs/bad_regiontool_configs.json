@@ -1,0 +1,77 @@
+[
+    {
+        "name": "brt_test1-no_game_type",
+        "spectator": false,
+        "capture": {
+            "mode": "screenshot",
+            "regions": {
+                "timer": [3752, 177, 159, 72],
+                "kf_line": [4273, 469, 410, 26]
+            }
+        }
+    },
+    {
+        "name": "brt_test2-no_spectator",
+        "game_type": "ranked",
+        "capture": {
+            "mode": "screenshot",
+            "regions": {
+                "timer": [3752, 177, 159, 72],
+                "kf_line": [4273, 469, 410, 26]
+            }
+        }
+    },
+    {
+        "name": "brt_test3-extra_capture/regions",
+        "game_type": "ranked",
+        "spectator": false,
+        "capture": {
+            "mode": "screenshot",
+            "regions": {
+                "timer": [3752, 177, 159, 72],
+                "kf_line": [4273, 469, 410, 26],
+                "something extra": [1, 2, 3, 4]
+            }
+        }
+    },
+    {
+        "name": "brt_test4a-no_capture",
+        "game_type": "ranked",
+        "spectator": false
+    },
+    {
+        "name": "brt_test4b-no_capture/regions",
+        "game_type": "ranked",
+        "spectator": false,
+        "capture": {
+        }
+    },
+    {
+        "name": "brt_test4c-invalid_capture/mode",
+        "game_type": "standard",
+        "spectator": false,
+        "capture": {
+            "mode": "not a valid capture mode",
+            "regions": {
+            }
+        }
+    },
+    {
+        "name": "brt_test4d-videofile_missing_file_field",
+        "game_type": "standard",
+        "spectator": false,
+        "capture": {
+            "mode": "videofile"
+        }
+    },
+    {
+        "name": "brt_test4e-videofile_extra_capture_field",
+        "game_type": "ranked",
+        "spectator": false,
+        "capture": {
+            "mode": "videofile",
+            "file": "./resources/mock.mp4",
+            "something extra": true
+        }
+    }
+]

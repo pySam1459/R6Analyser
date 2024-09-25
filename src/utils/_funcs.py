@@ -1,83 +1,94 @@
-from enum import Enum
-from dataclasses import dataclass
-from typing import Any
-
-
-class StrEnum(Enum):
-    """Helper class to implement `from_string` for Enum's with String values"""
-    @classmethod
-    def from_string(cls, value: str):
-        """Class method to convert a string to an Enum value, with validity checks."""
-        for enum_member in cls:
-            if enum_member.value == value:
-                return enum_member
-        raise ValueError(f"'{value}' is not a valid {cls.__name__}")
-
-
-@dataclass
-class Timestamp:
-    """Helper dataclass to deal with the timer"""
-    minutes: int
-    seconds: int
-
-    def __sub__(self, other: 'Timestamp') -> int:
-        return self.to_int() - other.to_int()
-
-    def to_int(self) -> int:
-        return self.minutes * 60 + self.seconds
-
-    @staticmethod
-    def from_int(num: int) -> 'Timestamp':
-        m = int(num / 60)
-        s = num - 60*m
-        return Timestamp(m, s)
-    
-    def __str__(self) -> str:
-        if self.seconds < 0: return f"{self.minutes}:{self.seconds:03}"
-        else: return f"{self.minutes}:{self.seconds:02}"
-
-    __repr__ = __str__
-
-
-@dataclass
-class SaveFile:
-    """Helper dataclass to handle SaveFile paths"""
-    filename: str
-    ext: str
-
-    def __str__(self) -> str:
-        return f"{self.filename}.{self.ext}"
-    __repr__ = __str__
-
-    def copy(self) -> 'SaveFile':
-        return SaveFile(self.filename, self.ext)
-
-
-class PhantomTqdm:
-    total: Any
-    n: Any
-
-    def set_description_str(self, *args, **kwargs) -> None:
-        ...
-    def set_postfix_str(self, *args, **kwargs) -> None:
-        ...
-    def refresh(self) -> None:
-        ...
-    def close(self) -> None:
-        ...
+import random
+from colorsys import hsv_to_rgb
+from datetime import datetime
+from json import load as __json_load
+from pathlib import Path
+from typing import Any, TypeVar
 
 
 # ----- HELPER FUNCTIONS -----
+# Resource loaders
+def load_file(file_path: Path) -> str:
+    """Loads text from `file_path` and handles any errors"""
+    if not file_path.exists():
+        raise FileNotFoundError(f"'{file_path}' does not exist!")
+
+    try:
+        with open(file_path, "r", encoding="utf-8") as f_in:
+            return f_in.read()
+
+    except Exception as e:
+        exit(f"ERROR: Exception occurred when trying to open {file_path}!\n{str(e)}")
+
+def load_json(file_path: Path):
+    """Loads json from `file_path` and handles any errors"""
+    if not file_path.exists():
+        raise FileNotFoundError(f"'{file_path}' does not exist!")
+
+    try:
+        with open(file_path, "r", encoding="utf-8") as f_in:
+            return __json_load(f_in)
+
+    except Exception as e:
+        exit(f"JSON ERROR: Exception occurred when trying to open {file_path}!\n{str(e)}")
+
+
+# non-builtin functions
 def ndefault(value: Any, default: Any) -> Any:
     """return value is None ? default : value"""
     if value is None: return default
     return value
 
-def transpose(matrix: list[list[Any]]) -> list[list[Any]]:
+Ta = TypeVar('Ta')
+def transpose(matrix: list[list[Ta]]) -> list[list[Ta]]:
     """Transposes a 2d matrix"""
     return [list(row) for row in zip(*matrix)]
 
+def recursive_union(src: dict[str,Any], add: dict[str,Any]):
+    result = src.copy()
+    for key, value in add.items():
+        if isinstance(value, dict) and key in result and isinstance(result[key], dict):
+            result[key] = recursive_union(result[key], value)
+        else:
+            result[key] = value
+    return result
 
+def gen_random_colour() -> tuple[int,int,int]:
+    h = random.random()
+    s = random.uniform(0.5, 1.0)
+    v = random.uniform(0.7, 1.0)
+    
+    r,g,b = hsv_to_rgb(h, s, v)
+    return (int(r*255), int(g*255), int(b*255))
+
+def argmax(x):
+    """https://github.com/cjohnson318/til/blob/main/python/argmax-without-numpy.md"""
+    return max(range(len(x)), key=lambda i: x[i])
+
+Tb = TypeVar('Tb')
+def flatten(arr: list[list[Tb]]) -> list[Tb]:
+    return [el for inner in arr for el in inner]
+
+Tc = TypeVar('Tc')
+def listsub(src: list[Tc], sub: list[Tc]) -> list[Tc]:
+    """Removes the elements in sub from src"""
+    return [v for v in src if v not in sub]
+
+def gen_default_name() -> str:
+    return datetime.now().strftime("r6analyser-%d_%m_%Y-%H:%M:%S")
+
+def str2f(v: float) -> str:
+    """Converts v to a 2f rounded string"""
+    return f"{v:.2f}"
+
+def div_s(n: int|float, d: int|float) -> float:
+    """Performs n / d, returning 0.0 on d == 0"""
+    if d == 0:
+        return 0.0
+    return n / d
+
+
+# bounding box functions
 def rect_collision(r1: list[int], r2: list[int]) -> bool:
     """Checks if 2 [x,y,w,h] rectangles are colliding"""
     return r1[0] <= r2[0]+r2[2] and r1[1] <= r2[1]+r2[3] \
@@ -148,7 +159,3 @@ def compute_rinr(r1: list[int], r2: list[int]) -> float:
     r1_area = w1 * h1
 
     return inter_area / r1_area if r1_area > 0 else 0
-
-
-if __name__ == "__main__":
-    print("Please run R6Analyser from run.py")

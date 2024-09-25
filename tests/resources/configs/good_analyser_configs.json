@@ -1,0 +1,232 @@
+[
+    {
+        "name": "ga_test1-normal",
+        "game_type": "comp",
+        "spectator": false,
+        "capture": {
+            "mode": "screenshot",
+            "regions": {
+                "timer": [3752, 177, 159, 72],
+                "kf_line": [4273, 469, 410, 26]
+            },
+            "period": 0.5,
+            "scale_by": 2
+        },
+        "team0": [
+            "Player1",
+            "Player2",
+            "Player3",
+            "Player4",
+            "Player5"
+        ],
+        "team1": [
+            "Player6",
+            "Player7",
+            "Player8",
+            "Player9",
+            "Player10"
+        ],
+        "last_winner": 0
+    },
+    {
+        "name": "ga_test2a-empty_teams",
+        "game_type": "ranked",
+        "spectator": false,
+        "capture": {
+            "mode": "screenshot",
+            "regions": {
+                "timer": [3752, 177, 159, 72],
+                "kf_line": [4273, 469, 410, 26]
+            }
+        },
+        "team0": [],
+        "team1": []
+    },
+    {
+        "name": "ga_test2b-no_teams",
+        "game_type": "ranked",
+        "spectator": false,
+        "capture": {
+            "mode": "screenshot",
+            "regions": {
+                "timer": [3752, 177, 159, 72],
+                "kf_line": [4273, 469, 410, 26]
+            }
+        }
+    },
+    {
+        "name": "ga_test3-custom",
+        "game_type": "custom",
+        "spectator": false,
+        "capture": {
+            "mode": "screenshot",
+            "regions": {
+                "timer": [3752, 177, 159, 72],
+                "kf_line": [4273, 469, 410, 26]
+            },
+            "period": 0,
+            "scale_by": 2
+        },
+        "team0": [
+            "Player1",
+            "Player2",
+            "Player3",
+            "Player4",
+            "Player5"
+        ],
+        "team1": [
+            "Player6",
+            "Player7",
+            "Player8",
+            "Player9",
+            "Player10"
+        ],
+        "max_rounds": 20,
+        "rounds_per_side": 1,
+        "overtime_rounds": 1
+    },
+    {
+        "name": "ga_test4a-ign_infer",
+        "game_type": "ranked",
+        "spectator": false,
+        "capture": {
+            "mode": "screenshot",
+            "regions": {
+                "timer": [3752, 177, 159, 72],
+                "kf_line": [4273, 469, 410, 26]
+            }
+        },
+        "team0": [
+            "Player1",
+            "Player2",
+            "Player3",
+            "Player4",
+            "Player5"
+        ],
+        "team1": [
+            "Player6",
+            "Player7",
+            "Player8"
+        ]
+    },
+    {
+        "name": "ga_test4b-ign_infer",
+        "game_type": "ranked",
+        "spectator": false,
+        "capture": {
+            "mode": "screenshot",
+            "regions": {
+                "timer": [3752, 177, 159, 72],
+                "kf_line": [4273, 469, 410, 26]
+            }
+        },
+        "team0": [
+            "Player1",
+            "Player2",
+            "Player3"
+        ],
+        "team1": [
+            "Player6",
+            "Player7",
+            "Player8"
+        ]
+    },
+    {
+        "name": "ga_test4c-ign_infer",
+        "game_type": "ranked",
+        "spectator": false,
+        "capture": {
+            "mode": "screenshot",
+            "regions": {
+                "timer": [3752, 177, 159, 72],
+                "kf_line": [4273, 469, 410, 26]
+            }
+        },
+        "team0": [
+            "Player1",
+            "Player2",
+            "Player3",
+            "Player4",
+            "Player5"
+        ],
+        "team1": []
+    },
+    {
+        "name": "ga_test4d-ign_infer",
+        "game_type": "ranked",
+        "spectator": false,
+        "capture": {
+            "mode": "screenshot",
+            "regions": {
+                "timer": [3752, 177, 159, 72],
+                "kf_line": [4273, 469, 410, 26]
+            }
+        },
+        "team0": [
+            "Player1",
+            "Player2"
+        ],
+        "team1": []
+    },
+    {
+        "name": "ga_test5a-save_normal",
+        "game_type": "comp",
+        "spectator": false,
+        "capture": {
+            "mode": "screenshot",
+            "regions": {
+                "timer": [3752, 177, 159, 72],
+                "kf_line": [4273, 469, 410, 26]
+            }
+        },
+        "team0": [
+            "Player1",
+            "Player2",
+            "Player3",
+            "Player4",
+            "Player5"
+        ],
+        "team1": [
+            "Player6",
+            "Player7",
+            "Player8",
+            "Player9",
+            "Player10"
+        ],
+        "save": {
+            "file_type": "json",
+            "save_dir": "new-save"
+        }
+    },
+    {
+        "name": "ga_test5b-save_path_override",
+        "game_type": "comp",
+        "spectator": false,
+        "capture": {
+            "mode": "screenshot",
+            "regions": {
+                "timer": [3752, 177, 159, 72],
+                "kf_line": [4273, 469, 410, 26]
+            }
+        },
+        "team0": [
+            "Player1",
+            "Player2",
+            "Player3",
+            "Player4",
+            "Player5"
+        ],
+        "team1": [
+            "Player6",
+            "Player7",
+            "Player8",
+            "Player9",
+            "Player10"
+        ],
+        "save": {
+            "file_type": "json",
+            "save_dir": "new-save",
+            "path": "/path/to/somewhere.xlsx"
+        }
+    }
+]

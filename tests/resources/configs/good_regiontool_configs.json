@@ -1,0 +1,65 @@
+[
+    {
+        "name": "grt_test1-normal",
+        "game_type": "comp",
+        "spectator": false,
+        "capture": {
+            "mode": "screenshot",
+            "regions": {
+                "timer": [3752, 177, 159, 72],
+                "kf_line": [4273, 469, 410, 26]
+            }
+        }
+    },
+    {
+        "name": "grt_test2-missing_region",
+        "game_type": "ranked",
+        "spectator": false,
+        "capture": {
+            "mode": "screenshot",
+            "regions": {
+                "timer": [3752, 177, 159, 72]
+            }
+        }
+    },
+    {
+        "name": "grt_test3-no_regions",
+        "game_type": "standard",
+        "spectator": false,
+        "capture": {
+            "mode": "screenshot",
+            "regions": {
+            }
+        }
+    },
+    {
+        "name": "grt_test4-no_region_field",
+        "game_type": "scrim",
+        "spectator": false,
+        "capture": {
+            "mode": "screenshot"
+        }
+    },
+    {
+        "name": "grt_test5-videofile_normal",
+        "game_type": "scrim",
+        "spectator": false,
+        "capture": {
+            "mode": "videofile",
+            "file": "./resources/mock-videos/mock.mp4",
+            "regions": {
+                "timer": [3752, 177, 159, 72],
+                "kf_line": [4273, 469, 410, 26]
+            }
+        }
+    },
+    {
+        "name": "grt_test6-videofile_no_region_field",
+        "game_type": "comp",
+        "spectator": false,
+        "capture": {
+            "mode": "videofile",
+            "file": "./resources/mock-videos/mock.mp4"
+        }
+    }
+]

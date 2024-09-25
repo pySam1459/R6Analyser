@@ -1,0 +1,244 @@
+{
+    "players": [
+        "a1", "a2", "a3", "a4", "a5",
+        "b1", "b2", "b3", "b4", "b5"
+    ],
+
+    "test_cases": [
+        {
+            "id": "simple-basic_KilledOpponents",
+            "round_number": 1,
+            "scoreline": {"left": 0, "right": 0},
+            "atk_side": 0,
+            "round_end_at": {"minutes": 0, "seconds": 30},
+            "win_condition": "KilledOpponents",
+            "winner": 0,
+            "killfeed": [
+                {"player": "a1", "target": "b1", "time": {"minutes": 2, "seconds": 30}, "headshot": true},
+                {"player": "a2", "target": "b2", "time": {"minutes": 2, "seconds": 0}, "headshot": false},
+                {"player": "a3", "target": "b3", "time": {"minutes": 1, "seconds": 30}, "headshot": true},
+                {"player": "a4", "target": "b4", "time": {"minutes": 1, "seconds": 0}, "headshot": false},
+                {"player": "a5", "target": "b5", "time": {"minutes": 0, "seconds": 30}, "headshot": true}
+            ],
+
+            "assertions": {
+                "a1": {"kills": 1, "headshots": true,  "death": false, "traded_kills": 0, "traded_death": 0, "onevx": 0},
+                "a2": {"kills": 1, "headshots": false, "death": false, "traded_kills": 0, "traded_death": 0, "onevx": 0},
+                "a3": {"kills": 1, "headshots": true,  "death": false, "traded_kills": 0, "traded_death": 0, "onevx": 0},
+                "a4": {"kills": 1, "headshots": false, "death": false, "traded_kills": 0, "traded_death": 0, "onevx": 0},
+                "a5": {"kills": 1, "headshots": true,  "death": false, "traded_kills": 0, "traded_death": 0, "onevx": 0}
+            }
+        },
+        {
+            "id": "simple-basic_Time",
+            "round_number": 2,
+            "scoreline": {"left": 1, "right": 0},
+            "atk_side": 0,
+            "round_end_at": {"minutes": 0, "seconds": 0},
+            "win_condition": "Time",
+            "winner": 1,
+            "killfeed": [
+                {"player": "a1", "target": "b1", "time": {"minutes": 2, "seconds": 30}, "headshot": true},
+                {"player": "a1", "target": "b2", "time": {"minutes": 1, "seconds": 0}, "headshot": false}
+            ],
+
+            "assertions": {
+                "a1": {
+                    "kills": 2,
+                    "headshots": 1,
+                    "death": false,
+                    "traded_kills": 0,
+                    "traded_death": 0,
+                    "onevx": 0
+                },
+                "a2": {"kills": 0, "headshots": 0, "death": false},
+                "b1": {"kills": 0, "death": true},
+                "b2": {"kills": 0, "death": true},
+                "b3": {"kills": 0, "death": false}
+            }
+        },
+        {
+            "id": "1vX-1v5_basic",
+            "round_number": 3,
+            "scoreline": {"left": 1, "right": 1},
+            "atk_side": 0,
+            "round_end_at": {"minutes": 1, "seconds": 10},
+            "win_condition": "KilledOpponents",
+            "winner": 0,
+            "killfeed": [
+                {"player": "b1", "target": "a1", "time": {"minutes": 2, "seconds": 30}, "headshot": true},
+                {"player": "b2", "target": "a2", "time": {"minutes": 2, "seconds": 20}, "headshot": false},
+                {"player": "b3", "target": "a3", "time": {"minutes": 2, "seconds": 10}, "headshot": true},
+                {"player": "b4", "target": "a4", "time": {"minutes": 2, "seconds": 0},  "headshot": true},
+                {"player": "a5", "target": "b1", "time": {"minutes": 1, "seconds": 50}, "headshot": true},
+                {"player": "a5", "target": "b2", "time": {"minutes": 1, "seconds": 40}, "headshot": false},
+                {"player": "a5", "target": "b3", "time": {"minutes": 1, "seconds": 30}, "headshot": false},
+                {"player": "a5", "target": "b4", "time": {"minutes": 1, "seconds": 20}, "headshot": true},
+                {"player": "a5", "target": "b5", "time": {"minutes": 1, "seconds": 10}, "headshot": true}
+            ],
+
+            "assertions": {
+                "a1": {"kills": 0, "death": true, "onevx": 0},
+                "a2": {"kills": 0, "death": true, "onevx": 0},
+                "a3": {"kills": 0, "death": true, "onevx": 0},
+                "a4": {"kills": 0, "death": true, "onevx": 0},
+                "a5": {"kills": 5, "headshots": 3, "death": false, "onevx": 5},
+
+                "b1": {"kills": 1, "headshots": 1, "death": true, "onevx": 0},
+                "b2": {"kills": 1, "headshots": 0, "death": true, "onevx": 0},
+                "b3": {"kills": 1, "headshots": 1, "death": true, "onevx": 0},
+                "b4": {"kills": 1, "headshots": 1, "death": true, "onevx": 0},
+                "b5": {"kills": 0, "headshots": 0, "death": true, "onevx": 0}
+            }
+        },
+        {
+            "id": "1vX-1v3_post_mortem",
+            "round_number": 4,
+            "scoreline": {"left": 2, "right": 1},
+            "atk_side": 0,
+            "bomb_planted_at": {"minutes": 0, "seconds": 10},
+            "round_end_at": {"minutes": 0, "seconds": -15},
+            "win_condition": "DefusedBomb",
+            "winner": 0,
+            "killfeed": [
+                {"player": "a1", "target": "b1", "time": {"minutes": 2, "seconds": 40}},
+                {"player": "a1", "target": "b2", "time": {"minutes": 2, "seconds": 30}},
+                {"player": "b3", "target": "a1", "time": {"minutes": 2, "seconds": 25}},
+                {"player": "b3", "target": "a2", "time": {"minutes": 2, "seconds": 20}},
+                {"player": "b3", "target": "a3", "time": {"minutes": 1, "seconds": 12}},
+                {"player": "b3", "target": "a4", "time": {"minutes": 1, "seconds": 10}},
+                {"player": "a5", "target": "b3", "time": {"minutes": 1, "seconds": 8}},
+                {"player": "a5", "target": "b4", "time": {"minutes": 0, "seconds": 0}},
+                {"player": "b5", "target": "a5", "time": {"minutes": 0, "seconds": -7}}
+            ],
+
+            "assertions": {
+                "a1": {"kills": 2, "death": 1},
+                "a5": {"kills": 2, "death": 1, "onevx": 3},
+                "b2": {"traded_death": 1},
+                "b3": {"kills": 4, "death": 1, "traded_kills": 1, "refrag_kills": 1, "onevx": 0},
+                "b5": {"kills": 1, "death": 0, "traded_kills": 0, "refrag_kills": 0, "onevx": 0}
+            }
+        },
+        {
+            "id": "1vX-1v4_2k",
+            "round_number": 5,
+            "scoreline": {"left": 3, "right": 1},
+            "atk_side": 0,
+            "bomb_planted_at": {"minutes": 0, "seconds": 15},
+            "disabled_defuser_at": {"minutes": 0, "seconds": -30},
+            "round_end_at": {"minutes": 0, "seconds": -30},
+            "win_condition": "DisabledDefuser",
+            "winner": 1,
+            "killfeed": [
+                {"player": "b4", "target": "a1", "time": {"minutes": 2, "seconds": 30}},
+                {"player": "a2", "target": "b1", "time": {"minutes": 2, "seconds": 20}},
+                {"player": "a2", "target": "b2", "time": {"minutes": 2, "seconds": 10}},
+                {"player": "a2", "target": "b3", "time": {"minutes": 1, "seconds": 45}},
+                {"player": "a2", "target": "b4", "time": {"minutes": 1, "seconds": 30}},
+                {"player": "b5", "target": "a2", "time": {"minutes": 0, "seconds": 30}},
+                {"player": "b5", "target": "a3", "time": {"minutes": 0, "seconds": -15}}
+            ],
+
+            "assertions": {
+                "a2": {"kills": 4, "death": 1, "traded_kills": 0, "onevx": 0},
+                "b4": {"kills": 1, "death": 1},
+                "b5": {"kills": 2, "death": 0, "onevx": 4}
+            }
+        },
+        {
+            "id": "Trades-many",
+            "round_number": 6,
+            "scoreline": {"left": 3, "right": 2},
+            "atk_side": 0,
+            "round_end_at": {"minutes": 1, "seconds": 10},
+            "win_condition": "KilledOpponents",
+            "winner": 0,
+            "killfeed": [
+                {"player": "a1", "target": "b1", "time": {"minutes": 2, "seconds": 30}},
+                {"player": "b2", "target": "a1", "time": {"minutes": 2, "seconds": 26}},
+                {"player": "a2", "target": "b2", "time": {"minutes": 2, "seconds": 20}},
+
+                {"player": "a3", "target": "b3", "time": {"minutes": 1, "seconds": 20}},
+                {"player": "b4", "target": "a3", "time": {"minutes": 1, "seconds": 19}},
+                {"player": "b4", "target": "a2", "time": {"minutes": 1, "seconds": 18}},
+                {"player": "a4", "target": "b5", "time": {"minutes": 1, "seconds": 17}},
+                {"player": "a4", "target": "b4", "time": {"minutes": 1, "seconds": 16}}
+            ],
+
+            "assertions": {
+                "a1": {"traded_death": 1},
+                "a2": {"traded_kills": 1, "refrag_kills": 1, "traded_death": 1},
+                "a3": {"traded_kills": 0, "refrag_kills": 0, "traded_death": 1},
+                "a4": {"kills": 2, "traded_kills": 2, "refrag_kills": 1, "traded_death": 0},
+                
+                "b1": {"traded_death": 1},
+                "b2": {"traded_kills": 1, "refrag_kills": 1, "traded_death": 0},
+                "b3": {"traded_death": 1},
+                "b4": {"kills": 2, "traded_kills": 1, "refrag_kills": 1, "traded_death": 0}
+            }
+        },
+        {
+            "id": "Trades-specific_2k-1trade",
+            "round_number": 7,
+            "scoreline": {"left": 3, "right": 3},
+            "atk_side": 1,
+            "round_end_at": {"minutes": 0, "seconds": 0},
+            "win_condition": "Time",
+            "winner": 0,
+            "killfeed": [
+                {"player": "a3", "target": "b3", "time": {"minutes": 2, "seconds": 30}},
+                {"player": "b4", "target": "a2", "time": {"minutes": 2, "seconds": 29}},
+                {"player": "b4", "target": "a3", "time": {"minutes": 2, "seconds": 28}}
+            ],
+
+            "assertions": {
+                "a2": {"kills": 0, "death": 1, "traded_death": 0},
+                "a3": {"kills": 1, "death": 1, "traded_death": 0},
+                "b3": {"traded_death": 1},
+                "b4": {"kills": 2, "traded_kills": 1, "refrag_kills": 0}
+            }
+        },
+        {
+            "id": "Trades-specific_2k-2trades",
+            "round_number": 8,
+            "scoreline": {"left": 4, "right": 3},
+            "atk_side": 1,
+            "round_end_at": {"minutes": 0, "seconds": 0},
+            "win_condition": "Time",
+            "winner": 0,
+            "killfeed": [
+                {"player": "a2", "target": "b2", "time": {"minutes": 2, "seconds": 31}},
+                {"player": "a3", "target": "b3", "time": {"minutes": 2, "seconds": 30}},
+                {"player": "b4", "target": "a2", "time": {"minutes": 2, "seconds": 29}},
+                {"player": "b4", "target": "a3", "time": {"minutes": 2, "seconds": 28}}
+            ],
+
+            "assertions": {
+                "a2": {"kills": 1, "death": 1},
+                "a3": {"kills": 1, "death": 1},
+                "b4": {"kills": 2, "traded_kills": 2, "refrag_kills": 2}
+            }
+        },
+        {
+            "id": "Trades-specific_trades!=refrags",
+            "round_number": 9,
+            "scoreline": {"left": 5, "right": 3},
+            "atk_side": 1,
+            "round_end_at": {"minutes": 0, "seconds": 0},
+            "win_condition": "Time",
+            "winner": 0,
+            "killfeed": [
+                {"player": "a1", "target": "b1", "time": {"minutes": 2, "seconds": 30}},
+                {"player": "b2", "target": "a2", "time": {"minutes": 2, "seconds": 25}},
+                {"player": "b2", "target": "a3", "time": {"minutes": 2, "seconds": 15}}
+            ],
+
+            "assertions": {
+                "a1": {"kills": 1},
+                "b1": {"death": 1, "traded_death": 1},
+                "b2": {"kills": 2, "traded_kills": 1, "refrag_kills": 0}
+            }
+        }
+    ]
+}
