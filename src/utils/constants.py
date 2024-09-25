@@ -28,3 +28,7 @@ IGN_ALPHABET = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-
 
 TRUTHY_STRINGS = ["true", "t", "yes", "y"]
 FALSEY_STRINGS = ["false", "f", "no", "n"]
+
+## IGNMAT
+IM_LEVEN_THRESHOLD = 0.65 ## threshold for Levenshtein distance to determine equality
+IM_TEAM_DET_THRESHOLD = 3

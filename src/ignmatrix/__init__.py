@@ -1,10 +1,10 @@
 from config import Config
 from utils.enums import IGNMatrixMode
 
-from .base import IGNMatrix, Player
+from .base import IGNMatrix
 from .fixed import IGNMatrixFixed
 from .infer import IGNMatrixInfer
-from .utils import Player_t
+from .player import Player_t, Player
 
 
 __all__ = [

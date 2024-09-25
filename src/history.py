@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_serializer, field_validator, model_serializer
+from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator
 from typing import Any, Optional, Generator
 
 from ignmatrix import Player
@@ -14,29 +14,22 @@ __all__ = [
 ]
 
 
-class KFRecord(BaseModel):
+@dataclass
+class KFRecord:
     """
-    Dataclass to record an player interaction, who killed who, at what time, and if it was a headshot.
+    Dataclass to record a player interaction
+    who killed who, at what time, and if it was a headshot.
       player: killer, target: dead
     """
     player:   Player
     target:   Player
     time:     Timestamp
-    headshot: bool = False
-
-    model_config = ConfigDict(extra="ignore")
+    headshot: bool
 
     @property
     def is_valid(self) -> bool:
         """If team for both player and target is known"""
         return self.player.team != Team.UNKNOWN and self.target.team != Team.UNKNOWN
-
-    def __eq__(self, other: 'KFRecord') -> bool:
-        """Equality check only requires index, not time/headshot (A can only kill B once)"""
-        return self.player.ign == other.player.ign and self.target.ign == other.target.ign
-
-    def __hash__(self) -> int:
-        return hash(f"{self.player.ign}>{self.target.ign}")
 
     def to_str(self, show_time=True) -> str:
         if self.headshot:
@@ -49,19 +42,31 @@ class KFRecord(BaseModel):
 
         return kill_msg
 
+    def __eq__(self, other: 'KFRecord') -> bool:
+        """Equality check only requires index, not time/headshot (A can only kill B once)"""
+        return self.player.uid == other.player.uid and self.target.uid == other.target.uid
+
+    def __hash__(self) -> int:
+        return hash(f"{self.player.uid}>{self.target.uid}")
+
     __str__ = to_str
     __repr__ = to_str
 
-    @field_serializer("time")
-    def serialize_timestamps(self, ts: Timestamp) -> str:
-        return str(ts)
+    def model_dump(self) -> dict[str, Any]:
+        return {
+            "player":   self.player.ign,
+            "target":   self.target.ign,
+            "time":     str(self.time),
+            "headshot": self.headshot,
+        }
 
 
-class _KillFeed(list[KFRecord]):
-    def __iter__(self) -> Generator[KFRecord, None, None]:
-        for record in super().__iter__():
-            if record.is_valid:
-                yield record
+@dataclass
+class TradedRecord(KFRecord):
+    traded:    bool = False
+
+    def __init__(self, record: KFRecord) -> None:
+        super(TradedRecord, self).__init__(**vars(record))
 
 
 @dataclass
@@ -81,22 +86,33 @@ class HistoryRound(BaseModel):
     round_end_at:        Optional[Timestamp] = None
     win_condition:       WinCondition        = WinCondition.UNKNOWN
     winner:              Team                = Team.UNKNOWN
-    __killfeed:          _KillFeed           = PrivateAttr(default_factory=_KillFeed)
+    killfeed:            list[KFRecord]      = Field(default_factory=list)
 
-    disconnects:         list[Disconnect]    = Field(default_factory=list)
-    deaths:              list[Player]        = Field(default_factory=list)
+    disconnects:         list[Disconnect]    = Field(default_factory=list, exclude=True)
+    deaths:              list[Player]        = Field(default_factory=list, exclude=True)
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="ignore", arbitrary_types_allowed=True)
 
-    @property
-    def killfeed(self) -> _KillFeed:
-        return self.__killfeed
+    def valid_killfeed(self) -> Generator[KFRecord, None, None]:
+        for record in self.killfeed:
+            if record.is_valid:
+                yield record
 
-    @model_serializer(mode='wrap')
-    def serialize_model(self, serializer):
-        data = serializer(self)
-        data['killfeed'] = [record.model_dump() for record in self.killfeed]
-        return data
+    @field_validator("killfeed", mode="before")
+    @classmethod
+    def validate_killfeed(cls, v: Any) -> list[KFRecord]:
+        if not isinstance(v, list):
+            raise ValueError("Killfeed is not a list")
+        elif len(v) == 0:
+            return list()
+        elif all([isinstance(record, KFRecord) for record in v]):
+            return v
+
+        raise ValueError("Invalid Killfeed, some elements are non-KFRecord instances")
+
+    @field_serializer("killfeed")
+    def serialize_killfeed(self, kf: list[KFRecord]) -> list[dict[str,Any]]:
+        return [record.model_dump() for record in kf]
 
     @field_serializer("bomb_planted_at", "disabled_defuser_at", "round_end_at")
     def serialize_timestamps(self, ts: Optional[Timestamp]) -> Optional[str]:

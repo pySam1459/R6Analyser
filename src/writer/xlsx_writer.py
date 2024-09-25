@@ -4,9 +4,9 @@ from openpyxl.worksheet.worksheet import Worksheet
 from typing import Any
 
 from config import Config
-from history import History, HistoryRound, KFRecord
+from history import History, HistoryRound
 from ignmatrix import IGNMatrix, Player
-from stats import PlayerRoundStats, compile_match_stats, is_kost, MatchStats_t, RoundStats_t
+from stats import PlayerRoundStats, compile_match_stats, iter_killfeed, is_kost, MatchStats_t, RoundStats_t
 from utils import ndefault, str2f, div_s
 from utils.enums import SaveFileType, Team
 
@@ -137,7 +137,7 @@ class XlsxWriter(Writer):
             "",                             ## TODO: track operators
             prs.traded_kills,
             prs.refrag_kills,
-            prs.traded_deaths
+            prs.traded_death
         ]
 
     
@@ -162,23 +162,15 @@ class XlsxWriter(Writer):
     
     def compile_round_killfeed(self, hround: HistoryRound) -> list[list[Any]]:
         ## "Player", "Target", "Time", "Trade", "Refrag"
-        data = []
-        traded_records: list[KFRecord] = []
-        for record in hround.killfeed:
-            traded_records = [trec for trec in traded_records if record.time - trec.time <= 6]
-            is_trade = any((record.target.team == trec.player.team for trec in traded_records))
-            is_refrag = any((record.target == trec.player for trec in traded_records))
-
-            data.append([
+        return [
+            [
                 record.player.ign,
                 record.target.ign,
                 str(record.time),
-                BOOL_MAP[is_trade],
-                BOOL_MAP[is_refrag]
-            ])
-            traded_records.append(record)
-        
-        return data
+                BOOL_MAP[traded_pl is not None],
+                BOOL_MAP[refrag_pl is not None]
+            ]
+            for record, traded_pl, refrag_pl in iter_killfeed(hround.killfeed)]
 
     ## Save workbook
     def create_workbook(self) -> Workbook:

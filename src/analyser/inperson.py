@@ -220,8 +220,7 @@ class InPersonAnalyser(Analyser):
             if player is None or target is None:
                 continue ## invalid igns
             
-            record = KFRecord(player=player, target=target,
-                              time=self.current_time, headshot=line.headshot)
+            record = KFRecord(player, target, self.current_time, line.headshot)
             if record not in self.tempfeed: ## a record requires at least 2 instances to add to kf
                 self.tempfeed[record] = 0
             

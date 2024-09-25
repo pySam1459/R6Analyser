@@ -2,9 +2,9 @@ import pytest
 from Levenshtein import ratio as leven_ratio
 from pathlib import Path
 
-from ignmatrix.utils import LEVEN_THRESHOLD
 from ignmatrix.fixed import IGNMatrixFixed
 from utils import load_json
+from utils.constants import IM_LEVEN_THRESHOLD
 from utils.enums import IGNMatrixMode
 
 
@@ -31,7 +31,7 @@ def test_fixed_good_name(fixed_mat: IGNMatrixFixed, case: dict[str, str]) -> Non
 
     assert pl is not None
     assert pl.ign == case["rign"], f"{pl.ign=}"
-    assert score >= LEVEN_THRESHOLD, f"{score=:.4f}"
+    assert score >= IM_LEVEN_THRESHOLD, f"{score=:.4f}"
 
 @pytest.mark.parametrize("case",
                          testdata["bad_cases"],
@@ -42,7 +42,7 @@ def test_fixed_bad_names(fixed_mat: IGNMatrixFixed, case) -> None:
     score = fixed_mat.evaluate(pign)
 
     assert pl is None, f"{leven_ratio(pign, pl.ign)=:.4f}"
-    assert score < LEVEN_THRESHOLD, f"{score=:.4f}"
+    assert score < IM_LEVEN_THRESHOLD, f"{score=:.4f}"
 
 
 def test_fixed_mode(fixed_mat: IGNMatrixFixed) -> None:

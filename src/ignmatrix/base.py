@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Optional
+from typing import Optional, Sequence
 
 from utils.enums import IGNMatrixMode, Team
 from .utils import Player, TeamTable
@@ -39,7 +39,7 @@ class IGNMatrix(ABC):
         ...
     
     @abstractmethod
-    def get_teams(self) -> tuple[list[Player], list[Player]]:
+    def get_teams(self) -> tuple[Sequence[Player], Sequence[Player]]:
         """Returns a a pair of lists containing the valid players"""
         ...
     
