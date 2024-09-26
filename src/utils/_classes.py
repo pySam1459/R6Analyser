@@ -2,8 +2,7 @@ import sys
 from io import StringIO
 from pydantic import BaseModel, ConfigDict, computed_field
 from tqdm import tqdm
-from typing import Any, Optional, Self
-
+from typing import Optional, Self
 
 
 class Scoreline(BaseModel):

@@ -1,8 +1,7 @@
-import importlib
 import easyocr
 import numpy as np
 from abc import ABC, abstractmethod
-from pydantic import BaseModel, computed_field, model_validator
+from pydantic import BaseModel, computed_field, field_validator
 from typing import Any, Optional
 
 from ignmatrix import IGNMatrix
@@ -22,6 +21,14 @@ class OCResult(BaseModel):
     text: str
     prob: float
     eval_score: Optional[float] = None
+
+    @field_validator("bbox", mode="before")
+    @classmethod
+    def check_ints(cls, v: Any) -> list[list[int]]:
+        if not isinstance(v, list) or not all([isinstance(el, list) for el in v]):
+            raise ValueError("Invalid bbox")
+        
+        return [list(map(int, point)) for point in v]
 
     @computed_field
     @property
@@ -45,11 +52,9 @@ class OCResult(BaseModel):
         x, y = min(self.rect[0], other.rect[0]), min(self.rect[1], other.rect[1])
         x2, y2 = max(self.bbox[1][0], other.bbox[1][0]), max(self.bbox[2][1], other.bbox[2][1])
 
-        return OCResult.model_validate({
-            "bbox": [[x, y], [x2, y], [x2, y2], [x, y2]],
-            "text": f"{self.text}_{other.text}",
-            "prob": min(self.prob, other.prob)
-        })
+        return OCResult(bbox=[[x, y], [x2, y], [x2, y2], [x, y2]],
+                        text=f"{self.text}_{other.text}",
+                        prob=min(self.prob, other.prob))
     
     def __str__(self) -> str:
         if self.eval_score is not None: return f"{self.text}|eval={self.eval_score*100:.2f}"
@@ -61,6 +66,7 @@ class OCResult(BaseModel):
 class OCRLine(BaseModel):
     """A helper model containing the OCResults and other info from a single killfeed line"""
     results: list[OCResult]
+    size: tuple[int,...]
     headshot: bool = False
 
 

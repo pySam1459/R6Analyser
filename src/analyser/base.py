@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from time import time
 from typing import Optional
 
+from assets import Assets
 from capture import Timer, RegionBBoxes, create_capture, ImageRegions_t
 from config import Config
 from history import History
@@ -38,32 +39,40 @@ class Analyser(ABC):
         self.settings = create_settings(args.sets_path)
         self._debug_print("config_keys", f"Config\n{self.config}")
 
+        self.assets = self.__load_assets()
         self.capture = create_capture(self.config)
+        self.ocr_engine = OCREngine.new(self.settings.ocr_engine, "en")
+        self._verbose_print(0, self.ocr_engine.load_msg())
+
+        self.ign_matrix = create_ignmatrix(self.config)
+        self.history = History()
+        self.writer = create_writer(self.config)
 
         self.test_and_checks()
         if self.is_a_test:
             return
 
         self.running = False
+        self.state = State(in_round=False, end_round=True, bomb_planted=False)
         self.timer = Timer(self.capture.get_time, period=self.config.capture.period)
 
-        self.state = State(in_round=False, end_round=True, bomb_planted=False)
-        self.history = History()
-        self.writer = create_writer(self.config)
-
         self.prog_bar = ProgressBar(add_postfix=self.config.debug.infer_time)
-        self.current_time: Timestamp
-        self.defuse_countdown_timer: Optional[float] = None
-
-        self.ign_matrix = create_ignmatrix(self.config)
-        self.ocr_engine = OCREngine.new(self.settings.ocr_engine, "en")
-        self._verbose_print(0, self.ocr_engine.load_msg())
+        self.current_time: Timestamp ## TODO: move into self.timer
+        self.defuse_countdown_timer: Optional[float] = None        
 
         self.handlers = [
             self._handle_scoreline,
             self._handle_timer,
             self._handle_feed,
         ]
+    
+    def __load_assets(self) -> Assets:
+        """Load the assets used in image detection"""
+        return (
+            Assets()
+                .resize("atkside_icon", self.config.capture.regions.team1_side[2:])
+                .resize_height("headshot", self.config.capture.regions.kf_line[3])
+        )
 
     ## ----- CHECK & TEST -----
     def test_and_checks(self) -> None:
@@ -71,6 +80,7 @@ class Analyser(ABC):
         if self.args.check_regions:
             self._check_regions()
             self.is_a_test = True
+
         if self.args.test_regions:
             self._test_regions()
             self.is_a_test = True
@@ -94,6 +104,7 @@ class Analyser(ABC):
             if not self.timer.step():
                 continue
 
+            ## time.time() is correct here since its not in-game time
             _infer_start = time()
 
             regions = self.capture.next(self._get_regions())
@@ -112,15 +123,15 @@ class Analyser(ABC):
     ## ----- OCR -----
     def _screenshot_preprocess(self,
                                image: np.ndarray,
-                               to_gray: bool = True,
-                               denoise: bool = False,
-                               squeeze_width: float = 1.0) -> np.ndarray:
+                               to_gray=True,
+                               denoise=False,
+                               squeeze_width=1.0) -> np.ndarray:
         """
-        To increase the accuracy of the EasyOCR readtext function, a few preprocessing techniques are used
+        To increase the accuracy of the OCR engine, a few preprocessing techniques are used
           - RGB to Grayscale conversion
           - Denoise the image using fastNlMeansDenoising
-          - Resize by factor `Config.SCREENSHOT_RESIZE` (normally 2-4)
-          - Squeeze the width of the image, useful for scoreline OCR
+          - Resize by factor `config.capture.scale_by` (default 2)
+          - Squeeze the width of the image, useful for numbers like 1/7
         """
         if to_gray:
             image = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
@@ -140,11 +151,14 @@ class Analyser(ABC):
     def _readtext(self, image: np.ndarray, prob = 0.0, allowlist: Optional[str] = None) -> list[str]:
         """Performs the EasyOCR inference and cleans the output based on the model's assigned probabilities and a threshold"""
         results = self.ocr_engine.read(image, allowlist=allowlist)
-        return [out.text for out in results if out.prob > prob]
+        return [out.text
+                for out in results
+                if out.prob > prob]
     
     def _readbatch(self, images: list[np.ndarray], prob = 0.0, allowlist: Optional[str] = None) -> list[list[str]]:
         results = self.ocr_engine.read_batch(images, allowlist=allowlist)
-        return [[out.text for out in res if out.prob > prob] for res in results]
+        return [[out.text for out in res if out.prob > prob]
+                for res in results]
 
 
     ## ----- IN ROUND OCR FUNCTIONS -----
@@ -166,7 +180,7 @@ class Analyser(ABC):
 
     ## ----- GAME STATE FUNCTIONS -----
     @abstractmethod
-    def _new_round(self, score1: int, score2: int) -> None:
+    def _new_round(self, sl: Scoreline) -> None:
         ...
 
     @abstractmethod
@@ -182,7 +196,7 @@ class Analyser(ABC):
     def _end_game(self) -> None:
         ...
     
-    def _stop_analyser(self) -> None:
+    def stop(self) -> None:
         self.running = False
     
     def _get_last_winner(self) -> Team:
@@ -197,10 +211,17 @@ class Analyser(ABC):
         return Team(int(winner))
 
     ## ----- PRINT FUNCTION -----
+    @property
+    def __print(self) -> Callable[..., None]:
+        if getattr(self, "prog_bar", None) is None:
+            return print
+        else:
+            return self.prog_bar.print
+
     def _verbose_print(self, verbose_value: int, *prompt) -> None:
         if self.args.verbose > verbose_value:
-            self.prog_bar.print("Info:", *prompt)
+            self.__print("Info:", *prompt)
 
     def _debug_print(self, key: str, *prompt) -> None:
         if self.config.__dict__.get(key, False):
-            self.prog_bar.print("Debug:", *prompt)
+            self.__print("Debug:", *prompt)

@@ -8,7 +8,10 @@ from .xlsx_writer import XlsxWriter
 from .json_writer import JsonWriter
 
 
-__all__ = ["create_writer"]
+__all__ = [
+    "Writer",
+    "create_writer"
+]
 
 
 def get_save_path(config: Config) -> Path:

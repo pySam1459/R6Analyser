@@ -28,5 +28,7 @@
         "ranked": 3,
         "standard": 1,
         "custom": -1
-    }
+    },
+
+    "defuser_timer": 45
 }

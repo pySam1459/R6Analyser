@@ -38,6 +38,11 @@ class Team(IntEnum):
     TEAM0   =  0
     TEAM1   =  1
 
+    @property
+    def opp(self) -> 'Team':
+        assert self != Team.UNKNOWN
+        return Team(1-self.value)
+
 
 class GameType(str, Enum):
     COMP       = "comp"

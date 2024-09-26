@@ -48,6 +48,8 @@ class Defaults(BaseModel):
     rounds_per_side_map: GameTypeRoundMap
     overtime_rounds_map: GameTypeRoundMap
 
+    defuser_timer: int
+
     model_config = ConfigDict(extra="ignore")
 
 
@@ -157,6 +159,8 @@ class ConfigParser(BaseModel):
     capture:             CaptureParser
     team0:               list[str]     = Field(default_factory=list, min_length=0, max_length=5)
     team1:               list[str]     = Field(default_factory=list, min_length=0, max_length=5)
+
+    save: SaveParser
     
     ## inferred/optional
     max_rounds:          Optional[int] = Field(default=None, ge=1, le=25)
@@ -169,7 +173,9 @@ class ConfigParser(BaseModel):
     rounds_per_side_map: GameTypeRoundMap
     overtime_rounds_map: GameTypeRoundMap
 
-    save: SaveParser
+    defuser_timer: int
+
+    ## debug
     debug: DebugCfg
 
     model_config = ConfigDict(extra="forbid", use_enum_values=True)
@@ -273,6 +279,8 @@ class Config(BaseModel):
     team0:             list[str]
     team1:             list[str]
 
+    save:              SaveCfg
+
     ign_mode:          IGNMatrixMode = Field(exclude=True)
 
     last_winner:       Team          = Field(exclude=True)
@@ -280,7 +288,8 @@ class Config(BaseModel):
     rounds_per_side:   int           = Field(exclude=True)
     overtime_rounds:   int           = Field(exclude=True)
 
-    save:              SaveCfg
+    defuser_timer:     int           = Field(exclude=True)
+
     debug:             DebugCfg      = Field(exclude=True)
 
     model_config = ConfigDict(extra="ignore", use_enum_values=True)

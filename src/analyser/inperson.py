@@ -1,25 +1,23 @@
 import cv2
 import numpy as np
-import sys
 from os import mkdir
 from os.path import join, exists
 from re import search, match
-from time import time
-from Levenshtein import ratio as leven_ratio
+from Levenshtein import ratio
 from typing import Optional, cast
 
-from assets import Assets
 from capture import InPersonRegions, RegionBBoxes
 from config import Config
 from history import KFRecord
 from ignmatrix import Player_t
 from ocr import OCResult, OCRLine
 from utils.cli import AnalyserArgs
-from utils.constants import BOMB_COUNTDOWN_RT, DIGITS, IGN_ALPHABET, TIMER_LAST_SECONDS_RT
-from utils.enums import Team, WinCondition, IGNMatrixMode
+from utils.enums import Team, WinCondition
 from utils import *
+from utils.constants import *
 
 from .base import Analyser, State
+from .killfeed import SmartKillfeed, KFRecord_t
 from .utils import is_headshot, get_timer_redperc
 
 
@@ -33,7 +31,9 @@ class InPersonAnalyser(Analyser):
     SCREENSHOT_REGIONS = ["timer",
                           "team1_score", "team2_score", "team1_side", "team2_side",
                           "kf_lines"]
-    NON_NAMES = ["has found the bomb", "Friendly Fire has been activated for"]
+    NON_NAMES = ["has found the bomb",
+                 "Friendly Fire has been activated for",
+                 "Friendly Fire turned off until Action Phase"]
     NON_NAME_THRESHOLD = 0.5
 
     SCORELINE_PROB = 0.25
@@ -42,25 +42,13 @@ class InPersonAnalyser(Analyser):
 
     PROXIMITY_DIST = 35
 
-
     def __init__(self, args: AnalyserArgs, config: Config) -> None:
         super(InPersonAnalyser, self).__init__(args, config)
 
         self.last_kf_seconds = None
         self.end_round_seconds = None
 
-        self.tempfeed: dict[KFRecord, int] = {}
-        self.tempfeed_threshold = config.ign_mode == IGNMatrixMode.INFER
-
-        self.assets = self.__load_assets()
-    
-    def __load_assets(self) -> Assets:
-        """Load the assets used in image detection"""
-        return (
-            Assets()
-                .resize("atkside_icon", self.config.capture.regions.team1_side[2:])
-                .resize_height("headshot", self.config.capture.regions.kf_line[3])
-        )
+        self.skf = SmartKillfeed(self.config, self.history, self._add_record)
     
     def _get_regions(self) -> RegionBBoxes:
         return RegionBBoxes.model_validate(self.config.capture.regions.model_dump(exclude_none=True))
@@ -71,7 +59,8 @@ class InPersonAnalyser(Analyser):
         if not self.running or not self.state.end_round: return
 
         scoreline = self.__read_scoreline(regions.team1_score, regions.team2_score)
-        if not scoreline: return
+        if not scoreline:
+            return
 
         new_roundn = scoreline.left + scoreline.right + 1
         if new_roundn in self.history:
@@ -80,16 +69,15 @@ class InPersonAnalyser(Analyser):
 
         self._new_round(scoreline)
 
-        atkside = self.__read_atkside(regions.team1_side, regions.team2_side)
-        self.history.cround.atk_side = Team(atkside)
-        self._verbose_print(1, f"Atk Side: {atkside}")
+        self.history.cround.atk_side = self.__read_atkside(regions.team1_side, regions.team2_side)
+        self._verbose_print(1, f"Atk Side: {self.history.cround.atk_side}")
 
-    def __read_scoreline(self, scoreline1: np.ndarray, scoreline2: np.ndarray) -> Optional[Scoreline]:
+    def __read_scoreline(self, slimg_left: np.ndarray, slimg_right: np.ndarray) -> Optional[Scoreline]:
         """Reads the scoreline from the 2 TEAM1/2_SCORE_REGION screenshot"""
-        img1 = self._screenshot_preprocess(scoreline1, to_gray=True, squeeze_width=0.65)
-        img2 = self._screenshot_preprocess(scoreline2, to_gray=True, squeeze_width=0.65)
+        left_img = self._screenshot_preprocess(slimg_left, to_gray=True, squeeze_width=0.65)
+        right_img = self._screenshot_preprocess(slimg_right, to_gray=True, squeeze_width=0.65)
 
-        results = flatten(self._readbatch([img1, img2],
+        results = flatten(self._readbatch([left_img, right_img],
                                           InPersonAnalyser.SCORELINE_PROB,
                                           allowlist=DIGITS))
         if (len(results) != 2 or
@@ -99,7 +87,7 @@ class InPersonAnalyser(Analyser):
 
         return Scoreline(left=int(results[0]), right=int(results[1]))
 
-    def __read_atkside(self, side1: np.ndarray, side2: np.ndarray) -> int:
+    def __read_atkside(self, side1: np.ndarray, side2: np.ndarray) -> Team:
         """Matches the side icon next to the scoreline with `res/swords.jpg` to determine which side is attack."""
         icon1 = self._screenshot_preprocess(side1, to_gray=True, denoise=True)
         icon2 = self._screenshot_preprocess(side2, to_gray=True, denoise=True)
@@ -113,9 +101,9 @@ class InPersonAnalyser(Analyser):
 
         # Decide which icon matches best
         if max_val_icon1 >= max_val_icon2:
-            return 0
+            return Team.TEAM0
         else:
-            return 1
+            return Team.TEAM1
 
 
     ## ----- TIMER FUNCTION -----
@@ -137,14 +125,14 @@ class InPersonAnalyser(Analyser):
             self.__handle_bomb_countdown()
 
         elif self.last_kf_seconds is None and self.end_round_seconds is None and self.state.in_round:
-            self.last_kf_seconds = time()
-            self.end_round_seconds = time()
+            self.last_kf_seconds = self.timer.time()
+            self.end_round_seconds = self.timer.time()
         
-        if self.last_kf_seconds is not None and self.last_kf_seconds + InPersonAnalyser.NUM_LAST_SECONDS < time():
+        if self.last_kf_seconds is not None and self.last_kf_seconds + InPersonAnalyser.NUM_LAST_SECONDS < self.timer.time():
             self.last_kf_seconds = None
 
         if (self.end_round_seconds is not None and
-                self.end_round_seconds + InPersonAnalyser.END_ROUND_SECONDS < time()
+                self.end_round_seconds + InPersonAnalyser.END_ROUND_SECONDS < self.timer.time()
                 and self.__read_scoreline(regions.team1_score, regions.team2_score) is None):
             self._end_round()
             self.end_round_seconds = None
@@ -155,8 +143,9 @@ class InPersonAnalyser(Analyser):
         If the timer is not present, None is returned
         """
         image = self._screenshot_preprocess(image, to_gray=True, denoise=True, squeeze_width=0.75)
-        results = self._readtext(image, prob=InPersonAnalyser.TIMER_PROB, allowlist="0123456789:.")
-        if len(results) == 0: return None
+        results = self._readtext(image, prob=InPersonAnalyser.TIMER_PROB, allowlist=TIMER_ALLOWLIST)
+        if len(results) == 0:
+            return None
 
         result = results[0] if len(results) == 1 else "".join(results)
         timer_match = search(r"(\d?\d).?(\d\d)", result)
@@ -185,7 +174,7 @@ class InPersonAnalyser(Analyser):
 
     def __handle_bomb_countdown(self) -> None:
         if self.defuse_countdown_timer is None: ## bomb planted
-            self.defuse_countdown_timer = time()
+            self.defuse_countdown_timer = self.timer.time()
             self.state.bomb_planted = True
 
             self.history.cround.bomb_planted_at = self.current_time
@@ -194,9 +183,9 @@ class InPersonAnalyser(Analyser):
         
         elif self.history.cround.bomb_planted_at is not None:
             bpat_int = self.history.cround.bomb_planted_at.to_int()
-            tdelta = int(time() - self.defuse_countdown_timer)
+            tdelta = int(self.timer.time() - self.defuse_countdown_timer)
             self.current_time = Timestamp.from_int(bpat_int - tdelta)
-            self.prog_bar.set_time(int(45-tdelta))
+            self.prog_bar.set_time(int(self.config.defuser_timer-tdelta))
             self.prog_bar.refresh()
 
 
@@ -208,31 +197,39 @@ class InPersonAnalyser(Analyser):
 
         image_lines = [regions.kf_lines[i] for i in range(self.config.capture.regions.num_kf_lines)]
         for line in self.__read_feed(image_lines)[0]:
-            if len(line.results) == 1:
-                ## suicides?
-                player = self.ign_matrix.get(line.results[0].text)
-                target = self.ign_matrix.get(line.results[0].text)
-
-            elif len(line.results) == 2:
-                player = self.ign_matrix.get(line.results[0].text)
-                target = self.ign_matrix.get(line.results[1].text)
+            if len(line.results) == 2:
+                self.__handle_feed_normal(line)
                 
-            if player is None or target is None:
-                continue ## invalid igns
-            
-            record = KFRecord(player, target, self.current_time, line.headshot)
-            if record not in self.tempfeed: ## a record requires at least 2 instances to add to kf
-                self.tempfeed[record] = 0
-            
-            if self.tempfeed[record] < self.tempfeed_threshold:
-                self.tempfeed[record] += 1
-
-            elif record not in self.history.cround.killfeed:
-                self.__add_record(record)
+            elif len(line.results) == 1:
+                self.__handle_feed_suicide(line)
                 
-    def __add_record(self, record: KFRecord) -> None:
+    
+    def __handle_feed_normal(self, line: OCRLine) -> None:
+        player = self.ign_matrix.get(line.results[0].text)
+        target = self.ign_matrix.get(line.results[1].text)
+
+        if player is None or target is None:
+            return
+
+        record = KFRecord(player, target, self.current_time, line.headshot)
+        self.skf.add(record, KFRecord_t.NORMAL)
+
+    def __handle_feed_suicide(self, line: OCRLine) -> None:
+        ## suicides?
+        res = line.results[0]
+        player = self.ign_matrix.get(res.text)
+        if player is None:
+            return
+        if res.rect[0] + res.rect[2] < line.size[1] * 0.8:
+            return
+        if compute_rect_ratio([0,0,line.size[1],line.size[0]], res.rect) < 0.1:
+            return
+
+        record = KFRecord(player, player, self.current_time, line.headshot)
+        self.skf.add(record, KFRecord_t.SUICIDE)
+
+    def _add_record(self, record: KFRecord) -> None:
         self.history.cround.killfeed.append(record)
-        self.history.cround.deaths.append(record.target)
 
         if record.player.type == Player_t.INFER or record.target.type == Player_t.INFER:
             self.ign_matrix.update_mats(record.player.ign, record.target.ign)
@@ -246,12 +243,12 @@ class InPersonAnalyser(Analyser):
         image_lines = [self._screenshot_preprocess(image, denoise=True) for image in image_lines]
         headshots = [is_headshot(img_line, self.assets.headshot) for img_line in image_lines]
         nohs_il = self.__fill_in_hs(image_lines, headshots)
-        
+
         ocr_results = self.ocr_engine.read_batch(nohs_il,
                             add_margin=0.15,
                             slope_ths=0.5,
                             allowlist=IGN_ALPHABET)
-        ocr_lines = self.__get_ocrlines(ocr_results)
+        ocr_lines = self.__get_ocrlines(ocr_results, image_lines)
         for line, hs in zip(ocr_lines, headshots):
             line.headshot = bool(hs)
 
@@ -269,14 +266,14 @@ class InPersonAnalyser(Analyser):
             out.append(img_cpy)
         return out
     
-    def __get_ocrlines(self, lines: tuple[list[OCResult]]) -> list[OCRLine]:
+    def __get_ocrlines(self, lines: tuple[list[OCResult]], image_lines: list[np.ndarray]) -> list[OCRLine]:
         ocr_lines: list[OCRLine] = []
-        for raw_results in lines:
+        for raw_results, img in zip(lines, image_lines):
             ## cleaning stage 1
             line: list[OCResult] = []
             for res in raw_results:
                 if res.prob < InPersonAnalyser.KF_PROB or len(res.text) < 2: continue
-                if max([leven_ratio(res.text, non_name) for non_name in InPersonAnalyser.NON_NAMES]) > InPersonAnalyser.NON_NAME_THRESHOLD: continue
+                if max([ratio(res.text, non_name) for non_name in InPersonAnalyser.NON_NAMES]) > InPersonAnalyser.NON_NAME_THRESHOLD: continue
 
                 res.eval(self.ign_matrix)
                 line.append(res)
@@ -287,7 +284,7 @@ class InPersonAnalyser(Analyser):
             elif len(line) >= 3: ## join call is required
                 line = self.__join_line(line)
 
-            ocr_lines.append(OCRLine(results=line))
+            ocr_lines.append(OCRLine(results=line, size=img.shape))
 
         return ocr_lines
 
@@ -352,13 +349,13 @@ class InPersonAnalyser(Analyser):
             winner = Team(sl_new.right < sl.right)
             self.history.cround.winner = winner ## if _score1+1 == score1, return 0
 
-        win_con = self._get_wincon()
+        win_con = self.history.cround.get_wincon(self.ign_matrix)
         self.history.cround.win_condition = win_con
 
         reat = self.history.cround.round_end_at
         if win_con == WinCondition.DISABLED_DEFUSER:
             self.history.cround.disabled_defuser_at = reat
-            self._verbose_print(1, f"Disabled defsuer at: {reat}")
+            self._verbose_print(1, f"Disabled defuser at: {reat}")
         
         self._verbose_print(0, f"Team {winner} wins round {self.history.roundn} by {win_con.value} at {reat}.")
         if save:
@@ -377,7 +374,7 @@ class InPersonAnalyser(Analyser):
 
         self.history.new_round(new_round)
         self.history.cround.scoreline = sl
-        self.tempfeed.clear()
+        self.skf.reset()
 
         self._verbose_print(1, f"New Round: {new_round} | Scoreline: {sl.left}-{sl.right}")
         self.prog_bar.reset()
@@ -410,38 +407,6 @@ class InPersonAnalyser(Analyser):
                 or (is_ot and abs(sl.left-sl.right) == 2)
         )
     
-    def _get_wincon(self) -> WinCondition:
-        """Returns the win condition from the round history"""
-        bpat    = self.history.cround.bomb_planted_at
-        winner  = self.history.cround.winner
-        atkside = self.history.cround.atk_side
-
-        if winner is None or atkside is None:
-            return WinCondition.UNKNOWN
-
-        defside = 1-atkside
-        if bpat is not None and winner == defside:
-            return WinCondition.DISABLED_DEFUSER
-        elif bpat is not None:
-            return WinCondition.DEFUSED_BOMB
-
-        elif (0 <= self.current_time.to_int() <= 1
-                and winner == defside
-                and self.__wincon_alive_count(atkside) > 0
-                and self.__wincon_alive_count(defside) > 0):
-            return WinCondition.TIME
-
-        elif self.__wincon_alive_count(1-winner) == 0:
-            return WinCondition.KILLED_OPPONENTS
-        
-        return WinCondition.UNKNOWN
-    
-    def __wincon_alive_count(self, side: int) -> int:
-        """Returns the number of alive players on a particular side"""
-        alive = 5  ## TODO: history, ign matrix team count
-        ndeaths = len([pl for pl in self.history.cround.deaths if pl.team == side])
-        return alive - ndeaths
-    
     def _end_game(self) -> None:
         """This method is called when the program determines the game has ended"""
         winner = self._get_last_winner()
@@ -450,8 +415,8 @@ class InPersonAnalyser(Analyser):
             self.__finish_last_round(sl.inc(winner), save=False)
 
         self.writer.write(self.history, self.ign_matrix)
-        self._verbose_print(0, f"Data Saved to {self.config.save}, program terminated.")
-        self._stop_analyser()
+        self._verbose_print(0, f"Data Saved to {self.writer.save_path}, program terminated.")
+        self.stop()
     
     def _fix_state(self) -> None:
         """
@@ -491,7 +456,7 @@ class InPersonAnalyser(Analyser):
 
     def _test_regions(self) -> None:
         """
-        This method is called when the `--test` flag is added to the program call,
+        This method is called when the `--test-regions` flag is added to the program call,
         runs inference on a single screenshot.
         """
         regions = cast(InPersonRegions, self.capture.next(self._get_regions()))

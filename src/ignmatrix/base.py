@@ -1,8 +1,10 @@
 from abc import ABC, abstractmethod
-from typing import Optional, Sequence
+from typing import Optional
 
 from utils.enums import IGNMatrixMode, Team
-from .utils import Player, TeamTable
+
+from .player import Player
+from .utils import TeamTable, Teams
 
 
 __all__ = [ "IGNMatrix" ]
@@ -34,14 +36,14 @@ class IGNMatrix(ABC):
     def mode(self) -> IGNMatrixMode:
         return self.__mode
 
+
     @abstractmethod
     def get(self, pign: str) -> Optional[Player]:
         ...
     
     @abstractmethod
-    def get_teams(self) -> tuple[Sequence[Player], Sequence[Player]]:
-        """Returns a a pair of lists containing the valid players"""
-        ...
+    def get_teams(self) -> Teams:
+        """Returns a Teams object containing 2 lists of Player instances"""
     
     @abstractmethod
     def evaluate(self, pign: str) -> float:
@@ -49,4 +51,3 @@ class IGNMatrix(ABC):
     
     def update_mats(self, pign: str, tign: str) -> None:
         """Records pign killing t(arget)ign, used by IGNMatrixInfer"""
-        ...

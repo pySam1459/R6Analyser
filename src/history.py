@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator
 from typing import Any, Optional, Generator
 
-from ignmatrix import Player
+from ignmatrix import IGNMatrix, Player
 from utils import Timestamp, Scoreline
 from utils.enums import Team, WinCondition
 
@@ -47,7 +47,7 @@ class KFRecord:
         return self.player.uid == other.player.uid and self.target.uid == other.target.uid
 
     def __hash__(self) -> int:
-        return hash(f"{self.player.uid}>{self.target.uid}")
+        return self.player.uid * 101 + self.target.uid
 
     __str__ = to_str
     __repr__ = to_str
@@ -80,7 +80,7 @@ class HistoryRound(BaseModel):
     round_number:        int
 
     scoreline:           Optional[Scoreline] = None
-    atk_side:            Optional[Team]      = None
+    atk_side:            Team                = Team.UNKNOWN
     bomb_planted_at:     Optional[Timestamp] = None
     disabled_defuser_at: Optional[Timestamp] = None
     round_end_at:        Optional[Timestamp] = None
@@ -89,14 +89,8 @@ class HistoryRound(BaseModel):
     killfeed:            list[KFRecord]      = Field(default_factory=list)
 
     disconnects:         list[Disconnect]    = Field(default_factory=list, exclude=True)
-    deaths:              list[Player]        = Field(default_factory=list, exclude=True)
 
     model_config = ConfigDict(extra="ignore", arbitrary_types_allowed=True)
-
-    def valid_killfeed(self) -> Generator[KFRecord, None, None]:
-        for record in self.killfeed:
-            if record.is_valid:
-                yield record
 
     @field_validator("killfeed", mode="before")
     @classmethod
@@ -119,6 +113,39 @@ class HistoryRound(BaseModel):
         if ts is None:
             return None
         return str(ts)
+
+
+    def valid_killfeed(self) -> Generator[KFRecord, None, None]:
+        for record in self.killfeed:
+            if record.is_valid:
+                yield record
+    
+    def get_wincon(self, ignmat: IGNMatrix) -> WinCondition:
+        """Returns the win condition from the round history"""
+        if self.winner == Team.UNKNOWN or self.atk_side == Team.UNKNOWN:
+            return WinCondition.UNKNOWN
+
+        if self.bomb_planted_at is not None:
+            if self.winner == self.atk_side:
+                return WinCondition.DEFUSED_BOMB
+            elif self.winner == self.atk_side.opp:
+                return WinCondition.DISABLED_DEFUSER
+        
+        elif self.__is_killopp_wincon(ignmat):
+            return WinCondition.KILLED_OPPONENTS
+        
+        elif (self.round_end_at is not None and
+              0 <= self.round_end_at.to_int() <= 2):
+            return WinCondition.TIME
+        
+        return WinCondition.UNKNOWN
+    
+    def __is_killopp_wincon(self, ignmat: IGNMatrix) -> bool:
+        atk_deaths = len([rec for rec in self.killfeed if rec.target.team == self.atk_side])
+        def_deaths = len([rec for rec in self.killfeed if rec.target.team == self.atk_side.opp])
+
+        atk_team, def_team = ignmat.get_teams().order(self.atk_side)
+        return atk_deaths == len(atk_team) or def_deaths == len(def_team)
 
 
 class History:

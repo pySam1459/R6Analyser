@@ -7,7 +7,7 @@ from config import Config
 from history import History, HistoryRound
 from ignmatrix import IGNMatrix, Player
 from stats import PlayerRoundStats, compile_match_stats, iter_killfeed, is_kost, MatchStats_t, RoundStats_t
-from utils import ndefault, str2f, div_s
+from utils import ndefault, str2f, perc_s
 from utils.enums import SaveFileType, Team
 
 from .base import Writer
@@ -19,7 +19,7 @@ __all__ = ["XlsxWriter"]
 
 MATCH_SHEET_HEADERS = [
     ["Statistics"],
-    ["Player", "Team Index", "Rounds", "Kills", "Deaths", "Hs%", "KPR", "Survival%", "KST"]
+    ["Player", "Team Index", "Rounds", "Kills", "Deaths", "KST", "KPR", "SRV", "Hs%", "1vX"]
 ]
 
 ROUND_SHEET_STATS_HEADERS = [
@@ -51,7 +51,7 @@ BOOL_MAP = {
 }
 
 
-def fmt_s(*args): return str2f(div_s(*args))
+def fmt_s(*args): return str2f(perc_s(*args))
 
 
 class XlsxWriter(Writer):

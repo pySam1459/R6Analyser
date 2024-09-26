@@ -10,6 +10,9 @@ class Timer:
         self._time = 0
         self._period = period
     
+    def time(self) -> float:
+        return self._get_time()
+    
     def update(self) -> float:
         old_time = self._time
         self._time = self._get_time()
