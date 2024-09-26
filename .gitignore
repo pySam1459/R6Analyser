@@ -4,6 +4,8 @@ saves/
 images/
 archive/
 
+tessdata/
+
 my-tests/
 .coverage
 .pytest_cache/

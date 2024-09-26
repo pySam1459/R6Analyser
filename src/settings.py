@@ -1,10 +1,8 @@
 from pathlib import Path
-from easyocr.config import all_lang_list
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from typing import Any
 
 from utils import load_json
-from utils.enums import OCREngineType
 from utils.constants import *
 
 
@@ -13,34 +11,26 @@ __all__ = [
     "create_settings"
 ]
 
-
-def __validate_language_list(lang_list: list[str]) -> list[str]:
-    for lang_code in lang_list:
-        if lang_code not in all_lang_list:
-            raise ValueError(f"Invalid language code {lang_code}")
-    return lang_list
-
-
 class Settings(BaseModel):
-    defaults_filepath:  Path  = DEFAULTS_PATH
-    debug_filepath:     Path  = DEBUG_PATH
+    defaults_filepath:   Path = DEFAULTS_PATH
+    debug_filepath:      Path = DEBUG_PATH
 
-    ocr_engine: OCREngineType = OCREngineType.EASYOCR
+    tessdata:            Path = DEFAULT_TESSDATA_PATH
     languages:      list[str] = Field(default_factory=lambda: [DEFAULT_LANGUAGE])
 
     config_list_derive:  bool = True
 
     model_config = ConfigDict(extra="ignore")
 
-    @field_validator("languages")
-    @classmethod
-    def validate_languages(cls, v: Any) -> list[str]:
-        if isinstance(v, str):
-            return __validate_language_list([v])
-        elif isinstance(v, list):
-            return __validate_language_list(v)
+    # @field_validator("languages")
+    # @classmethod
+    # def validate_languages(cls, v: Any) -> list[str]:
+    #     if isinstance(v, str) and v in LANGUAGES:
+    #         return [v]
+    #     elif isinstance(v, list) and all([lang in get_languages() for lang in v]):
+    #         return v
 
-        raise ValueError(f"Invalid language list")
+    #     raise ValueError(f"Invalid language list")
 
     @field_validator("config_list_derive")
     @classmethod

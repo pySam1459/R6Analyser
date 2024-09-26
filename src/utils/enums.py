@@ -1,15 +1,6 @@
 from enum import Enum, IntEnum
 
 
-__all__ = [
-    "IGNMatrixMode",
-    "CaptureMode",
-    "WinCondition",
-    "Team",
-    "GameType",
-]
-
-
 class IGNMatrixMode(str, Enum):
     """
     Mode for the IGN Matrix
@@ -50,10 +41,6 @@ class GameType(str, Enum):
     RANKED     = "ranked"
     STANDARD   = "standard"
     CUSTOM     = "custom"
-
-
-class OCREngineType(str, Enum):
-    EASYOCR = "easyocr"
 
 
 class SaveFileType(str, Enum):

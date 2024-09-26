@@ -143,7 +143,7 @@ class InPersonAnalyser(Analyser):
         If the timer is not present, None is returned
         """
         image = self._screenshot_preprocess(image, to_gray=True, denoise=True, squeeze_width=0.75)
-        results = self._readtext(image, prob=InPersonAnalyser.TIMER_PROB, allowlist=TIMER_ALLOWLIST)
+        results = self._readtext(image, prob=InPersonAnalyser.TIMER_PROB, allowlist=TIMER_CHATLIST)
         if len(results) == 0:
             return None
 
@@ -247,7 +247,7 @@ class InPersonAnalyser(Analyser):
         ocr_results = self.ocr_engine.read_batch(nohs_il,
                             add_margin=0.15,
                             slope_ths=0.5,
-                            allowlist=IGN_ALPHABET)
+                            allowlist=IGN_CHARLIST)
         ocr_lines = self.__get_ocrlines(ocr_results, image_lines)
         for line, hs in zip(ocr_lines, headshots):
             line.headshot = bool(hs)

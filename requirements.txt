@@ -9,4 +9,5 @@ pydantic_settings
 python-dotenv
 requests
 screeninfo
+tesserocr
 tqdm
