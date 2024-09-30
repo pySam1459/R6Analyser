@@ -15,8 +15,9 @@ MatLike = cv2.typing.MatLike
 ## TODO : remember headshot
 @dataclass
 class OCRLineResult:
-    left:  str
-    right: str
+    left:     str
+    right:    str
+    headshot: bool
 
 
 lower_blue = np.array([100, 100, 100])
@@ -53,7 +54,7 @@ class OCREngine:
         return cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)[0]
     
     def _filter_contours(self, ) -> Sequence[MatLike]:
-        
+        ...
 
     def _crop_segments(self, image, contours) -> list[Segment]:
         return [self._get_segment(image, contour) for contour in contours]

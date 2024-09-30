@@ -6,9 +6,9 @@ from typing import Any
 from config import Config
 from history import History, HistoryRound
 from ignmatrix import IGNMatrix, Player
-from stats import PlayerRoundStats, compile_match_stats, iter_killfeed, is_kost, MatchStats_t, RoundStats_t
-from utils import ndefault, str2f, perc_s
+from utils import ndefault, fmt_s
 from utils.enums import SaveFileType, Team
+from stats import *
 
 from .base import Writer
 from .utils import get_players, handle_write_errors
@@ -51,9 +51,6 @@ BOOL_MAP = {
 }
 
 
-def fmt_s(*args): return str2f(perc_s(*args))
-
-
 class XlsxWriter(Writer):
     def __init__(self, save_path: Path, config: Config) -> None:
         super(XlsxWriter, self).__init__(SaveFileType.XLSX, save_path, config)
@@ -65,30 +62,33 @@ class XlsxWriter(Writer):
         players = get_players(history.get_first_round(), ignmat)
         match_stats = compile_match_stats(history, players)
 
-        xslx_match = self.get_match(match_stats, players)
-        sheet_data = xslx_match | self.get_rounds(match_stats, history, ignmat)
+        sheets_data = (self.get_match(match_stats, players) |
+                       self.get_rounds(match_stats, history, ignmat))
 
         wb = self.create_workbook()
-        self.save_workbook(wb, sheet_data)
+        self.save_workbook(wb, sheets_data)
+
+    def get_match(self, match_stats: MatchStats_t, players: list[Player]) -> dict[str, Any]:
+        match_data = compile_match_summary(match_stats, players)
+        xlsx_data = [self.__pms2row(match_data[pl.uid], pl) for pl in players]
+        return {"Match": MATCH_SHEET_HEADERS + xlsx_data}
     
-    def get_match(self, match_stats: MatchStats_t, players: list[Player]) -> dict:
-        """Returns the data present on the Match sheet, statistics across all rounds"""
-        match_data = [self.__aggregate_match_data(match_stats, pl) for pl in players]
-        return {"Match": MATCH_SHEET_HEADERS + match_data}
-
-    def __aggregate_match_data(self, match_stats: MatchStats_t, pl: Player) -> list[Any]:
+    def __pms2row(self, pms: PlayerMatchStats, pl: Player) -> list[Any]:
         ## "Player", "Team Index", "Rounds", "Kills", "Deaths", "KST", "KPR", "SRV", "Hs%", "1vX"
-        prs = [rs[pl.uid] for rs in match_stats if pl.uid in rs]
-
-        rnds   = len(prs)
-        kills  = sum([r.kills for r in prs])
-        deaths = sum([r.death for r in prs])
-        kost   = sum(map(is_kost, prs))
-        hs     = sum([r.headshots for r in prs])
-        onevx  = sum([r.onevx > 0 for r in prs])
-        return [pl.ign, pl.team.value, rnds, kills, deaths,
-                fmt_s(kost,rnds), fmt_s(kills,rnds), fmt_s(1-deaths,rnds), fmt_s(hs,kills), onevx]
-
+        rnds = pms.rnds
+        return [
+            pl.ign,
+            pl.team.value,
+            rnds,
+            pms.kills,
+            pms.deaths,
+            fmt_s(pms.kost,rnds),
+            fmt_s(pms.kills,rnds),
+            fmt_s(rnds-pms.deaths,rnds),
+            fmt_s(pms.hs,pms.kills),
+            pms.onevx
+        ]
+    
 
     def get_rounds(self, match_stats: MatchStats_t, history: History, ignmat: IGNMatrix) -> dict:
         """Creates a dictionary containing the sheet data for each round"""
@@ -121,7 +121,8 @@ class XlsxWriter(Writer):
                                  ignmat: IGNMatrix) -> list[list[Any]]:
         players = get_players(hround, ignmat)
         return [self.__compile_player_stats_row(round_stats[pl.uid], pl)
-                for pl in players if pl.uid in round_stats]
+                for pl in players
+                if pl.uid in round_stats]
 
     def __compile_player_stats_row(self, prs: PlayerRoundStats, pl: Player) -> list[Any]:
         ## "Player", "Team Index", "Kills", "Death", "Assissts", "Hs%", "Headshots", "1vX", "Operator", "Traded Kills", "Refragged Kills", "Traded Deaths"

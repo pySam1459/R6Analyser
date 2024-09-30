@@ -1,3 +1,3 @@
-from .engine import OCREngine, OCResult, OCRLine
+from .engine import OCREngine, OCRLineResult
 
-__all__ = ["OCREngine", "OCResult", "OCRLine"]
+__all__ = ["OCREngine", "OCRLineResult"]

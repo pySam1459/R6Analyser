@@ -5,9 +5,10 @@ from re import compile
 IGN_REGEX = compile(r"^[0-9a-zA-Z\-_\.]{2,18}$")
 SOFTWARE_KEY_PATTERN = r"^[a-f0-9]{64}$"
 
-DEBUG_PATH            = Path("debug.json")
-DEFAULTS_PATH         = Path("defaults.json")
-SETTINGS_PATH         = Path("settings.json")
+__SETTINGS_PATH       = Path("settings")
+DEBUG_PATH            = __SETTINGS_PATH / "debug.json"
+DEFAULTS_PATH         = __SETTINGS_PATH / "defaults.json"
+SETTINGS_PATH         = __SETTINGS_PATH / "settings.json"
 DOTENV_PATH           = Path(".env")
 ASSETS_PATH           = Path("assets")
 DEFAULT_SAVE_DIR      = Path("saves")

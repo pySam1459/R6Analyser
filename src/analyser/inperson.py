@@ -10,7 +10,7 @@ from capture import InPersonRegions, RegionBBoxes
 from config import Config
 from history import KFRecord
 from ignmatrix import Player_t
-from ocr import OCResult, OCRLine
+from ocr import OCRLineResult
 from utils.cli import AnalyserArgs
 from utils.enums import Team, WinCondition
 from utils import *

@@ -86,6 +86,9 @@ def perc_s(n: int|float, d: int|float) -> float:
         return 0.0
     return n / d * 100.0
 
+def fmt_s(*args):
+    return str2f(perc_s(*args))
+
 
 # bounding box functions
 def rect_collision(r1: list[int], r2: list[int]) -> bool:

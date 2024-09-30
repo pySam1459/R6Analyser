@@ -1,9 +1,9 @@
 from dataclasses import dataclass
-from typing import Generator, Optional, TypeAlias
+from typing import Any, Generator, Optional, TypeAlias
 
 from history import History, HistoryRound, KFRecord, TradedRecord
 from ignmatrix import Player
-from utils import Timestamp
+from utils import Timestamp, fmt_s
 from utils.enums import Team
 
 
@@ -106,10 +106,41 @@ def __check_onevx(round_stats: RoundStats_t, hround: HistoryRound, players: list
             team1 = [pl for pl in team1 if pl.uid != d.player.uid]
 
 
+def is_kost(prs: PlayerRoundStats) -> bool:
+    return prs.kills > 0 or prs.death == 0 or prs.objective == 1 or prs.traded_kills > 0
+
+
 MatchStats_t: TypeAlias = list[RoundStats_t]
 def compile_match_stats(history: History, players: list[Player]) -> MatchStats_t:
     return [compile_round_stats(hround, players) for hround in history.get_rounds()]
 
 
-def is_kost(prs: PlayerRoundStats) -> int:
-    return prs.kills > 0 or prs.death == 0 or prs.objective == 1 or prs.traded_kills > 0
+@dataclass
+class PlayerMatchStats:
+    puid:   int
+    
+    rnds:   int
+    kills:  int
+    deaths: int
+    kost:   int
+    hs:     int
+    onevx:  int
+
+
+def __aggregate_pms(match_stats: MatchStats_t, pl: Player) -> PlayerMatchStats:
+    prs = [rs[pl.uid] for rs in match_stats if pl.uid in rs]
+
+    return PlayerMatchStats(
+        puid   = pl.uid,
+        rnds   = len(prs),
+        kills  = sum([r.kills for r in prs]),
+        deaths = sum([r.death for r in prs]),
+        kost   = sum(map(is_kost, prs)),
+        hs     = sum([r.headshots for r in prs]),
+        onevx  = sum([r.onevx > 0 for r in prs])
+    )
+
+
+MatchSummary_t: TypeAlias = dict[int, PlayerMatchStats]
+def compile_match_summary(match_stats: MatchStats_t, players: list[Player]) -> MatchSummary_t:
+    return {pl.uid: __aggregate_pms(match_stats, pl) for pl in players}
