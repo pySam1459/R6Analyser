@@ -17,6 +17,8 @@ build/
 dist/
 
 .env
+SOFTWARE_KEY
+
 configs/*.json
 !example.json
 

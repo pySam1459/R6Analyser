@@ -32,18 +32,6 @@ class Settings(BaseModel):
 
     #     raise ValueError(f"Invalid language list")
 
-    @field_validator("config_list_derive")
-    @classmethod
-    def validate_cld(cls, v: Any) -> bool:
-        if isinstance(v, bool):
-            return v
-        elif isinstance(v, str):
-            if v.lower() in TRUTHY_STRINGS:
-                return True
-            elif v.lower() in FALSEY_STRINGS:
-                return False
-        raise ValueError(f"Invalid config_list_derive value: {v}")
-
 
 def create_settings(settings_path: Path) -> Settings:
     settings_json = load_json(settings_path)

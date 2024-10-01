@@ -7,7 +7,7 @@ from .keycheck import UserKeyData, validate_software_key
 from .constants import *
 
 
-__all__ = [ "AnalyserArgs" ]
+__all__ = ["AnalyserArgs"]
 
 
 class Env(BaseSettings):
@@ -16,7 +16,7 @@ class Env(BaseSettings):
                                       validation_alias="software_key",
                                       exclude=True)
 
-    model_config = SettingsConfigDict(env_file=DOTENV_PATH, env_file_encoding="utf-8")
+    model_config = SettingsConfigDict(env_file=SOFTWARE_KEY_FILE, env_file_encoding="utf-8")
 
 
 class CliArgs(BaseModel):
