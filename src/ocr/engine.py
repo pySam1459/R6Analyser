@@ -1,21 +1,27 @@
 import cv2
 import numpy as np
 from dataclasses import dataclass
+from enum import IntEnum
 from PIL import Image
 from tesserocr import PyTessBaseAPI, PSM, OEM
-from typing import Sequence
+from typing import Sequence, Optional, Callable, overload
 
 from settings import Settings
+from utils import BBox_t
 
 
-__all__ = ["OCREngine", "OCRLineResult"]
+__all__ = [
+    "OCREngine",
+    "OCReadMode",
+    "OCRLineResult"
+]
 
 MatLike = cv2.typing.MatLike
 
 ## TODO : remember headshot
 @dataclass
 class OCRLineResult:
-    left:     str
+    left:     Optional[str]
     right:    str
     headshot: bool
 
@@ -34,10 +40,14 @@ class Segment:
     rect:  list[int]
 
 
+class OCReadMode(IntEnum):
+    LINE = PSM.SINGLE_LINE
+    WORD = PSM.SINGLE_WORD
+
+
 class OCREngine:
     def __init__(self, settings: Settings) -> None:
         self.api = PyTessBaseAPI(path=settings.tessdata, # type: ignore
-                                 psm=PSM.SINGLE_WORD,    # type: ignore
                                  oem=OEM.LSTM_ONLY)      # type: ignore
     
     def read_kfline(self, kfline_img: np.ndarray) -> OCRLineResult:
@@ -63,10 +73,39 @@ class OCREngine:
         x, y, w, h = cv2.boundingRect(contour)
         return Segment(image[y:y+h, x:x+w], [x,y,w,h])
 
-    def read_text(self, image: np.ndarray, charlist: str) -> tuple[str, int]:
+    def __readtext(self, image: Image.Image | np.ndarray) -> str:
+        if isinstance(image, np.ndarray):
+            image = Image.fromarray(image)
+        self.api.SetImage(image)
+        return self.api.GetUTF8Text()[:-1] #, self.api.MeanTextConf()
+
+    @overload
+    def readtext(self, image: np.ndarray, read_mode: OCReadMode, charlist: str) -> str: ...
+    @overload
+    def readtext(self, image: Sequence[np.ndarray], read_mode: OCReadMode, charlist: str) -> list[str]: ...
+
+    def readtext(self, image: np.ndarray | Sequence[np.ndarray], read_mode: OCReadMode, charlist: str) -> str | list[str]:
+        self.api.SetVariable("tessedit_pageseg_mode", str(read_mode))
         self.api.SetVariable("tessedit_char_whitelist", charlist)
-        return self._read_text(Image.fromarray(image))
-    
-    def _read_text(self, pil_image: Image.Image) -> tuple[str, int]:
-        self.api.SetImage(pil_image)
-        return self.api.GetUTF8Text()[:-1], self.api.MeanTextConf()
+
+        if isinstance(image, Sequence):
+            return [self.__readtext(_img) for _img in image]
+        elif isinstance(image, np.ndarray):
+            return self.__readtext(image)
+
+
+def is_headshot(image_line: np.ndarray, hs_asset: np.ndarray,
+                threshold: float = 0.65,
+                _debug_print: Optional[Callable] = None) -> Optional[BBox_t]:
+    """Uses template matching to determine if a kf line has a headshot"""
+    result = cv2.matchTemplate(image_line, hs_asset, cv2.TM_CCOEFF_NORMED)
+    _, max_val, _, best_pt = cv2.minMaxLoc(result)
+
+    if _debug_print is not None:
+        _debug_print("headshot_perc", max_val)
+
+    if max_val < threshold:
+        return None
+
+    h,w = hs_asset.shape
+    return (best_pt[0], best_pt[1], w, h)

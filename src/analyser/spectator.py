@@ -1,4 +1,4 @@
-from capture import RegionBBoxes, SpectatorRegions
+from capture import Capture, RegionBBoxes, SpectatorRegions
 from config import Config
 from utils.cli import AnalyserArgs
 from utils import *
@@ -8,7 +8,9 @@ from .base import Analyser
 
 class SpectatorAnalyser(Analyser):
     def __init__(self, args: AnalyserArgs, config: Config) -> None:
-        super(SpectatorAnalyser, self).__init__(args, config)
+        super(SpectatorAnalyser, self).__init__(args, config, SpectatorRegions)
+
+        self.capture: Capture[SpectatorRegions]
 
     def _get_regions(self) -> RegionBBoxes:
         return RegionBBoxes()
@@ -24,7 +26,7 @@ class SpectatorAnalyser(Analyser):
         ...
 
     ## ----- GAME STATE FUNCTIONS -----
-    def _new_round(self, score1: int, score2: int) -> None:
+    def _new_round(self, sl: Scoreline) -> None:
         ...
 
     def _end_round(self) -> None:

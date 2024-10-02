@@ -2,75 +2,106 @@ import numpy as np
 from abc import ABC, abstractmethod
 from time import time
 from pyautogui import screenshot
-from typing import Optional
+from typing import Optional, Generic, TypeVar, Type
 
 from config import Config
 from utils.enums import CaptureMode
-from .utils import RegionBBoxes, RegionImages, SpectatorRegions, InPersonRegions, ImageRegions_t
+from .utils import RegionBBoxes, SpectatorRegions, InPersonRegions, crop_bboxes
 
 
-__all__ = ["Capture", "create_capture"]
+__all__ = ["Capture"]
 
 
-class Capture(ABC):
-    def __init__(self, config: Config):
-        self._config = config
-        self._region_images: Optional[ImageRegions_t] = None
+T = TypeVar('T', InPersonRegions, SpectatorRegions)
+class Capture(Generic[T], ABC):
+    def __init__(self, config: Config, region_model: Type[T]):
+        self._region_model = region_model
+
+        region_dump = config.capture.regions.model_dump(exclude_none=True)
+        self._region_bboxes = RegionBBoxes.model_validate(region_dump)
+
+        self._images: Optional[T] = None
 
     @abstractmethod
-    def next(self, region_bboxes: RegionBBoxes) -> ImageRegions_t:
+    def next(self) -> T:
         ...
-    
+
     @abstractmethod
     def get_time(self) -> float:
         ...
 
-    def get(self) -> Optional[ImageRegions_t]:
-        return self._region_images
+    def get(self) -> Optional[T]:
+        return self._images
 
     def get_region(self, name: str) -> Optional[np.ndarray]:
-        if self._region_images is not None and hasattr(self._region_images, name):
-            return getattr(self._region_images, name)
+        if self._images is not None and hasattr(self._images, name):
+            return getattr(self._images, name)
         return None
 
 
-class ScreenshotCapture(Capture):
-    def __init__(self, config: Config) -> None:
-        super(ScreenshotCapture, self).__init__(config)
+class ScreenshotCapture(Capture[T]):
+    def __init__(self, config: Config, region_model: Type[T]) -> None:
+        super(ScreenshotCapture, self).__init__(config, region_model)
 
-    def next(self, region_bboxes: RegionBBoxes) -> ImageRegions_t:
+    def next(self, bboxes: RegionBBoxes) -> T:
         """Takes a screenshot of the screen, selects regions, and returns them as numpy.ndarray"""
-        sshot_img = screenshot(allScreens=True, region=region_bboxes.max_bounds)
-        numpy_img = np.asarray(sshot_img)
+        sshot_img = screenshot(allScreens=True, region=bboxes.max_bounds)
+        image = np.asarray(sshot_img)
 
-        _images = RegionImages(image=numpy_img, region_bboxes=region_bboxes)
-        if self._config.spectator:
-            self._region_images = SpectatorRegions.model_validate(_images.model_dump(exclude_none=True))
-        else:
-            self._region_images = InPersonRegions.model_validate(_images.model_dump(exclude_none=True))
-        
-        return self._region_images
+        cropped_regions = crop_bboxes(image, bboxes)
+        self._images = self._region_model.model_validate(cropped_regions)
+        return self._images
     
     def get_time(self) -> float:
         return time()
 
 
-class VideoFileCapture(Capture):
-    def __init__(self, config: Config) -> None:
-        super(VideoFileCapture, self).__init__(config)
+class VideoFileCapture(Capture[T]):
+    def __init__(self, config: Config, region_model: Type[T]) -> None:
+        super(VideoFileCapture, self).__init__(config, region_model)
         
         raise NotImplementedError("Video File Capturing is not implemented yet!")
     
-    def next(self, region_bboxes: RegionBBoxes) -> RegionImages:
+    def next(self, bboxes: RegionBBoxes) -> T:
         ...
     
     def get_time(self) -> float:
         ...
 
 
-def create_capture(config: Config) -> Capture:
+class StreamCapture(Capture[T]):
+    def __init__(self, config: Config, region_model: Type[T]) -> None:
+        super(StreamCapture, self).__init__(config, region_model)
+        
+        raise NotImplementedError("Steam Capturing is not implemented yet!")
+    
+    def next(self, bboxes: RegionBBoxes) -> T:
+        ...
+    
+    def get_time(self) -> float:
+        ...
+
+
+class YoutubeCapture(Capture[T]):
+    def __init__(self, config: Config, region_model: Type[T]) -> None:
+        super(YoutubeCapture, self).__init__(config, region_model)
+        
+        raise NotImplementedError("Youtube Capturing is not implemented yet!")
+    
+    def next(self, bboxes: RegionBBoxes) -> T:
+        ...
+    
+    def get_time(self) -> float:
+        ...
+
+
+def create_capture(config: Config, region_model: Type[T]) -> Capture[T]:
     match config.capture.mode:
         case CaptureMode.SCREENSHOT:
-            return ScreenshotCapture(config)
+            return ScreenshotCapture[T](config, region_model)
         case CaptureMode.VIDEOFILE:
-            return VideoFileCapture(config)
+            return VideoFileCapture[T](config, region_model)
+        case CaptureMode.STREAM:
+            return StreamCapture[T](config, region_model)
+        case CaptureMode.YOUTUBE:
+            return YoutubeCapture[T](config, region_model)

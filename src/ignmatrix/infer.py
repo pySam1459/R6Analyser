@@ -1,6 +1,6 @@
 from typing import Optional
 
-from utils.constants import IM_LEVEN_THRESHOLD
+from utils.constants import IM_LEVEN_THRESHOLD, IGN_CHARLIST
 from utils.enums import IGNMatrixMode, Team
 
 from .base import IGNMatrix
@@ -16,6 +16,10 @@ class IGNMatrixInfer(IGNMatrix):
         super(IGNMatrixInfer, self).__init__(IGNMatrixMode.INFER, team0, team1)
 
         self.__mat: list[AdaptivePlayer] = []
+    
+    @property
+    def charlist(self) -> str:
+        return IGN_CHARLIST
 
     def get(self, pign: str) -> Optional[Player]:
         if (pl := self._ttable.check(pign, IM_LEVEN_THRESHOLD)) is not None:

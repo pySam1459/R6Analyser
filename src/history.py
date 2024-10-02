@@ -173,6 +173,7 @@ class History:
         Property to access the current HistoryRound
         Returns a Phantom round in-case history is not ready (__roundn <= 0)
         """
+        ## TODO: optimize? replace with self.__cround and update on new_round()...
         return self.__round_data.get(self.__roundn, self.__phantom_round)
     
     def get_rounds(self) -> list[HistoryRound]:

@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+ from dataclasses import dataclass
 from Levenshtein import ratio
 from typing import Optional
 
@@ -60,3 +60,8 @@ class TeamTable:
     
     def __contains__(self, el: str) -> bool:
         return el in self.__table
+
+
+def get_chars(names: list[str]) -> str:
+    concat = "".join(names)
+    return "".join(set(concat))

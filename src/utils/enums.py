@@ -14,6 +14,8 @@ class IGNMatrixMode(str, Enum):
 class CaptureMode(str, Enum):
     SCREENSHOT = "screenshot"
     VIDEOFILE  = "videofile"
+    STREAM     = "stream"
+    YOUTUBE    = "youtube"
 
 
 class WinCondition(str, Enum):

@@ -4,6 +4,7 @@ from re import compile
 
 IGN_REGEX = compile(r"^[0-9a-zA-Z\-_\.]{2,18}$")
 SOFTWARE_KEY_PATTERN = r"^[a-f0-9]{64}$"
+SCORELINE_PATTERN = r"^\d+$"
 
 __SETTINGS_PATH       = Path("settings")
 DEBUG_PATH            = __SETTINGS_PATH / "debug.json"
@@ -12,6 +13,7 @@ SETTINGS_PATH         = __SETTINGS_PATH / "settings.json"
 SOFTWARE_KEY_FILE     = Path("SOFTWARE_KEY")
 ASSETS_PATH           = Path("assets")
 DEFAULT_SAVE_DIR      = Path("saves")
+DEFAULT_IMAGE_DIR     = Path("images")
 DEFAULT_TESSDATA_PATH = Path("./tessdata")
 
 DEFAULT_LANGUAGE = "en"
@@ -36,4 +38,10 @@ IM_TEAM_DET_THRESHOLD = 3
 
 LANGUAGES = [
     "en"
+]
+
+KILLFEED_PHRASES = [
+    "has found the bomb",
+    "Friendly Fire has been activated for",
+    "Friendly Fire turned off until Action Phase"
 ]

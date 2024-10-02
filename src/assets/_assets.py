@@ -7,11 +7,11 @@ from utils.constants import ASSETS_PATH
 
 
 class Assets:
-    atkside_icon: np.ndarray
+    atkside_template: np.ndarray
     headshot: np.ndarray
 
     _ASSET_MAP = {
-        "atkside_icon": "atkside_icon.jpg",
+        "atkside_template": "atkside_template.png",
         "headshot": "headshot.jpg"
     }
 

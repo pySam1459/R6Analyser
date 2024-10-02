@@ -1,6 +1,6 @@
 import sys
 from io import StringIO
-from pydantic import BaseModel, ConfigDict, computed_field
+from pydantic import BaseModel, ConfigDict
 from tqdm import tqdm
 from typing import Optional, Self
 
@@ -9,17 +9,14 @@ class Scoreline(BaseModel):
     left: int
     right: int
 
-    @computed_field
     @property
     def scores(self) -> tuple[int, int]:
         return (self.left, self.right)
 
-    @computed_field
     @property
     def total(self) -> int:
         return self.left + self.right
     
-    @computed_field
     @property
     def max(self) -> int:
         if self.left < self.right:

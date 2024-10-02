@@ -1,5 +1,5 @@
 from functools import partial
-from Levenshtein import ratio as leven_ratio
+from Levenshtein import ratio
 from typing import Optional
 
 from utils.constants import IM_LEVEN_THRESHOLD
@@ -38,5 +38,5 @@ class IGNMatrixFixed(IGNMatrix):
         if pign in self._ttable:
             return 1.0
 
-        ratio_func = partial(leven_ratio, pign)
+        ratio_func = partial(ratio, pign)
         return max(map(ratio_func, self._ttable.igns()))

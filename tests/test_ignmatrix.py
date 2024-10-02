@@ -1,6 +1,6 @@
 import pytest
-from Levenshtein import ratio as leven_ratio
 from pathlib import Path
+from Levenshtein import ratio
 
 from ignmatrix.fixed import IGNMatrixFixed
 from utils import load_json
@@ -41,7 +41,7 @@ def test_fixed_bad_names(fixed_mat: IGNMatrixFixed, case) -> None:
     pl = fixed_mat.get(pign)
     score = fixed_mat.evaluate(pign)
 
-    assert pl is None, f"{leven_ratio(pign, pl.ign)=:.4f}"
+    assert pl is None, f"{ratio(pign, pl.ign)=:.4f}"
     assert score < IM_LEVEN_THRESHOLD, f"{score=:.4f}"
 
 
@@ -51,9 +51,10 @@ def test_fixed_mode(fixed_mat: IGNMatrixFixed) -> None:
 
 def test_fixed_get_teams(teams) -> None:
     mat = IGNMatrixFixed(*teams)
-    out_teams = mat.get_teams()
+    mat_teams = mat.get_teams()
+    out = (mat_teams.team0, mat_teams.team1)
 
-    for i, (ot, kt) in enumerate(zip(out_teams, teams)):
+    for i, (ot, kt) in enumerate(zip(out, teams)):
         for opl, kign in zip(ot, kt):
             assert opl.ign == kign
             assert opl.team == i
