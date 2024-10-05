@@ -23,6 +23,10 @@ class Scoreline(BaseModel):
             return self.right
         return self.left
     
+    @property
+    def diff(self) -> int:
+        return abs(self.left-self.right)
+    
     def inc(self, side: int) -> Self:
         if side == 0:
             self.left += 1
@@ -52,10 +56,13 @@ class Timestamp(BaseModel):
         m = int(num / 60)
         s = num - 60*m
         return Timestamp(minutes=m, seconds=s)
-    
+
     def __str__(self) -> str:
-        if self.seconds < 0: return f"{self.minutes}:{self.seconds:03}"
-        else: return f"{self.minutes}:{self.seconds:02}"
+        if self.seconds < 0:
+            ## 03 because of sign
+            return f"{self.minutes}:{self.seconds:03}"
+        else:
+            return f"{self.minutes}:{self.seconds:02}"
 
     __repr__ = __str__
 
@@ -67,9 +74,9 @@ class ProgressBar:
             bar_format += "|{postfix}"
 
         self.__tqdmbar = tqdm(total=180, bar_format=bar_format)
-        self.__header = ""
-        self.__time = ""
-        self.__value = "-"
+        self.__header  = ""
+        self.__time    = ""
+        self.__value   = "-"
 
     def set_total(self, value: int) -> None:
         self.__tqdmbar.total = value

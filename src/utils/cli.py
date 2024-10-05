@@ -1,10 +1,10 @@
 from pathlib import Path
-from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from typing import Optional, Self
+from typing import Optional, Self, Any
 
 from .keycheck import UserKeyData, validate_software_key
-from .constants import *
+from .constants import SOFTWARE_KEY_PATTERN, SOFTWARE_KEY_FILE, SETTINGS_PATH
 
 
 __all__ = ["AnalyserArgs"]
@@ -25,8 +25,8 @@ class CliArgs(BaseModel):
                                           pattern=SOFTWARE_KEY_PATTERN,
                                           validation_alias="key",
                                           exclude=True)
-    verbose:  int             = Field(default=1, ge=0, le=3)
-    sets_path: Path           = Field(default=SETTINGS_PATH, validation_alias="settings")
+    verbose:  int       = Field(default=1, ge=0, le=3)
+    sets_path: Path     = Field(default=SETTINGS_PATH, validation_alias="settings")
 
     check_regions: bool
     test_regions:  bool
@@ -38,20 +38,39 @@ class CliArgs(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
 
+    @field_validator("config_path", mode="before")
+    @classmethod
+    def validate_config_path_before(cls, v: Any) -> Path:
+        if isinstance(v, Path):
+            return v
+        elif not isinstance(v, str):
+            raise ValueError(f"Invalid config_path type {type(v)}, must be Path/str")
+        
+        if not v.endswith(".json"):
+            v += ".json"
+
+        return Path(v)
+
     @model_validator(mode="after")
-    def validate_config_path(self) -> Self:
+    def validate_config_path_after(self) -> Self:
         if self.config_path is None:
             if self.deps_check:
                 return self
             raise ValueError("No config provided!")
         
         if self.config_path.exists():
-            return self
+            if self.config_path.suffix == ".json":
+                return self
+            else:
+                raise ValueError("Config files must end in .json")
         
         new_path = Path("configs") / self.config_path
         if new_path.exists():
-            self.config_path = new_path
-            return self
+            if new_path.suffix == ".json":
+                self.config_path = new_path
+                return self
+            else:
+                raise ValueError("Config files must end in .json")
 
         raise ValueError(f"Config file {self.config_path} cannot be found!")
     

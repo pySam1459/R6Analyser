@@ -1,10 +1,9 @@
 import cv2
 import numpy as np
-from os import mkdir
-from re import search, match
-from typing import Optional, Iterator, cast
+from re import match
+from typing import Optional
 
-from capture import Capture, InPersonRegions, RegionBBoxes
+from capture import Capture, InPersonRegions
 from config import Config
 from history import KFRecord
 from ignmatrix import Player, Player_t
@@ -56,9 +55,9 @@ class InPersonAnalyser(Analyser):
         self.history.cround.atk_side = self.__read_atk_side(regions)
         self._verbose_print(1, f"Atk Side: {self.history.cround.atk_side}")
 
-    def __read_scoreline(self, slimg_left: np.ndarray, slimg_right: np.ndarray) -> Optional[Scoreline]:
-        """Reads the scoreline from the 2 TEAM1/2_SCORE_REGION screenshot"""
-        left_text, right_text = self.ocr_engine.readtext([slimg_left, slimg_right], OCReadMode.LINE, DIGITS)
+    def __read_scoreline(self, team1_score: np.ndarray, team2_score: np.ndarray) -> Optional[Scoreline]:
+        scores = [team1_score, team2_score]
+        left_text, right_text = self.ocr_engine.readtext(scores, OCReadMode.LINE, DIGITS)
 
         if not match(SCORELINE_PATTERN, left_text) or not match(SCORELINE_PATTERN, right_text):
             return None
@@ -90,6 +89,7 @@ class InPersonAnalyser(Analyser):
         elif red_perc > BOMB_COUNTDOWN_RT:
             self.__handle_bomb_countdown()
 
+        ## TODO: sort out this seconds stuff
         elif self.last_kf_seconds is None and self.end_round_seconds is None and self.state.in_round:
             self.last_kf_seconds = self.timer.time()
             self.end_round_seconds = self.timer.time()
@@ -110,19 +110,23 @@ class InPersonAnalyser(Analyser):
         """
         denoised_image = cv2.medianBlur(image, 3)
         raw_result = self.ocr_engine.readtext(denoised_image, OCReadMode.LINE, TIMER_CHARLIST)
-        timer_match = search(r"(\d?\d)(.?)(\d\d)", raw_result)
+        timer_match = match(r"(\d?\d)([:\.])(\d\d)", raw_result)
 
         if timer_match is None:
             return None
 
         if timer_match.group(2) == ":" or red_perc < TIMER_LAST_SECONDS_RT:
-            minutes = int(timer_match.group(1))
-            seconds = int(timer_match.group(3))
+            return Timestamp(
+                minutes=int(timer_match.group(1)),
+                seconds=int(timer_match.group(3))
+            )
         elif timer_match.group(2) == ".":
-            minutes = 0
-            seconds = int(timer_match.group(1))
-        
-        return Timestamp(minutes=minutes, seconds=seconds)
+            return Timestamp(
+                minutes=0,
+                seconds=int(timer_match.group(1))
+            )
+
+        return None
 
     def __handle_timer_shown(self, new_time: Timestamp) -> None:
         self.current_time = new_time
@@ -170,8 +174,13 @@ class InPersonAnalyser(Analyser):
             record = KFRecord(player, target, self.current_time, line.headshot)
             self.skf.add(record, record_type)
 
-    def __read_feed(self, image_lines: list[np.ndarray]) -> Iterator[OCRLineResult]:
-        return map(self.ocr_engine.read_kfline, image_lines)
+    def __read_feed(self, image_lines: list[np.ndarray]) -> list[OCRLineResult]:
+        ocr_output = [self.ocr_engine.read_kfline(img_line, self.ign_matrix.charlist)
+                      for img_line in image_lines]
+
+        return [out
+                for out in ocr_output
+                if out is not None]
 
     def __get_players_from_ocrline(self, line: OCRLineResult) -> tuple[Optional[Player], Optional[Player]]:
         target = self.ign_matrix.get(line.right)
@@ -245,7 +254,7 @@ class InPersonAnalyser(Analyser):
     def _end_round(self) -> None:
         """A game state method called when the program determines that the current round has ended"""
         self.history.cround.round_end_at = self.current_time
-        self.state = State(False, True, False)
+        self.state = State(in_round=False, end_round=True, bomb_planted=False)
 
         self.prog_bar.set_time(0)
         self.prog_bar.set_desc("End of Round")
@@ -259,13 +268,14 @@ class InPersonAnalyser(Analyser):
         if sl is None:
             return False
 
-        rps = self.config.rounds_per_side
-        is_ot = sl.total >= self.config.max_rounds - self.config.overtime_rounds
+        max_non_ot = self.config.max_rounds - self.config.overtime_rounds
+        non_ot_perside = max_non_ot // 2
+        is_ot = sl.total >= max_non_ot
 
         return (
             self.history.roundn >= self.config.max_rounds
-                or (not is_ot and sl.max == rps+1)
-                or (is_ot and abs(sl.left-sl.right) == 2)
+                or (not is_ot and sl.max == non_ot_perside+1)
+                or (is_ot and sl.diff == 2)
         )
     
     def _end_game(self) -> None:
@@ -299,7 +309,7 @@ class InPersonAnalyser(Analyser):
     def _check_regions(self) -> None:
         """Called when the --check-regions flag is present in the program call, saves the screenshotted regions as jpg images"""
         if not DEFAULT_IMAGE_DIR.exists():
-            mkdir("images")
+            DEFAULT_IMAGE_DIR.mkdir()
 
         self._verbose_print(0, "Saving check images")
         regions = self.capture.next()
@@ -321,12 +331,12 @@ class InPersonAnalyser(Analyser):
         runs inference on a single screenshot.
         """
         regions   = self.capture.next()
+
         scoreline = self.__read_scoreline(regions.team1_score, regions.team2_score)
         atkside   = self.__read_atk_side(regions)
         time_read = self.__read_timer(regions.timer, get_timer_redperc(regions.timer))
-        feed_read = self.__read_feed(regions.kf_lines)
-
         print(f"\nTest: {scoreline=} | {atkside=} | {time_read}")
-        for line in feed_read:
+
+        for line in self.__read_feed(regions.kf_lines):
             print(line)
 

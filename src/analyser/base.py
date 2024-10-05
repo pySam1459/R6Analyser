@@ -40,7 +40,7 @@ class Analyser(Generic[T], ABC):
 
         self.assets = self.__load_assets()
         self.capture = create_capture(self.config, region_type)
-        self.ocr_engine = OCREngine(self.settings)
+        self.ocr_engine = OCREngine(self.settings, self.assets)
 
         self.ign_matrix = create_ignmatrix(self.config)
         self.history = History()

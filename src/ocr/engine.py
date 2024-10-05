@@ -4,10 +4,12 @@ from dataclasses import dataclass
 from enum import IntEnum
 from PIL import Image
 from tesserocr import PyTessBaseAPI, PSM, OEM
-from typing import Sequence, Optional, Callable, overload
+from typing import Self, Sequence, Optional, Callable, overload
 
+from assets import Assets
 from settings import Settings
 from utils import BBox_t
+from utils.constants import IGN_CHARLIST
 
 
 __all__ = [
@@ -16,22 +18,11 @@ __all__ = [
     "OCRLineResult"
 ]
 
-MatLike = cv2.typing.MatLike
-
-## TODO : remember headshot
 @dataclass
 class OCRLineResult:
     left:     Optional[str]
     right:    str
     headshot: bool
-
-
-lower_blue = np.array([100, 100, 100])
-upper_blue = np.array([140, 255, 255])
-lower_red1 = np.array([0, 100, 100])
-upper_red1 = np.array([10, 255, 255])
-lower_red2 = np.array([160, 100, 100])
-upper_red2 = np.array([180, 255, 255])
 
 
 @dataclass
@@ -40,44 +31,98 @@ class Segment:
     rect:  list[int]
 
 
+@dataclass
+class KfLineSegments:
+    left:   Optional[Segment]
+    middle: Segment
+    right:  Segment
+
+
+MIN_SEGMENT_SIZE = 0.1
+
+LOWER_BLACK = np.array([0, 0, 0])
+UPPER_BLACK = np.array([180, 255, 50])
+
+
+def segment(image: np.ndarray) -> Optional[KfLineSegments]:
+    hsv_img = cv2.cvtColor(image, cv2.COLOR_RGB2HSV)
+    black_mask = cv2.inRange(hsv_img, LOWER_BLACK, UPPER_BLACK)
+    rects = get_rects(black_mask)
+    if len(rects) == 0:
+        return None
+
+    rect = rects[-1]
+    x,y,w,h = rect
+
+    return KfLineSegments(left=get_segment(image, [0, y, x, h]),
+                          middle=get_segment(image, rect),
+                          right=get_segment(image, [x+w, y, image.shape[1]-x-w, h]))
+
+
+def filter_condition(rect: cv2.typing.Rect, mask: cv2.typing.MatLike) -> bool:
+    if rect[2] * rect[3] < mask.size * 0.025:
+        return False
+    return True
+
+def join_rects(rects: list[list[int]], width: int) -> list[list[int]]:
+    out = []
+    r = rects[0]
+    for i in range(1, len(rects)):
+        r2 = rects[i]
+        xdiff = r[0]+r[2] - r2[0]
+        if xdiff < width * 0.95:
+            r[2] = r2[0]+r2[2] - r[0]
+        else:
+            out.append(r)
+            r = r2
+    out.append(r)
+    return out
+
+def get_rects(mask: cv2.typing.MatLike) -> list[list[int]]:
+    contours_black, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    rects = [cv2.boundingRect(c) for c in contours_black]
+    rects = [r for r in rects if filter_condition(r, mask)]
+
+    rects = [[r[0], 0, r[2], mask.shape[0]] for r in rects]
+    if len(rects) < 2:
+        return rects
+
+    rects = list(sorted(rects, key=lambda r: r[0]))
+    return join_rects(rects, mask.shape[1])
+
+def get_segment(image: np.ndarray, rect: list[int]) -> Segment:
+    x,y,w,h = rect
+    return Segment(image[y:y+h,x:x+w], rect)
+
+
 class OCReadMode(IntEnum):
     LINE = PSM.SINGLE_LINE
     WORD = PSM.SINGLE_WORD
 
 
 class OCREngine:
-    def __init__(self, settings: Settings) -> None:
-        self.api = PyTessBaseAPI(path=settings.tessdata, # type: ignore
-                                 oem=OEM.LSTM_ONLY)      # type: ignore
-    
-    def read_kfline(self, kfline_img: np.ndarray) -> OCRLineResult:
-        hsv_image = cv2.cvtColor(kfline_img, cv2.COLOR_BGR2HSV)
+    def __init__(self, settings: Settings, assets: Assets) -> None:
+        self.__assets = assets
 
-        blue_mask = cv2.inRange(hsv_image, lower_blue, upper_blue)
-        red_mask1 = cv2.inRange(hsv_image, lower_red1, upper_red1)
-        red_mask2 = cv2.inRange(hsv_image, lower_red2, upper_red2)
-        red_mask = red_mask1 | red_mask2 # type: ignore
-        contours_blue = self._find_contours(blue_mask)
-        contours_red  = self._find_contours(red_mask)
+        self.api = PyTessBaseAPI(path=str(settings.tessdata), oem=OEM.LSTM_ONLY) # type: ignore
 
-    def _find_contours(self, mask: MatLike) -> Sequence[MatLike]:
-        return cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)[0]
-    
-    def _filter_contours(self, ) -> Sequence[MatLike]:
-        ...
 
-    def _crop_segments(self, image, contours) -> list[Segment]:
-        return [self._get_segment(image, contour) for contour in contours]
-    
-    def _get_segment(self, image: MatLike, contour: MatLike) -> Segment:
-        x, y, w, h = cv2.boundingRect(contour)
-        return Segment(image[y:y+h, x:x+w], [x,y,w,h])
+    def read_kfline(self, kfline_img: np.ndarray, charlist = IGN_CHARLIST) -> Optional[OCRLineResult]:
+        """Reads a single killfeed line and returns an OCRLineResult instance"""
+        segment_output = segment(kfline_img)
+        if segment_output is None:
+            return None
 
-    def __readtext(self, image: Image.Image | np.ndarray) -> str:
-        if isinstance(image, np.ndarray):
-            image = Image.fromarray(image)
-        self.api.SetImage(image)
-        return self.api.GetUTF8Text()[:-1] #, self.api.MeanTextConf()
+        left_text  = (segment_output.left and
+                        self.readtext(segment_output.left.image, OCReadMode.WORD, charlist))
+
+        right_text = self.readtext(segment_output.right.image, OCReadMode.WORD, charlist)
+
+        middle_image = cv2.cvtColor(segment_output.middle.image, cv2.COLOR_RGB2GRAY)
+        headshot = is_headshot(middle_image, self.__assets.headshot) is not None
+
+        return OCRLineResult(left_text, right_text, headshot)
+
 
     @overload
     def readtext(self, image: np.ndarray, read_mode: OCReadMode, charlist: str) -> str: ...
@@ -92,6 +137,12 @@ class OCREngine:
             return [self.__readtext(_img) for _img in image]
         elif isinstance(image, np.ndarray):
             return self.__readtext(image)
+
+    def __readtext(self, image: Image.Image | np.ndarray) -> str:
+        if isinstance(image, np.ndarray):
+            image = Image.fromarray(image)
+        self.api.SetImage(image)
+        return self.api.GetUTF8Text()[:-1] #, self.api.MeanTextConf()
 
 
 def is_headshot(image_line: np.ndarray, hs_asset: np.ndarray,
