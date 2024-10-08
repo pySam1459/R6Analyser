@@ -2,14 +2,15 @@ import cv2
 import tkinter as tk
 import numpy as np
 from abc import ABC, abstractmethod
+from enum import IntEnum
 from PIL import Image
 from PIL.ImageTk import PhotoImage
-from pyautogui import screenshot, size as screen_size
-from pydantic import BaseModel
+from pyautogui import screenshot, size
+from pydantic.dataclasses import dataclass
 from screeninfo import get_monitors, Monitor
 from typing import Optional
 
-from config import RTConfig
+from config import RTConfig, RTRegionsCFG
 from utils import BBox_t
 from utils.cli import AnalyserArgs
 from utils.enums import CaptureMode
@@ -33,22 +34,56 @@ CONTROLS:
 """
 
 
+class Keys(IntEnum):
+    RETURN = 13
+    DELETE = 46
+
+    LEFT = 37
+    RIGHT = 39
+    UP = 38
+    DOWN = 40
+
+    W = 87
+    A = 65
+    S = 83
+    D = 68
+    Q = 81
+    E = 69
+
+    ONE = 49
+    TWO = 50
+    THREE = 51
+    FOUR = 52
+
+
 class RegionTool(ABC):
-    REGIONS = {49: "timer", 50: "kf_line"}  ## keycode: region
-    COLOURS = {"timer": "green", "kf_line": "blue"}
-    ARROW_CODES = [37, 38, 39, 40] ## left,up,right,down
+    REGIONS = {Keys.ONE: "timer", Keys.TWO: "kf_line"}
+    COLOURS = {
+        "active_drag": "yellow",
+        "new_region": "orange",
+        "selected": "red",
+        "timer": "green",
+        "kf_line": "blue"
+    }
 
     def __init__(self, config: RTConfig) -> None:
         self.config = config
 
-        self.size = screen_size()
+        self.size = size()
         self.start_x = self.start_y = self.end_x = self.end_y = 0
         self.sf = 1
 
-        self.selection: Optional[BBox_t] = None
-        self.sels: dict[str, BBox_t] = config.capture.regions.__dict__
+        self.active_drag: Optional[BBox_t] = None
+        self.selected: Optional[str] = None
+        self.sels = self.__get_sels(config)
 
         self.__photoimage = None
+    
+    def __get_sels(self, config: RTConfig) -> dict[str, BBox_t]:
+        if config.capture.regions is not None:
+            return config.capture.regions.model_dump(exclude_none=True)
+        
+        return {}
 
     @staticmethod
     def new(args: AnalyserArgs, config: RTConfig) -> "RegionTool":
@@ -103,19 +138,24 @@ class RegionTool(ABC):
         self._draw_boxes()
 
     def _draw_boxes(self) -> None:
-        if self.selection is not None:
-            self.__draw_rect(self.selection, "orange", "selection")
-
         for reg_key, rect in self.sels.items():
-            self.__draw_rect(rect, RegionTool.COLOURS[reg_key], reg_key)
-    
-    def __draw_rect(self, abs_rect: BBox_t, colour: str, tags: str) -> None:
-        ## TODO: dashed lines for projected regions - https://chatgpt.com/share/66f21307-551c-8004-a05a-1ddae93cd2ea
-        self.canvas.delete(tags)
+            self.__draw_selection(rect, reg_key)
+
+    def __draw_selection(self, abs_rect: BBox_t, tag: str) -> None:
         x, y = abs_rect[0]-self.display[0], abs_rect[1]-self.display[1]
+        rect = (x, y, x + abs_rect[2], y + abs_rect[3])
+        self.__draw_rect(rect, tag)
+
+    def __draw_rect(self, rect: BBox_t, tag: str) -> None:
+        ## TODO: dashed lines for projected regions - https://chatgpt.com/share/66f21307-551c-8004-a05a-1ddae93cd2ea
+        if tag != self.selected:
+            colour = RegionTool.COLOURS.get(tag, "pink")
+        else:
+            colour = RegionTool.COLOURS["selected"]
+
+        self.canvas.delete(tag)
         self.canvas.create_rectangle(
-            x, y, x + abs_rect[2], y + abs_rect[3],
-            outline=colour, width=2, tags=tags
+            rect, outline=colour, width=2, tags=tag
         )
 
     def __on_click(self, event: tk.Event) -> None:
@@ -125,30 +165,49 @@ class RegionTool(ABC):
     def __on_drag(self, event: tk.Event) -> None:
         """Handle the drag operation by updating the overlay with the region"""
         self.end_x, self.end_y = event.x, event.y
-        self.canvas.delete("DRAG")  # Remove the old region
-        self.canvas.create_rectangle(self.start_x, self.start_y, self.end_x, self.end_y,
-                                     outline="red", width=2, tags="DRAG")
+        rect = [self.start_x, self.start_y, self.end_x, self.end_y]
+        self.__draw_rect(rect, "active_drag")
 
     def __on_release(self, event: tk.Event) -> None:
         """Handle the release of the mouse button, close the program."""
         self.end_x, self.end_y = event.x, event.y
         tlx, tly = min(self.start_x, self.end_x), min(self.start_y, self.end_y)
         brx, bry = max(self.start_x, self.end_x), max(self.start_y, self.end_y)
-        self.selection = (tlx+self.display[0], tly+self.display[1], brx-tlx, bry-tly)
+        self.sels["new_region"] = (tlx+self.display[0], tly+self.display[1], brx-tlx, bry-tly)
+        self.selected = "new_region"
         self._draw_boxes()
 
     def __on_keypress(self, event: tk.Event) -> None:
-        if event.keycode in RegionTool.REGIONS and self.selection is not None:
-            self.sels[RegionTool.REGIONS[event.keycode]] = self.selection
-            self.selection = None
+        print(event)
+        if event.keycode in RegionTool.REGIONS:
+            sel_key = RegionTool.REGIONS[event.keycode]
+            if self.selected is None:
+                self.selected = sel_key
+            
+            elif self.selected == "new_region":
+                self.sels[sel_key] = self.sels["new_region"]
+                del self.sels["new_region"]
+                self.selected = None
+
+            elif self.selected != sel_key:
+                move_sel = self.sels[sel_key]
+                self.sels[self.selected] = move_sel
+                del self.sels[sel_key]
+                self.selected = None
+
             self._draw_boxes()
         
-        elif event.keycode in [37, 38, 39, 40]:
+        elif event.keycode == Keys.DELETE:
+            if self.selected is not None:
+                del self.sels[self.selec]
+
+        elif event.keycode == Keys.RETURN:
+            self._on_return()
+        
+        elif event.keycode in Keys:
             self._on_arrows(event)
             self._draw_boxes()
 
-        elif event.keycode == 13: ## Return/Enter
-            self._on_return()
 
     @abstractmethod
     def _on_arrows(self, event: tk.Event) -> None:
@@ -160,6 +219,7 @@ class RegionTool(ABC):
         self.stop()
 
     def _save_config(self) -> None:
+        self.config.capture.regions = RTRegionsCFG.model_validate(self.sels)
         with open(self.config.config_path, "w") as f_out:
             f_out.write(self.config.model_dump_json(indent=4, exclude_none=True))
 
@@ -183,7 +243,8 @@ class RTScreenShot(RegionTool):
         ...
 
 
-class VideoDetails(BaseModel):
+@dataclass
+class VideoDetails:
     max_frame: int
     frame_width: int
     frame_height: int
@@ -191,8 +252,9 @@ class VideoDetails(BaseModel):
 
 
 class RTVideoFile(RegionTool):
-    TIME_SKIP = 15    # seconds
-    FRAME_SCROLL = 15 # frames
+    FRAME_SKIP = 0.1
+    SMALL_SKIP = 1
+    BIG_SKIP = 10
 
     VIDEO_PROPS = {
         "max_frame": cv2.CAP_PROP_FRAME_COUNT,
@@ -216,9 +278,13 @@ class RTVideoFile(RegionTool):
         if config.capture.file is None:
             raise ValueError(f"Configuration capture file is None!")
 
-        video = cv2.VideoCapture(str(config.capture.file))
-        self.vdets = VideoDetails(**{k: int(video.get(pid))
-                                     for k,pid in RTVideoFile.VIDEO_PROPS.items()})
+        try:
+            video = cv2.VideoCapture(str(config.capture.file))
+            self.vdets = VideoDetails(**{k: int(video.get(pid))
+                                        for k,pid in RTVideoFile.VIDEO_PROPS.items()})
+        except Exception as e:
+            raise ValueError(f"An Error occurred when attempting to read from video file\n{e}")
+
         return video
         
     def __get_frame(self, video: cv2.VideoCapture, frame_idx: int) -> Optional[np.ndarray]:
@@ -236,15 +302,23 @@ class RTVideoFile(RegionTool):
         return image
 
     def _on_arrows(self, event: tk.Event) -> None:
-        lr_skip = RTVideoFile.TIME_SKIP * self.vdets.fps
-        if event.keycode == 37 and self.frame_idx - lr_skip >= 0: ## left
-            self.frame_idx -= lr_skip
-        if event.keycode == 38: ## up
-            ...
-        if event.keycode == 39 and self.frame_idx + lr_skip: ## right ## TODO: can't hold down left/right, selection scaling 
-            self.frame_idx += lr_skip
-        if event.keycode == 40: ## down
-            ...
+        lr_frame_skip = max(int(round(RTVideoFile.FRAME_SKIP * self.vdets.fps)), 1)
+        lr_small_skip = RTVideoFile.SMALL_SKIP * self.vdets.fps
+        lr_big_skip = RTVideoFile.BIG_SKIP * self.vdets.fps
+         ## TODO: can't hold down left/right, selection scaling 
+        if event.keycode == Keys.W and self.frame_idx - lr_frame_skip >= 0: ## up
+            self.frame_idx -= lr_frame_skip
+        if event.keycode == Keys.A and self.frame_idx - lr_small_skip >= 0: ## left
+            self.frame_idx -= lr_small_skip
+        if event.keycode == Keys.Q and self.frame_idx - lr_big_skip >= 0: ## up
+            self.frame_idx -= lr_big_skip
+        
+        if event.keycode == Keys.S and self.frame_idx + lr_frame_skip < self.vdets.max_frame: ## down
+            self.frame_idx += lr_frame_skip
+        if event.keycode == Keys.D and self.frame_idx + lr_small_skip < self.vdets.max_frame: ## right
+            self.frame_idx += lr_small_skip
+        if event.keycode == Keys.E and self.frame_idx + lr_frame_skip < self.vdets.max_frame: ## up
+            self.frame_idx += lr_big_skip
         
         self.image = self.__set_frame(self.frame_idx)
     
