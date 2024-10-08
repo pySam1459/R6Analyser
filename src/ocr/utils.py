@@ -1,8 +1,6 @@
 import cv2
 import numpy as np
-from typing import Optional, Callable, cast
-
-from utils import BBox_t
+from typing import cast
 
 
 ## Defines the range for red color in HSV space

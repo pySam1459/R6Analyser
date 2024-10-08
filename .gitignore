@@ -9,6 +9,7 @@ tessdata/
 my-tests/
 .coverage
 .pytest_cache/
+tests/out/
 
 .vscode/
 

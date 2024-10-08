@@ -4,6 +4,7 @@ from typing import Any, TypeVar, Callable
 
 from settings import Settings
 from utils import load_json, recursive_union
+from utils.enums import CaptureMode
 
 
 def load_config_json(config_path: Path) -> dict[str,Any] | list[dict[str,Any]]:
@@ -29,3 +30,9 @@ def validate_config(validate_func: Callable[[Any], T], config_path: Path, settin
     first_config = validate_func(cfg_json[0])
     first_data = first_config.model_dump()
     return [first_config] + [validate_func(recursive_union(first_data, el)) for el in cfg_json[1:]]
+
+
+VALID_URLS = {
+    CaptureMode.YOUTUBE: ["https://www.youtube.com/", "https://youtu.be/", "https://youtube.com/"],
+    CaptureMode.TWITCH: ["https://www.twitch.tv/"],
+}

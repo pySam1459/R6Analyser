@@ -1,4 +1,4 @@
- from dataclasses import dataclass
+from dataclasses import dataclass
 from Levenshtein import ratio
 from typing import Optional
 

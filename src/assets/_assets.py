@@ -1,42 +1,48 @@
 import cv2
 import numpy as np
 from pathlib import Path
+from pydantic import BaseModel
 from typing import Self
 
-from utils.constants import ASSETS_PATH
+from utils import load_file
+
+
+class AssetMap(BaseModel):
+    atkside_template: str
+    headshot_mask: str
 
 
 class Assets:
-    atkside_template: np.ndarray
-    headshot: np.ndarray
+    def __init__(self, assets_path: Path) -> None:
+        asset_map_file = assets_path / "asset_map.json"
+        json_data = load_file(asset_map_file)
+        self.asset_map = AssetMap.model_validate_json(json_data)
 
-    _ASSET_MAP = {
-        "atkside_template": "atkside_template.png",
-        "headshot": "headshot.jpg"
-    }
+        self.__originals = {name: Assets._load_asset(assets_path / file)
+                            for name, file in self.asset_map.model_dump().items()}
+        self.__cache = {}
 
-    def __init__(self) -> None:
-        for name, file in Assets._ASSET_MAP.items():
-            path = ASSETS_PATH / file
-            setattr(self, name, Assets._load_asset(path))
-    
     @staticmethod
     def _load_asset(path: Path) -> np.ndarray:
         if not path.exists():
             raise ValueError(f"Asset path {path} does not exist!")
         
         return cv2.imread(str(path), cv2.IMREAD_GRAYSCALE)
+    
+    def __getitem__(self, key: str) -> np.ndarray:
+        return self.__cache.get(key, self.__originals[key])
+
 
     def resize(self, name: str, dim: tuple[int,int]) -> Self:
-        img = getattr(self, name)
+        img = self.__originals[name]
         img_resize = cv2.resize(img, dim, interpolation=cv2.INTER_LINEAR)
-        setattr(self, name, img_resize)
+        self.__cache[name] = img_resize
         return self
     
     def resize_height(self, name: str, height: int) -> Self:
-        img = getattr(self, name)
+        img = self.__originals[name]
         h,w = img.shape
         dim = (int(w*height/h), height)
         img_resize = cv2.resize(img, dim, interpolation=cv2.INTER_LINEAR)
-        setattr(self, name, img_resize)
+        self.__cache[name] = img_resize
         return self

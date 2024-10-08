@@ -1,10 +1,9 @@
 import json
 import random
 from colorsys import hsv_to_rgb
-from collections.abc import Iterable
 from datetime import datetime
 from pathlib import Path
-from typing import Any, TypeVar, Callable
+from typing import Any, TypeVar
 
 
 # ----- HELPER FUNCTIONS -----
@@ -35,12 +34,15 @@ def load_json(file_path: Path):
 
 
 # non-builtin functions
+T = TypeVar('T')
 def ndefault(value: Any, default: Any) -> Any:
     """return value is None ? default : value"""
     if value is None: return default
     return value
 
-T = TypeVar('T')
+def filter_none(arr: list[T | None]) -> list[T]:
+    return [el for el in arr if el is not None]
+
 def transpose(matrix: list[list[T]]) -> list[list[T]]:
     """Transposes a 2d matrix"""
     return [list(row) for row in zip(*matrix)]

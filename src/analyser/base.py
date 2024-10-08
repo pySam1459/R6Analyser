@@ -1,10 +1,10 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from time import time
-from typing import Optional, Generic, TypeVar, Type
+from typing import Callable, Optional, Generic, TypeVar, Type
 
 from assets import Assets
-from capture import Timer, RegionBBoxes, InPersonRegions, SpectatorRegions, create_capture
+from capture import Timer, InPersonRegions, SpectatorRegions, create_capture
 from config import Config
 from history import History
 from ignmatrix import create_ignmatrix
@@ -14,6 +14,7 @@ from utils.enums import Team
 from utils.cli import AnalyserArgs
 from writer import create_writer
 from utils import *
+from utils.constants import ASSETS_PATH
 
 
 __all__ = ["Analyser", "State"]
@@ -38,7 +39,7 @@ class Analyser(Generic[T], ABC):
         self.settings = create_settings(args.sets_path)
         self._debug_print("config_keys", f"Config\n{self.config}")
 
-        self.assets = self.__load_assets()
+        self.assets = Assets(ASSETS_PATH)
         self.capture = create_capture(self.config, region_type)
         self.ocr_engine = OCREngine(self.settings, self.assets)
 
@@ -63,13 +64,6 @@ class Analyser(Generic[T], ABC):
             self._handle_timer,
             self._handle_feed,
         ]
-    
-    def __load_assets(self) -> Assets:
-        """Load the assets used in image detection"""
-        return (
-            Assets()
-                .resize_height("headshot", self.config.capture.regions.kf_line[3])
-        )
 
     # ----- MAIN LOOP -----
     def run(self):
@@ -86,6 +80,10 @@ class Analyser(Generic[T], ABC):
             __infer_start = time()
 
             regions = self.capture.next()
+            if regions is None:
+                self.stop()
+                return
+
             for handler_func in self.handlers:
                 handler_func(regions)
 
@@ -95,14 +93,15 @@ class Analyser(Generic[T], ABC):
 
     ## ----- CHECK & TEST -----
     def test_and_checks(self) -> None:
-        self.is_a_test = False
+        self.is_a_test = self.args.check_regions or self.args.test_regions
+        if self.is_a_test:
+            self.capture.next()
+
         if self.args.check_regions:
             self._check_regions()
-            self.is_a_test = True
 
         if self.args.test_regions:
             self._test_regions()
-            self.is_a_test = True
 
     @abstractmethod
     def _check_regions(self) -> None:
@@ -145,6 +144,7 @@ class Analyser(Generic[T], ABC):
     
     def stop(self) -> None:
         self.running = False
+        self.capture.stop()
     
     def _get_last_winner(self) -> Team:
         """The program cannot currently detect who wins the final round, so get the user to input that info"""

@@ -16,7 +16,6 @@ from utils.constants import *
 from .base import Analyser, State
 from .killfeed import SmartKillfeed, KFRecord_t
 from .template_matcher import TemplateMatcher
-from .utils import get_timer_redperc
 
 
 __all__ = ["InPersonAnalyser"]
@@ -31,7 +30,7 @@ class InPersonAnalyser(Analyser):
 
         self.capture: Capture[InPersonRegions]
         self.skf = SmartKillfeed(self.config, self.history, self._add_record)
-        self.atkside_matcher = TemplateMatcher(self.assets.atkside_template)
+        self.atkside_matcher = TemplateMatcher(self.assets["atkside_template"])
 
         self.last_kf_seconds = None
         self.end_round_seconds = None
@@ -76,17 +75,15 @@ class InPersonAnalyser(Analyser):
         """Reads and handles the timer information, used to determine when the bomb is planted and when the round ends"""
         if not self.running or not self.history.is_ready: return
 
-        red_perc = get_timer_redperc(regions.timer)
-        self._debug_print("red_percentage", f"{red_perc=}")
-
-        new_time = self.__read_timer(regions.timer, red_perc)
+        new_time, is_bomb_countdown = self.ocr_engine.read_timer(regions.timer)
+        # new_time = self.__read_timer(regions.timer, red_perc)
 
         ## timer is showing
         if new_time is not None:
             self.__handle_timer_shown(new_time)
         
         ## The bomb uses a separate countdown timer as the visual timer cannot be accurately tracked
-        elif red_perc > BOMB_COUNTDOWN_RT:
+        elif is_bomb_countdown:
             self.__handle_bomb_countdown()
 
         ## TODO: sort out this seconds stuff
@@ -102,31 +99,6 @@ class InPersonAnalyser(Analyser):
                 and self.__read_scoreline(regions.team1_score, regions.team2_score) is None):
             self._end_round()
             self.end_round_seconds = None
-
-    def __read_timer(self, image: np.ndarray, red_perc: float) -> Optional[Timestamp]:
-        """
-        Reads the current time displayed in the region `TIMER`
-        If the timer is not present, None is returned
-        """
-        denoised_image = cv2.medianBlur(image, 3)
-        raw_result = self.ocr_engine.readtext(denoised_image, OCReadMode.LINE, TIMER_CHARLIST)
-        timer_match = match(r"(\d?\d)([:\.])(\d\d)", raw_result)
-
-        if timer_match is None:
-            return None
-
-        if timer_match.group(2) == ":" or red_perc < TIMER_LAST_SECONDS_RT:
-            return Timestamp(
-                minutes=int(timer_match.group(1)),
-                seconds=int(timer_match.group(3))
-            )
-        elif timer_match.group(2) == ".":
-            return Timestamp(
-                minutes=0,
-                seconds=int(timer_match.group(1))
-            )
-
-        return None
 
     def __handle_timer_shown(self, new_time: Timestamp) -> None:
         self.current_time = new_time
@@ -177,10 +149,7 @@ class InPersonAnalyser(Analyser):
     def __read_feed(self, image_lines: list[np.ndarray]) -> list[OCRLineResult]:
         ocr_output = [self.ocr_engine.read_kfline(img_line, self.ign_matrix.charlist)
                       for img_line in image_lines]
-
-        return [out
-                for out in ocr_output
-                if out is not None]
+        return filter_none(ocr_output)
 
     def __get_players_from_ocrline(self, line: OCRLineResult) -> tuple[Optional[Player], Optional[Player]]:
         target = self.ign_matrix.get(line.right)
@@ -300,19 +269,17 @@ class InPersonAnalyser(Analyser):
 
         timer_region = self.capture.get_region("timer")
         if timer_region is not None:
-            red_perc = get_timer_redperc(timer_region)
-            self.state.bomb_planted = red_perc > BOMB_COUNTDOWN_RT
+            self.state.bomb_planted = self.ocr_engine.get_is_bomb_countdown(timer_region)
         
         self.history.fix_round()
 
     ## ----- CHECK & TEST -----
-    def _check_regions(self) -> None:
+    def _check_regions(self, regions: InPersonRegions) -> None:
         """Called when the --check-regions flag is present in the program call, saves the screenshotted regions as jpg images"""
         if not DEFAULT_IMAGE_DIR.exists():
             DEFAULT_IMAGE_DIR.mkdir()
 
         self._verbose_print(0, "Saving check images")
-        regions = self.capture.next()
 
         def save(name: str, _img: np.ndarray) -> None:
             save_path = DEFAULT_IMAGE_DIR / f"{name}.jpg"
@@ -325,18 +292,15 @@ class InPersonAnalyser(Analyser):
             else:
                 save(name, img)
 
-    def _test_regions(self) -> None:
+    def _test_regions(self, regions: InPersonRegions) -> None:
         """
         This method is called when the `--test-regions` flag is added to the program call,
         runs inference on a single screenshot.
         """
-        regions   = self.capture.next()
-
         scoreline = self.__read_scoreline(regions.team1_score, regions.team2_score)
         atkside   = self.__read_atk_side(regions)
-        time_read = self.__read_timer(regions.timer, get_timer_redperc(regions.timer))
-        print(f"\nTest: {scoreline=} | {atkside=} | {time_read}")
+        time_read, is_bomb_countdown = self.ocr_engine.read_timer(regions.timer)
+        print(f"\nTest: {scoreline=} | {atkside=} | {time_read} | {is_bomb_countdown=}")
 
         for line in self.__read_feed(regions.kf_lines):
             print(line)
-

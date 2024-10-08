@@ -9,7 +9,7 @@ from settings import Settings
 from utils import load_file, recursive_union, gen_default_name, GameTypeRoundMap, BBox_t
 from utils.enums import GameType, CaptureMode, IGNMatrixMode, Team, SaveFileType
 from utils.constants import DEFAULT_SAVE_DIR, IGN_REGEX, RED, WHITE
-from .utils import validate_config
+from .utils import validate_config, VALID_URLS
 
 
 __all__ = [
@@ -108,6 +108,7 @@ class CaptureParser(BaseModel):
     mode:    CaptureMode
     regions: RegionsParser
     file:    Optional[Path] = None
+    url:     Optional[str] = None
 
     scale_by: float = Field(default=2, ge=0.5, le=8)
     period:   float = Field(default=0.5, ge=0.0, le=2.0)
@@ -124,6 +125,25 @@ class CaptureParser(BaseModel):
             elif not os.access(self.file, os.R_OK):
                 raise ValueError(f"Permission Error: Invalid permissions to read video file {self.file}")
         return self
+    
+    @model_validator(mode="after")
+    def validate_url(self) -> Self:
+        if self.mode not in [CaptureMode.YOUTUBE, CaptureMode.TWITCH]:
+            return self
+        
+        if self.url is None:
+            raise ValueError(f"{self.mode.value} capture mode required `url` field to be specified")
+
+        if self.mode not in VALID_URLS:
+            return self
+
+        valid_urls = VALID_URLS[self.mode]
+        for vurl in valid_urls:
+            if self.url.startswith(vurl):
+                return self
+        else:
+            valid_urls_str = ", ".join(valid_urls)
+            raise ValueError(f"Invalid {self.mode.value} URL: {self.url}\nIt must start with {valid_urls_str}")
 
 
 class SaveParser(BaseModel):
@@ -262,6 +282,7 @@ class CaptureCfg(BaseModel):
     mode:    CaptureMode
     regions: RegionsCfg
     file:    Optional[Path] = None
+    url:     Optional[str] = None
 
     scale_by: float
     period:  float
