@@ -83,12 +83,20 @@ class RegionTool(ABC):
 
         self.__photoimage = None
     
+    def __create_region_model(self, reg: str, rect: BBox_t) -> T:
+        return RegionTool.REGION_MAP[reg].model_validate({reg: rect})
+    
     def __get_sels(self, config: RTConfig) -> dict[str, T]:
         if config.capture.regions is not None:
             regions = config.capture.regions.model_dump(exclude_none=True)
-            return {reg: RegionTool.REGION_MAP[reg].model_validate({reg: rect})
+            return {reg: self.__create_region_model(reg, rect)
                     for reg, rect in regions.items()}
         return {}
+    
+    def __set_sels(self, reg: str, rect: BBox_t) -> T:
+        rm = self.__create_region_model(reg, rect)
+        self.sels[reg] = rm
+        return rm
 
     @staticmethod
     def new(args: AnalyserArgs, config: RTConfig) -> "RegionTool":
@@ -140,24 +148,29 @@ class RegionTool(ABC):
 
         self.__photoimage = PhotoImage(img)
         self.canvas.create_image(0, 0, anchor=tk.NW, image=self.__photoimage)
-        self._draw_boxes()
+        self.render()
 
-    def _draw_boxes(self) -> None:
-        for reg_key, region_model in self.sels.items():
+    def render(self) -> None:
+        for reg_key, region in self.sels.items():
+            if reg_key not in RegionTool.REGION_MAP:
+                self.__draw_selection(region, reg_key, False)
+                continue
+
             self.canvas.delete(reg_key)
-            for model_attr, model_value in region_model.model_dump().items():
+            for model_attr, model_value in region.model_dump().items():
+                dashed = model_attr not in RegionTool.COLOURS
                 if isinstance(model_value, tuple):
-                    self.__draw_selection(model_value, reg_key, reg_key != model_attr)
+                    self.__draw_selection(model_value, reg_key, dashed)
                 elif isinstance(model_value, list):
                     for el in model_value:
-                        self.__draw_selection(el, reg_key, reg_key != model_attr)
+                        self.__draw_selection(el, reg_key, dashed)
 
     def __draw_selection(self, abs_rect: BBox_t, tag: str, dashed: bool) -> None:
         x, y = abs_rect[0]-self.display[0], abs_rect[1]-self.display[1]
         rect = (x, y, x + abs_rect[2], y + abs_rect[3])
         self.__draw_rect(rect, tag, dashed)
 
-    def __draw_rect(self, rect: BBox_t, tag: str, dashed = True) -> None:
+    def __draw_rect(self, rect: BBox_t, tag: str, dashed = False) -> None:
         if tag != self.selected:
             colour = RegionTool.COLOURS.get(tag, "pink")
         else:
@@ -169,7 +182,7 @@ class RegionTool(ABC):
             x1,y1,x2,y2 = rect
             lines = [(x1, y1, x2, y1), (x2, y1, x2, y2), (x2, y2, x1, y2), (x1, y2, x1, y1)]
             for line in lines:
-                self.canvas.create_line(*line, dash=(5, 2), width=4, fill=colour, tags=tag)
+                self.canvas.create_line(*line, dash=(5, 2), width=2, fill=colour, tags=tag)
 
     def __on_click(self, event: tk.Event) -> None:
         """Handle the initial click by saving the start coordinates."""
@@ -189,20 +202,21 @@ class RegionTool(ABC):
         brx, bry = max(self.start_x, self.end_x), max(self.start_y, self.end_y)
         self.sels["new_region"] = (tlx+self.display[0], tly+self.display[1], brx-tlx, bry-tly)
         self.selected = "new_region"
-        self._draw_boxes()
+        self.render()
 
     def __on_keypress(self, event: tk.Event) -> None:
         if event.keycode in RegionTool.REGIONS:
             reg = RegionTool.REGIONS[event.keycode]
             if self.selected == "new_region":
-                self.sels[reg] = self.sels.pop("new_region")
+                self.__set_sels(reg, self.sels.pop("new_region"))
                 self.selected = None
-            elif self.selected is None and reg in self.sels:
+            elif reg in self.sels: ## TODO: bug regions exist, make new selection, set reg
                 self.selected = reg
         
         elif event.keycode == Keys.DELETE:
             if self.selected is not None:
                 self.sels.pop(self.selected)
+                self.canvas.delete(self.selected)
                 self.selected = None
 
         elif event.keycode == Keys.RETURN:
@@ -210,7 +224,7 @@ class RegionTool(ABC):
         elif event.keycode in Keys:
             self._on_arrows(event)
 
-        self._draw_boxes()
+        self.render()
 
     @abstractmethod
     def _on_arrows(self, event: tk.Event) -> None:
@@ -222,7 +236,10 @@ class RegionTool(ABC):
         self.stop()
 
     def _save_config(self) -> None:
-        self.config.capture.regions = RTRegionsCFG.model_validate(self.sels)
+        out_data = {reg: getattr(self.sels[reg], reg)
+                    for reg in RegionTool.REGIONS.values()
+                    if self.sels.get(reg, False)}
+        self.config.capture.regions = RTRegionsCFG.model_validate(out_data)
         with open(self.config.config_path, "w") as f_out:
             f_out.write(self.config.model_dump_json(indent=4, exclude_none=True))
 
