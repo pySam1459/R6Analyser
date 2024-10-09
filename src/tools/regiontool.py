@@ -6,11 +6,13 @@ from enum import IntEnum
 from PIL import Image
 from PIL.ImageTk import PhotoImage
 from pyautogui import screenshot, size
+from pydantic import BaseModel
 from pydantic.dataclasses import dataclass
 from screeninfo import get_monitors, Monitor
-from typing import Optional
+from typing import Optional, TypeVar, Sequence
 
 from config import RTConfig, RTRegionsCFG
+from config.region_models import TimerRegion, KFLineRegion
 from utils import BBox_t
 from utils.cli import AnalyserArgs
 from utils.enums import CaptureMode
@@ -56,6 +58,7 @@ class Keys(IntEnum):
     FOUR = 52
 
 
+T = TypeVar('T', bound=BaseModel)
 class RegionTool(ABC):
     REGIONS = {Keys.ONE: "timer", Keys.TWO: "kf_line"}
     COLOURS = {
@@ -65,6 +68,7 @@ class RegionTool(ABC):
         "timer": "green",
         "kf_line": "blue"
     }
+    REGION_MAP: dict[str, T] = {"timer": TimerRegion, "kf_line": KFLineRegion}
 
     def __init__(self, config: RTConfig) -> None:
         self.config = config
@@ -75,14 +79,15 @@ class RegionTool(ABC):
 
         self.active_drag: Optional[BBox_t] = None
         self.selected: Optional[str] = None
-        self.sels = self.__get_sels(config)
+        self.sels: dict[str, T] = self.__get_sels(config)
 
         self.__photoimage = None
     
-    def __get_sels(self, config: RTConfig) -> dict[str, BBox_t]:
+    def __get_sels(self, config: RTConfig) -> dict[str, T]:
         if config.capture.regions is not None:
-            return config.capture.regions.model_dump(exclude_none=True)
-        
+            regions = config.capture.regions.model_dump(exclude_none=True)
+            return {reg: RegionTool.REGION_MAP[reg].model_validate({reg: rect})
+                    for reg, rect in regions.items()}
         return {}
 
     @staticmethod
@@ -138,25 +143,33 @@ class RegionTool(ABC):
         self._draw_boxes()
 
     def _draw_boxes(self) -> None:
-        for reg_key, rect in self.sels.items():
-            self.__draw_selection(rect, reg_key)
+        for reg_key, region_model in self.sels.items():
+            self.canvas.delete(reg_key)
+            for model_attr, model_value in region_model.model_dump().items():
+                if isinstance(model_value, tuple):
+                    self.__draw_selection(model_value, reg_key, reg_key != model_attr)
+                elif isinstance(model_value, list):
+                    for el in model_value:
+                        self.__draw_selection(el, reg_key, reg_key != model_attr)
 
-    def __draw_selection(self, abs_rect: BBox_t, tag: str) -> None:
+    def __draw_selection(self, abs_rect: BBox_t, tag: str, dashed: bool) -> None:
         x, y = abs_rect[0]-self.display[0], abs_rect[1]-self.display[1]
         rect = (x, y, x + abs_rect[2], y + abs_rect[3])
-        self.__draw_rect(rect, tag)
+        self.__draw_rect(rect, tag, dashed)
 
-    def __draw_rect(self, rect: BBox_t, tag: str) -> None:
-        ## TODO: dashed lines for projected regions - https://chatgpt.com/share/66f21307-551c-8004-a05a-1ddae93cd2ea
+    def __draw_rect(self, rect: BBox_t, tag: str, dashed = True) -> None:
         if tag != self.selected:
             colour = RegionTool.COLOURS.get(tag, "pink")
         else:
             colour = RegionTool.COLOURS["selected"]
 
-        self.canvas.delete(tag)
-        self.canvas.create_rectangle(
-            rect, outline=colour, width=2, tags=tag
-        )
+        if not dashed:
+            self.canvas.create_rectangle(rect, outline=colour, width=2, tags=tag)
+        else:
+            x1,y1,x2,y2 = rect
+            lines = [(x1, y1, x2, y1), (x2, y1, x2, y2), (x2, y2, x1, y2), (x1, y2, x1, y1)]
+            for line in lines:
+                self.canvas.create_line(*line, dash=(5, 2), width=4, fill=colour, tags=tag)
 
     def __on_click(self, event: tk.Event) -> None:
         """Handle the initial click by saving the start coordinates."""
@@ -166,6 +179,7 @@ class RegionTool(ABC):
         """Handle the drag operation by updating the overlay with the region"""
         self.end_x, self.end_y = event.x, event.y
         rect = [self.start_x, self.start_y, self.end_x, self.end_y]
+        self.canvas.delete("active_drag")
         self.__draw_rect(rect, "active_drag")
 
     def __on_release(self, event: tk.Event) -> None:
@@ -178,36 +192,25 @@ class RegionTool(ABC):
         self._draw_boxes()
 
     def __on_keypress(self, event: tk.Event) -> None:
-        print(event)
         if event.keycode in RegionTool.REGIONS:
-            sel_key = RegionTool.REGIONS[event.keycode]
-            if self.selected is None:
-                self.selected = sel_key
-            
-            elif self.selected == "new_region":
-                self.sels[sel_key] = self.sels["new_region"]
-                del self.sels["new_region"]
+            reg = RegionTool.REGIONS[event.keycode]
+            if self.selected == "new_region":
+                self.sels[reg] = self.sels.pop("new_region")
                 self.selected = None
-
-            elif self.selected != sel_key:
-                move_sel = self.sels[sel_key]
-                self.sels[self.selected] = move_sel
-                del self.sels[sel_key]
-                self.selected = None
-
-            self._draw_boxes()
+            elif self.selected is None and reg in self.sels:
+                self.selected = reg
         
         elif event.keycode == Keys.DELETE:
             if self.selected is not None:
-                del self.sels[self.selec]
+                self.sels.pop(self.selected)
+                self.selected = None
 
         elif event.keycode == Keys.RETURN:
             self._on_return()
-        
         elif event.keycode in Keys:
             self._on_arrows(event)
-            self._draw_boxes()
 
+        self._draw_boxes()
 
     @abstractmethod
     def _on_arrows(self, event: tk.Event) -> None:
