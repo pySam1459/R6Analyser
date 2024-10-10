@@ -1,6 +1,13 @@
 import cv2
 import numpy as np
+from enum import IntEnum
+from tesserocr import PSM
 from typing import cast
+
+
+class OCReadMode(IntEnum):
+    LINE = PSM.SINGLE_LINE
+    WORD = PSM.SINGLE_WORD
 
 
 ## Defines the range for red color in HSV space

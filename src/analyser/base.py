@@ -145,6 +145,7 @@ class Analyser(Generic[T], ABC):
     def stop(self) -> None:
         self.running = False
         self.capture.stop()
+        self.ocr_engine.stop()
     
     def _get_last_winner(self) -> Team:
         """The program cannot currently detect who wins the final round, so get the user to input that info"""

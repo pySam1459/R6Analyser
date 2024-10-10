@@ -1,4 +1,6 @@
-from .engine import OCREngine, OCReadMode, OCRLineResult
+from .engine import OCREngine, OCRLineResult
+from .utils import OCReadMode
+
 
 __all__ = [
     "OCREngine",
