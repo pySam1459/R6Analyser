@@ -97,7 +97,7 @@ class XlsxWriter(Writer):
                 if len(round_stats) > 0}
 
     def __get_roundn(self, round_stats: RoundStats_t) -> int:
-        k0 = next(iter(round_stats.keys()))
+        k0 = next(iter(round_stats))
         return round_stats[k0].rnd
 
     def __aggregate_round_data(self,

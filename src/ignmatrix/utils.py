@@ -29,13 +29,13 @@ class TeamTable:
     """A fixed table of (ign, team) pairs"""
     def __init__(self, player_data: dict[str, Team]) -> None:
         self.__table = player_data
-        self.__keys = list(player_data.keys())
+        self.__keys = list(player_data)
 
     def check(self, pign: str, threshold: float) -> Optional[Player]:
         if pign in self.__table:
             return FixedPlayer(pign, self.__table[pign])
 
-        score, ign = max([(ratio(ign, pign), ign) for ign in self.__table.keys()],
+        score, ign = max([(ratio(ign, pign), ign) for ign in self.__table],
                          key=lambda t: t[0])
         
         if score >= threshold:
@@ -47,7 +47,7 @@ class TeamTable:
         if pign in self.__table:
             return 1.0
         
-        return max([ratio(ign, pign) for ign in self.__table.keys()])
+        return max([ratio(ign, pign) for ign in self.__table])
     
     def get_players(self) -> list[Player]:
         return [FixedPlayer(ign, team) for ign, team in self.__table.items()]

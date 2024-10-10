@@ -182,7 +182,7 @@ class History:
     def get_first_round(self) -> HistoryRound:
         assert self.is_ready
 
-        first_roundn = min(self.__round_data.keys())
+        first_roundn = min(self.__round_data)
         return self.__round_data[first_roundn]
 
     def new_round(self, round_number: int) -> None:
