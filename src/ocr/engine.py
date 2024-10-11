@@ -39,10 +39,6 @@ OCR_PARAMS = {
     "left_clip": 0.4,
     "right_clip": 0.1,
 
-    "template_width": 0.10,
-    "template_buffer": 8,
-    "norm_threshold": 96,
-    "cumsum_count_threshold": 5,
     "min_seg_perc": 0.025
 }
 
@@ -50,11 +46,12 @@ OCR_PARAMS = {
 def segment(image: np.ndarray) -> Optional[KfLineSegments]:
     gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     rect = get_black_section(gray_image)
-    if rect is None:
+    if rect is None or rect[2]*rect[3] < gray_image.size * OCR_PARAMS["min_seg_perc"]:
         return None
 
     x,y,w,h = rect
-    left_idx = get_left_xcoord(image, [0, y, x, h])
+    left_idx = get_left_xcoord(image[y:y+h,:x], 10)#, [0, y, x, h])
+    left_idx = int(left_idx)
 
     width = gray_image.shape[1]
     return KfLineSegments(left=get_segment(image, [left_idx, y, x-left_idx, h]),
@@ -104,22 +101,31 @@ def get_leftright(out_dist: np.ndarray, clip: Optional[tuple[float, float]] = No
     
     return indicies[0], indicies[-1]
 
-def get_left_xcoord(image: np.ndarray, rect: list[int]) -> int:
-    _,y,w,h = rect
-    tw = int(w * OCR_PARAMS["template_width"])
-    buf = OCR_PARAMS["template_buffer"]
-    x, xw = w-tw-buf, w-buf
-    template = image[y:y+h,x:xw]
+def sliding_window_diffmean(data, window):
+    diff = np.abs(np.diff(data, prepend=data[0]))
+    kernel = np.ones(window)
+    return np.convolve(diff, kernel, mode="same") / window
 
-    cmp_result = cv2.matchTemplate(image[y:y+h,:w], template, cv2.TM_CCOEFF_NORMED)
-    cmp_result = cast(np.ndarray, cmp_result)
+def max_pool1d(data, pool_size, stride):
+    # Calculate the number of output elements
+    output_length = ((len(data) - pool_size) // stride) + 1
 
-    min_, max_ = np.min(cmp_result), np.max(cmp_result)
-    norm_data: np.ndarray = (cmp_result - min_) / (max_ - min_)
+    # Use stride tricks to create a 2D array where each row is a window
+    strided_shape = (output_length, pool_size)
+    strides = (stride * data.strides[0], data.strides[0])
+    windows = np.lib.stride_tricks.as_strided(data, shape=strided_shape, strides=strides)
 
-    norm_th = OCR_PARAMS["norm_threshold"] / 255
-    inc_data = np.cumsum(norm_data > norm_th)
-    return np.where(inc_data == OCR_PARAMS["cumsum_count_threshold"])[0][0]
+    # Perform max pooling across each row (axis 1)
+    pooled = np.max(windows, axis=1)
+    
+    return pooled
+
+def get_left_xcoord(image: np.ndarray, window: int) -> int:
+    w = image.shape[1]
+    newgray_image = np.mean(image, axis=(0, 2))
+    messy_mask = sliding_window_diffmean(newgray_image, window) > 0.85
+    maxpool_mask = max_pool1d(messy_mask, 3, 3)
+    return np.where(maxpool_mask[:int(w*0.9)])[0][-1] * 1.5
 
 def get_segment(image: np.ndarray, rect: list[int]) -> Segment:
     x,y,w,h = rect
@@ -167,10 +173,10 @@ class OCREngine(BaseOCREngine):
             left_text = None
         else:
             left_image = segment_output.left.image
-            left_text = self.readtext(left_image, OCReadMode.WORD, charlist)
+            left_text = self.readtext(~left_image, OCReadMode.WORD, charlist)
 
         right_image = segment_output.right.image
-        right_text = self.readtext(right_image, OCReadMode.WORD, charlist)
+        right_text = self.readtext(~right_image, OCReadMode.WORD, charlist)
 
         middle_mask = segment_output.middle.image
         self.__assets.resize_height("headshot_mask", middle_mask.shape[0])

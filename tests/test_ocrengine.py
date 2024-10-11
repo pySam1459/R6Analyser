@@ -1,8 +1,9 @@
 import cv2
 import pytest
 from os import listdir, makedirs
-from shutil import rmtree
 from pathlib import Path
+from shutil import rmtree
+from time import perf_counter
 from Levenshtein import ratio
 
 from assets import Assets
@@ -65,13 +66,14 @@ def test_ocr_engine_kfline(test_file: Path, settings: Settings, assets: Assets) 
 
     ocr_line_res = engine.read_kfline(image)
 
+    if ocr_line_res is not None:
+        write_kflines_out_images(test_file, ocr_line_res)
+
     if test_file.stem.startswith("none"):
         assert ocr_line_res is None, "OCRLineResult must be None"
         return
 
     assert ocr_line_res is not None, "OCRLineResult is None"
-
-    write_kflines_out_images(test_file, ocr_line_res)
 
     parts = test_file.stem.split(" ")
     if len(parts) == 2:
@@ -122,3 +124,22 @@ def test_ocr_engine_timer(test_file: Path, settings: Settings) -> None:
     assert expected_result == (timer, is_bc)
 
     engine.stop()
+
+
+@pytest.mark.skip(reason="Used to measure OCREngine.read_kfline performance")
+def test_ocr_engine_kfline_performance(settings: Settings, assets: Assets) -> None:
+    images = [cv2.imread(str(file), cv2.IMREAD_COLOR)
+              for file in kflines_test_files]
+    n = len(images)
+
+    engine = OCREngine(settings, assets)
+
+    n_iter = 500
+    start = perf_counter()
+    for i in range(n_iter):
+        engine.read_kfline(images[i%n])
+
+    end = perf_counter()
+    total = end-start
+    print(f"Total: {total}s\t\tAverage: {total/n_iter}s")
+    
