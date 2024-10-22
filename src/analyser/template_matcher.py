@@ -1,6 +1,6 @@
 import cv2
 import numpy as np
-from typing import Sequence, cast
+from typing import Sequence
 
 
 class TemplateMatcher:
@@ -9,6 +9,7 @@ class TemplateMatcher:
 
         self.__sift = cv2.SIFT.create()
         self.template_kp, self.template_desc = self.__sift_DaC(template)
+        self.template_desc = self.template_desc.astype(np.float32)
 
         self.__flann = cv2.FlannBasedMatcher(indexParams=dict(algorithm=1, trees=5), ## KDTree
                                              searchParams=dict(checks=50))
@@ -22,18 +23,19 @@ class TemplateMatcher:
     
     def match(self, img: np.ndarray, min_match_count = 10) -> bool:
         kp, desc = self.__sift_DaC(img)
+        if desc is None:
+            return False
 
         self.__flann.clear()
-        matches = self.__flann.knnMatch(self.template_desc, desc, k=2)
+        matches = self.__flann.knnMatch(self.template_desc, desc.astype(np.float32), k=2)
         min_match_count = min(len(matches), min_match_count)
 
         good_matches = [m for m,n in matches if m.distance < 0.7 * n.distance]
-
         if len(good_matches) < min_match_count:
             return False
 
-        template_points = np.asarray([self.template_kp[m.trainIdx].pt for m in good_matches], dtype=np.float32).reshape(-1, 1, 2)
-        img_points = np.asarray([kp[m.queryIdx].pt for m in good_matches], dtype=np.float32).reshape(-1, 1, 2)
+        template_points = np.asarray([self.template_kp[m.queryIdx].pt for m in good_matches], dtype=np.float32).reshape(-1, 1, 2)
+        img_points = np.asarray([kp[m.trainIdx].pt for m in good_matches], dtype=np.float32).reshape(-1, 1, 2)
 
         # Find homography to check geometric consistency
         M, _ = cv2.findHomography(template_points, img_points, cv2.RANSAC, 5.0)

@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass as odataclass
 from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator
 from typing import Any, Optional, Generator
 
@@ -14,7 +14,7 @@ __all__ = [
 ]
 
 
-@dataclass
+@odataclass
 class KFRecord:
     """
     Dataclass to record a player interaction
@@ -61,7 +61,7 @@ class KFRecord:
         }
 
 
-@dataclass
+@odataclass
 class TradedRecord(KFRecord):
     traded:    bool = False
 
@@ -69,7 +69,7 @@ class TradedRecord(KFRecord):
         super(TradedRecord, self).__init__(**vars(record))
 
 
-@dataclass
+@odataclass
 class Disconnect:
     player: Player
     time: Timestamp
@@ -190,8 +190,12 @@ class History:
         self.__round_data[round_number] = HistoryRound(round_number=round_number)
         self.__roundn = round_number
     
-    def __contains__(self, other: int) -> bool:
-        return other in self.__round_data
+    def __contains__(self, other: int | Scoreline) -> bool:
+        if isinstance(other, int):
+            return other in self.__round_data
+        elif isinstance(other, Scoreline):
+            return other.total+1 in self.__round_data
+        return False
 
     def fix_round(self) -> None:
         """Should be called by _fix_state, in-case program incorrectly thinks round ended"""

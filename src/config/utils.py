@@ -1,9 +1,9 @@
 from pathlib import Path
-from pydantic import BaseModel
-from typing import Any, TypeVar, Callable
+from pydantic import BaseModel, BeforeValidator
+from typing import Any, Annotated, TypeVar, TypeAlias, Callable
 
 from settings import Settings
-from utils import load_json, recursive_union
+from utils import load_json, recursive_union, BBox_t
 from utils.enums import CaptureMode
 
 
@@ -36,3 +36,18 @@ VALID_URLS = {
     CaptureMode.YOUTUBE: ["https://www.youtube.com/", "https://youtu.be/", "https://youtube.com/"],
     CaptureMode.TWITCH: ["https://www.twitch.tv/"],
 }
+
+
+def validate_bounding_box(v: Any) -> Any:
+    if v is None:
+        return v
+    if not isinstance(v, list) and not isinstance(v, tuple):
+        raise ValueError("must be of type list or tuple")
+    if len(v) != 4:
+        raise ValueError("must be of length=4")
+    if not all([isinstance(el, int) and el >= 0 for el in v]):
+        raise ValueError("all elements must be positive integers")
+    return v
+
+
+InBBox_t: TypeAlias = Annotated[BBox_t, BeforeValidator(validate_bounding_box)]

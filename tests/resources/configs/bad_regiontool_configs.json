@@ -22,19 +22,6 @@
         }
     },
     {
-        "name": "brt_test3-extra_capture/regions",
-        "game_type": "ranked",
-        "spectator": false,
-        "capture": {
-            "mode": "screenshot",
-            "regions": {
-                "timer": [3752, 177, 159, 72],
-                "kf_line": [4273, 469, 410, 26],
-                "something extra": [1, 2, 3, 4]
-            }
-        }
-    },
-    {
         "name": "brt_test4a-no_capture",
         "game_type": "ranked",
         "spectator": false

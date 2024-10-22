@@ -1,13 +1,14 @@
 import cv2
 import numpy as np
-from re import match
-from typing import Optional
+from os import makedirs
+from typing import Optional, Generator
 
 from capture import Capture, InPersonRegions
 from config import Config
 from history import KFRecord
 from ignmatrix import Player, Player_t
-from ocr import OCReadMode, OCRLineResult
+from ocr import OCRLineResult
+from settings import Settings
 from utils.cli import AnalyserArgs
 from utils.enums import Team, WinCondition
 from utils import *
@@ -25,12 +26,14 @@ class InPersonAnalyser(Analyser):
     NUM_LAST_SECONDS  = 4  ## number of seconds to continue reading killfeed after round end (reliability reasons)
     END_ROUND_SECONDS = 12 ## number of seconds to check no timer to determine round end
 
-    def __init__(self, args: AnalyserArgs, config: Config) -> None:
-        super(InPersonAnalyser, self).__init__(args, config, InPersonRegions)
+    def __init__(self, args: AnalyserArgs, config: Config, settings: Settings) -> None:
+        super(InPersonAnalyser, self).__init__(args, config, settings, InPersonRegions)
 
         self.capture: Capture[InPersonRegions]
         self.skf = SmartKillfeed(self.config, self.history, self._add_record)
         self.atkside_matcher = TemplateMatcher(self.assets["atkside_template"])
+
+        self.prog_bar = ProgressBar(add_postfix=self.config.debug.infer_time)
 
         self.last_kf_seconds = None
         self.end_round_seconds = None
@@ -44,8 +47,7 @@ class InPersonAnalyser(Analyser):
         if not scoreline:
             return
 
-        new_roundn = scoreline.total + 1
-        if new_roundn in self.history:
+        if scoreline in self.history:
             self._fix_state()
             return
 
@@ -53,12 +55,14 @@ class InPersonAnalyser(Analyser):
 
         self.history.cround.atk_side = self.__read_atk_side(regions)
         self._verbose_print(1, f"Atk Side: {self.history.cround.atk_side}")
-
+    
     def __read_scoreline(self, team1_score: np.ndarray, team2_score: np.ndarray) -> Optional[Scoreline]:
-        scores = [team1_score, team2_score]
-        left_text, right_text = self.ocr_engine.readtext(scores, OCReadMode.LINE, DIGITS)
+        left_text  = self.ocr_engine.read_score(team1_score)
+        if left_text is None:
+            return None
 
-        if not match(SCORELINE_PATTERN, left_text) or not match(SCORELINE_PATTERN, right_text):
+        right_text = self.ocr_engine.read_score(team2_score)
+        if right_text is None:
             return None
 
         return Scoreline(left=int(left_text), right=int(right_text))
@@ -76,7 +80,6 @@ class InPersonAnalyser(Analyser):
         if not self.running or not self.history.is_ready: return
 
         new_time, is_bomb_countdown = self.ocr_engine.read_timer(regions.timer)
-        # new_time = self.__read_timer(regions.timer, red_perc)
 
         ## timer is showing
         if new_time is not None:
@@ -88,21 +91,21 @@ class InPersonAnalyser(Analyser):
 
         ## TODO: sort out this seconds stuff
         elif self.last_kf_seconds is None and self.end_round_seconds is None and self.state.in_round:
-            self.last_kf_seconds = self.timer.time()
-            self.end_round_seconds = self.timer.time()
+            self.last_kf_seconds = self.timer.time
+            self.end_round_seconds = self.timer.time
         
-        if self.last_kf_seconds is not None and self.last_kf_seconds + InPersonAnalyser.NUM_LAST_SECONDS < self.timer.time():
+        if self.last_kf_seconds is not None and self.last_kf_seconds + InPersonAnalyser.NUM_LAST_SECONDS < self.timer.time:
             self.last_kf_seconds = None
 
         if (self.end_round_seconds is not None and
-                self.end_round_seconds + InPersonAnalyser.END_ROUND_SECONDS < self.timer.time()
+                self.end_round_seconds + InPersonAnalyser.END_ROUND_SECONDS < self.timer.time
                 and self.__read_scoreline(regions.team1_score, regions.team2_score) is None):
             self._end_round()
             self.end_round_seconds = None
 
     def __handle_timer_shown(self, new_time: Timestamp) -> None:
-        self.current_time = new_time
-        self.defuse_countdown_timer = None
+        self.timer.ctime = new_time
+        self.timer.defuse_countdown = None
 
         self.last_kf_seconds = None
         self.end_round_seconds = None
@@ -111,18 +114,18 @@ class InPersonAnalyser(Analyser):
         self.prog_bar.refresh()
 
     def __handle_bomb_countdown(self) -> None:
-        if self.defuse_countdown_timer is None: ## bomb planted
-            self.defuse_countdown_timer = self.timer.time()
+        if self.timer.defuse_countdown is None: ## bomb planted
+            self.timer.defuse_countdown = self.timer.time
             self.state.bomb_planted = True
 
-            self.history.cround.bomb_planted_at = self.current_time
-            self._verbose_print(1, f"Bomb planted at: {self.current_time}")
+            self.history.cround.bomb_planted_at = self.timer.ctime
+            self._verbose_print(1, f"Bomb planted at: {self.timer.ctime}")
             self.prog_bar.bomb()
         
         elif self.history.cround.bomb_planted_at is not None:
             bpat_int = self.history.cround.bomb_planted_at.to_int()
-            tdelta = int(self.timer.time() - self.defuse_countdown_timer)
-            self.current_time = Timestamp.from_int(bpat_int - tdelta)
+            tdelta = int(self.timer.time - self.timer.defuse_countdown)
+            self.timer.ctime = Timestamp.from_int(bpat_int - tdelta)
             self.prog_bar.set_time(int(self.config.defuser_timer-tdelta))
             self.prog_bar.refresh()
 
@@ -143,13 +146,15 @@ class InPersonAnalyser(Analyser):
             elif player is None or target is None:
                 continue
 
-            record = KFRecord(player, target, self.current_time, line.headshot)
+            record = KFRecord(player, target, self.timer.ctime, line.headshot)
             self.skf.add(record, record_type)
 
-    def __read_feed(self, image_lines: list[np.ndarray]) -> list[OCRLineResult]:
-        ocr_output = [self.ocr_engine.read_kfline(img_line, self.ign_matrix.charlist)
-                      for img_line in image_lines]
-        return filter_none(ocr_output)
+    def __read_feed(self, image_lines: list[np.ndarray]) -> Generator[OCRLineResult, None, None]:
+        for img_line in image_lines:
+            line_out = self.ocr_engine.read_kfline(img_line, self.ign_matrix.charlist)
+            if line_out is None:
+                break
+            yield line_out
 
     def __get_players_from_ocrline(self, line: OCRLineResult) -> tuple[Optional[Player], Optional[Player]]:
         target = self.ign_matrix.get(line.right)
@@ -172,7 +177,7 @@ class InPersonAnalyser(Analyser):
 
 
     # ----- GAME STATE -----
-    def __finish_last_round(self, sl: Scoreline, save = True) -> None:
+    def __finish_last_round(self, new_sl: Scoreline, save = True) -> None:
         """
         To save the correct information for each round, this method must be called just before the start of a new round,
           so that the scoreline and winner attributes can be used
@@ -181,11 +186,11 @@ class InPersonAnalyser(Analyser):
 
         ## infer winner of previous round based on new scoreline
         cround = self.history.cround
-        winner = cround.winner
-        if winner is None and cround.scoreline is not None:
-            sl_new = cround.scoreline
-            winner = Team(sl_new.right < sl.right)
-            cround.winner = winner
+        if cround.winner == Team.UNKNOWN and cround.scoreline is not None:
+            if new_sl.left > cround.scoreline.left:
+                cround.winner = Team.TEAM0
+            else:
+                cround.winner = Team.TEAM1
 
         win_con = cround.get_wincon(self.ign_matrix)
         cround.win_condition = win_con
@@ -194,8 +199,8 @@ class InPersonAnalyser(Analyser):
         if win_con == WinCondition.DISABLED_DEFUSER:
             cround.disabled_defuser_at = reat
             self._verbose_print(1, f"Disabled defuser at: {reat}")
-        
-        self._verbose_print(0, f"Team {winner} wins round {self.history.roundn} by {win_con.value} at {reat}.")
+
+        self._verbose_print(0, f"Team {cround.winner} wins round {self.history.roundn} by {win_con.value} at {reat}.")
         if save:
             self.writer.write(self.history, self.ign_matrix)
 
@@ -204,25 +209,23 @@ class InPersonAnalyser(Analyser):
         When a new round starts, this method is called, initialising a new round history
         The parameters `score1` and `score2` are the current scores displayed at the start of a new round
         """
-        new_round = sl.total + 1
-        if new_round in self.history:
+        if sl in self.history:
             return
 
         self.__finish_last_round(sl, save=True)
         self.state = State(in_round=True, end_round=False, bomb_planted=False)
 
+        new_round = sl.total + 1
         self.history.new_round(new_round)
         self.history.cround.scoreline = sl
         self.skf.reset()
 
         self._verbose_print(1, f"New Round: {new_round} | Scoreline: {sl.left}-{sl.right}")
-        self.prog_bar.reset()
-        self.prog_bar.set_header(new_round, sl)
-        self.prog_bar.refresh()
+        self.prog_bar.new_round(sl)
     
     def _end_round(self) -> None:
         """A game state method called when the program determines that the current round has ended"""
-        self.history.cround.round_end_at = self.current_time
+        self.history.cround.round_end_at = self.timer.ctime
         self.state = State(in_round=False, end_round=True, bomb_planted=False)
 
         self.prog_bar.set_time(0)
@@ -276,14 +279,17 @@ class InPersonAnalyser(Analyser):
     ## ----- CHECK & TEST -----
     def _check_regions(self, regions: InPersonRegions) -> None:
         """Called when the --check-regions flag is present in the program call, saves the screenshotted regions as jpg images"""
-        if not DEFAULT_IMAGE_DIR.exists():
-            DEFAULT_IMAGE_DIR.mkdir()
+        img_dir = DEFAULT_IMAGE_DIR / self.config.name
+        if not img_dir.exists():
+            makedirs(img_dir)
 
         self._verbose_print(0, "Saving check images")
 
         def save(name: str, _img: np.ndarray) -> None:
-            save_path = DEFAULT_IMAGE_DIR / f"{name}.jpg"
-            cv2.imwrite(str(save_path), cv2.cvtColor(_img, cv2.COLOR_BGR2RGB))
+            if _img.shape[0] * _img.shape[1] == 0:
+                return
+            save_path = img_dir / f"{name}.jpg"
+            cv2.imwrite(str(save_path), cv2.cvtColor(_img, cv2.COLOR_RGB2BGR))
 
         for name, img in regions.model_dump(exclude_none=True).items():
             if isinstance(img, list):
@@ -303,4 +309,7 @@ class InPersonAnalyser(Analyser):
         print(f"\nTest: {scoreline=} | {atkside=} | {time_read} | {is_bomb_countdown=}")
 
         for line in self.__read_feed(regions.kf_lines):
-            print(line)
+            if line.headshot:
+                print(f"{line.left} -> (X) {line.right}")
+            else:
+                print(f"{line.left} -> {line.right}")

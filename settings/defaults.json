@@ -1,11 +1,12 @@
 {
-    "capture": {
-        "scale_by": 2,
-        "period": 0.5
-    },
     "save": {
         "file_type": "xlsx",
         "save_dir": "saves"
+    },
+    "scheduler": {
+        "scoreline": 1000,
+        "timer": 1000,
+        "killfeed": 500
     },
 
     "max_rounds_map": {
@@ -30,5 +31,25 @@
         "custom": -1
     },
 
-    "defuser_timer": 45
+    "defuser_timer": 45,
+
+    "ocr_params": {
+        "sl_squeeze": 0.75,
+        "sl_clip_around": 0.1,
+
+        "seg_min_area": 0.025,
+        "seg_black_th": 64,
+        "seg_dist_th": 0.75,
+        "seg_dist_vert_th": 0.5,
+    
+        "bs_left_clip": 0.4,
+        "bs_right_clip": 0.1,
+    
+        "xc_window": 10,
+        "xc_messy_th": 0.85,
+        "xc_right_clip": 0.1,
+    
+        "hs_wide_sf": 1.35,
+        "hs_th": 0.65
+    }
 }

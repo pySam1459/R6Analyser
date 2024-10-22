@@ -1,5 +1,5 @@
-from dataclasses import dataclass
-from typing import Any, Generator, Optional, TypeAlias
+from dataclasses import dataclass as odataclass
+from typing import Generator, Optional, TypeAlias
 
 from history import History, HistoryRound, KFRecord, TradedRecord
 from ignmatrix import Player
@@ -7,7 +7,7 @@ from utils import Timestamp, fmt_s
 from utils.enums import Team
 
 
-@dataclass
+@odataclass
 class PlayerRoundStats:
     puid: int
     rnd:  int
@@ -76,7 +76,7 @@ def __read_killfeed(round_stats: RoundStats_t, hround: HistoryRound) -> None:
             round_stats[record.player.uid].refrag_kills += 1
 
 
-@dataclass
+@odataclass
 class _Death:
     player: Player
     time: Timestamp
@@ -115,7 +115,7 @@ def compile_match_stats(history: History, players: list[Player]) -> MatchStats_t
     return [compile_round_stats(hround, players) for hround in history.get_rounds()]
 
 
-@dataclass
+@odataclass
 class PlayerMatchStats:
     puid:   int
     

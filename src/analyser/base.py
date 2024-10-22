@@ -1,23 +1,26 @@
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
-from time import time
-from typing import Callable, Optional, Generic, TypeVar, Type
+from time import perf_counter
+from pydantic.dataclasses import dataclass
+from typing import Callable, Generic, TypeVar, Type
 
 from assets import Assets
-from capture import Timer, InPersonRegions, SpectatorRegions, create_capture
+from capture import InPersonRegions, SpectatorRegions, create_capture
 from config import Config
 from history import History
 from ignmatrix import create_ignmatrix
 from ocr import OCREngine
-from settings import create_settings
-from utils.enums import Team
+from scheduler import create_scheduler
+from settings import Settings
+from utils.enums import Team, CaptureTimeType
 from utils.cli import AnalyserArgs
 from writer import create_writer
 from utils import *
-from utils.constants import ASSETS_PATH
 
 
-__all__ = ["Analyser", "State"]
+__all__ = [
+    "Analyser",
+    "State"
+]
 
 
 @dataclass
@@ -28,87 +31,124 @@ class State:
     bomb_planted: bool
 
 
+class RoundTimer:
+    def __init__(self, get_time_func: Callable[[], float]) -> None:
+        self._get_time = get_time_func
+
+        self._current_time: Timestamp
+        self._defuse_countdown_timer: Optional[float] = None
+
+    @property
+    def time(self) -> float:
+        return self._get_time()
+
+
+    @property
+    def ctime(self) -> Timestamp:
+        return self._current_time
+    
+    @ctime.setter
+    def ctime(self, value: Timestamp) -> None:
+        self._current_time = value
+    
+    @property
+    def defuse_countdown(self) -> Optional[float]:
+        return self._defuse_countdown_timer
+    
+    @defuse_countdown.setter
+    def defuse_countdown(self, value: Optional[float]) -> None:
+        self._defuse_countdown_timer = value
+
+
 T = TypeVar('T', InPersonRegions, SpectatorRegions)
 class Analyser(Generic[T], ABC):
     """Main class `Analyser`
     Operates the main inference loop `run` and records match/round information"""
 
-    def __init__(self, args: AnalyserArgs, config: Config, region_type: Type[T]):
+    def __init__(self, args: AnalyserArgs,
+                 config: Config,
+                 settings: Settings,
+                 region_type: Type[T]):
+
         self.args = args
         self.config = config
-        self.settings = create_settings(args.sets_path)
-        self._debug_print("config_keys", f"Config\n{self.config}")
+        self.settings = settings
+        self._debug_print("config_keys", f"Config\n{config}")
 
-        self.assets = Assets(ASSETS_PATH)
-        self.capture = create_capture(self.config, region_type)
-        self.ocr_engine = OCREngine(self.settings, self.assets)
+        self.assets = Assets(self.settings.assets_path)
+        self.capture = create_capture(config, region_type)
+        self.ocr_engine = OCREngine(config.ocr_params, settings, self.assets)
 
-        self.ign_matrix = create_ignmatrix(self.config)
+        self.ign_matrix = create_ignmatrix(config)
         self.history = History()
-        self.writer = create_writer(self.config)
-
-        self.test_and_checks()
-        if self.is_a_test:
-            return
+        self.writer = create_writer(config)
 
         self.running = False
         self.state = State(in_round=False, end_round=True, bomb_planted=False)
-        self.timer = Timer(self.capture.get_time, period=self.config.capture.period)
+        self.timer = RoundTimer(self.capture.get_time)
 
-        self.prog_bar = ProgressBar(add_postfix=self.config.debug.infer_time)
-        self.current_time: Timestamp ## TODO: move into self.timer
-        self.defuse_countdown_timer: Optional[float] = None        
+        self.prog_bar: ProgressBar
 
-        self.handlers = [
-            self._handle_scoreline,
-            self._handle_timer,
-            self._handle_feed,
-        ]
+        self.scheduler = create_scheduler(config, self.capture, {
+            "scoreline": self._handle_scoreline,
+            "timer":     self._handle_timer,
+            "killfeed":  self._handle_feed
+        })
 
     # ----- MAIN LOOP -----
     def run(self):
-        """Main program loop, calls the handlers every `capture.period` seconds"""
         self.running = True
         self._verbose_print(0, "Running...")
 
-        self.timer.update()
         while self.running:
-            if not self.timer.step():
-                continue
-
-            ## time.time() is correct here since its not in-game time
-            __infer_start = time()
-
-            regions = self.capture.next()
-            if regions is None:
+            start = perf_counter()
+            stop_signal = self.scheduler.tick()
+            if stop_signal:
                 self.stop()
                 return
-
-            for handler_func in self.handlers:
-                handler_func(regions)
-
-            self._debug_infertime(time() - __infer_start)
-            self.timer.update()
+            
+            if (infer_time := perf_counter() - start) > 0.001:
+                self._debug_postfix(f"{infer_time:.3f}s | {self.capture.get_time()}")
+                # self._debug_infertime(infer_time)
             self.prog_bar.refresh()
 
+
     ## ----- CHECK & TEST -----
+    def __ask_for_time(self) -> Timestamp:
+        while True:
+            timestamp_s = input("Timestamp >> ")
+            if not timestamp_s:
+                exit()
+
+            ts = Timestamp.from_str(timestamp_s)
+            if ts is not None:
+                return ts
+            else:
+                print("Invalid Timestamp")
+
     def test_and_checks(self) -> None:
-        self.is_a_test = self.args.check_regions or self.args.test_regions
-        if self.is_a_test:
-            self.capture.next()
+        if self.capture.time_type == CaptureTimeType.FPS:
+            dt = self.__ask_for_time().to_int()
+            regions = self.capture.next(dt)
+        else:
+            regions = self.capture.next()
+
+        if regions is None:
+            self._verbose_print(0, "Error Cannot capture regions!")
+            return
 
         if self.args.check_regions:
-            self._check_regions()
+            self._check_regions(regions)
 
         if self.args.test_regions:
-            self._test_regions()
+            self._test_regions(regions)
 
     @abstractmethod
-    def _check_regions(self) -> None:
+    def _check_regions(self, regions: T) -> None:
         ...
 
     @abstractmethod
-    def _test_regions(self) -> None:
+    def _test_regions(self, regions: T) -> None:
         ...
 
     ## ----- IN ROUND OCR FUNCTIONS -----
@@ -173,8 +213,11 @@ class Analyser(Generic[T], ABC):
     def _debug_print(self, key: str, *prompt) -> None:
         if self.config.__dict__.get(key, False):
             self.__print("Debug:", *prompt)
+    
+    def _debug_postfix(self, postfix: str) -> None:
+        self.prog_bar.set_postfix(postfix)
+        self.prog_bar.refresh()
 
     def _debug_infertime(self, dt: float) -> None:
         if self.config.debug.infer_time:
-            self.prog_bar.set_postfix(f"{dt:.3f}s")
-            self.prog_bar.refresh()
+            self._debug_postfix(f"{dt:.3f}s")

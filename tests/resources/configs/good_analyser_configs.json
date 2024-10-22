@@ -8,9 +8,7 @@
             "regions": {
                 "timer": [3752, 177, 159, 72],
                 "kf_line": [4273, 469, 410, 26]
-            },
-            "period": 0.5,
-            "scale_by": 2
+            }
         },
         "team0": [
             "Player1",
@@ -55,7 +53,7 @@
         }
     },
     {
-        "name": "ga_test3-custom",
+        "name": "ga_test3a-custom_defaults",
         "game_type": "custom",
         "spectator": false,
         "capture": {
@@ -63,9 +61,7 @@
             "regions": {
                 "timer": [3752, 177, 159, 72],
                 "kf_line": [4273, 469, 410, 26]
-            },
-            "period": 0,
-            "scale_by": 2
+            }
         },
         "team0": [
             "Player1",
@@ -84,6 +80,49 @@
         "max_rounds": 20,
         "rounds_per_side": 1,
         "overtime_rounds": 1
+    },
+    {
+        "name": "ga_test3b-custom_everything",
+        "game_type": "custom",
+        "spectator": false,
+        "capture": {
+            "mode": "screenshot",
+            "regions": {
+                "timer": [3752, 177, 159, 72],
+                "kf_line": [4273, 469, 410, 26]
+            }
+        },
+        "save": {
+            "path": "/path/to/somewhere.xlsx"
+        },
+        "scheduler": {
+            "scoreline": 5.0,
+            "timer": 0.25,
+            "killfeed": 0.5
+        },
+        "team0": [
+            "Player1",
+            "Player2",
+            "Player3",
+            "Player4",
+            "Player5"
+        ],
+        "team1": [
+            "Player6",
+            "Player7",
+            "Player8",
+            "Player9",
+            "Player10"
+        ],
+        "max_rounds": 20,
+        "rounds_per_side": 1,
+        "overtime_rounds": 1,
+        "defuser_timer": 30,
+
+        "ocr_params": {
+            "bs_left_clip": 0.35,
+            "hs_th": 0.7
+        }
     },
     {
         "name": "ga_test4a-ign_infer",

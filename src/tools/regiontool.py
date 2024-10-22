@@ -5,20 +5,21 @@ from abc import ABC, abstractmethod
 from enum import IntEnum
 from PIL import Image
 from PIL.ImageTk import PhotoImage
-from pyautogui import screenshot, size
-from pydantic import BaseModel
+from pyautogui import screenshot
 from pydantic.dataclasses import dataclass
-from screeninfo import get_monitors, Monitor
-from typing import Optional, TypeVar, Sequence
+from screeninfo import get_monitors
+from typing import Any, Optional, TypeVar, Generic, cast
 
 from config import RTConfig, RTRegionsCFG
 from config.region_models import TimerRegion, KFLineRegion
 from utils import BBox_t
 from utils.cli import AnalyserArgs
-from utils.enums import CaptureMode
+
+from .utils import *
 
 
 __all__ = ["RegionTool"]
+
 
 REGION_TOOL_INSTRUCTIONS = """
 --- REGION TOOL --- PRESS ESCAPE TO QUIT ---
@@ -58,65 +59,70 @@ class Keys(IntEnum):
     FOUR = 52
 
 
-T = TypeVar('T', bound=BaseModel)
-class RegionTool(ABC):
-    REGIONS = {Keys.ONE: "timer", Keys.TWO: "kf_line"}
-    COLOURS = {
+T = TypeVar('T', TimerRegion, KFLineRegion)
+class RegionTool(Generic[T], ABC):
+    REGION_LIST = ["timer", "kf_line"]
+    REGIONS     = {Keys.ONE: "timer", Keys.TWO: "kf_line"}
+    REGION_MAP  = {"timer": TimerRegion, "kf_line": KFLineRegion}
+    COLOURS     = {
         "active_drag": "yellow",
         "new_region": "orange",
         "selected": "red",
         "timer": "green",
         "kf_line": "blue"
     }
-    REGION_MAP: dict[str, T] = {"timer": TimerRegion, "kf_line": KFLineRegion}
 
     def __init__(self, config: RTConfig) -> None:
         self.config = config
+        self.running = True
 
-        self.size = size()
-        self.start_x = self.start_y = self.end_x = self.end_y = 0
-        self.sf = 1
-
+        self.start = None
         self.active_drag: Optional[BBox_t] = None
-        self.selected: Optional[str] = None
-        self.sels: dict[str, T] = self.__get_sels(config)
+        self.selected:    Optional[str]    = None
 
-        self.__photoimage = None
+        regions, params   = self.__load_config(config)
+        self.region_sels:   dict[str, T]      = regions
+        self.region_params: dict[str, Any]    = params
+        self.bbox_sels:     dict[str, BBox_t] = {}
+
+        self.__photo_ref = None
+
+    def __create_region_model(self, reg: str, rect: BBox_t, params: dict[str, Any]) -> T:
+        model = cast(T, RegionTool.REGION_MAP[reg])
+        return model.model_validate({reg: rect} | params)
+
+    def __load_config(self, config: RTConfig) -> tuple[dict[str, T], dict[str, Any]]:
+        if config.capture.regions is None:
+            return ({}, {})
+
+        region_config = config.capture.regions.model_dump(exclude_none=True)
+        params = {reg: value
+                     for reg, value in region_config.items()
+                     if reg not in RegionTool.REGION_LIST}
+        models = {reg: self.__create_region_model(reg, rect, params)
+                     for reg, rect in region_config.items()
+                     if reg in RegionTool.REGION_LIST}
+
+        return models, params
     
-    def __create_region_model(self, reg: str, rect: BBox_t) -> T:
-        return RegionTool.REGION_MAP[reg].model_validate({reg: rect})
-    
-    def __get_sels(self, config: RTConfig) -> dict[str, T]:
-        if config.capture.regions is not None:
-            regions = config.capture.regions.model_dump(exclude_none=True)
-            return {reg: self.__create_region_model(reg, rect)
-                    for reg, rect in regions.items()}
-        return {}
-    
-    def __set_sels(self, reg: str, rect: BBox_t) -> T:
-        rm = self.__create_region_model(reg, rect)
-        self.sels[reg] = rm
+    @property
+    @abstractmethod
+    def capture_rect(self) -> Rect_t:
+        ...
+
+    def __set_model(self, reg: str, rect: BBox_t) -> T:
+        rm = self.__create_region_model(reg, rect, self.region_params)
+        self.region_sels[reg] = rm
         return rm
 
-    @staticmethod
-    def new(args: AnalyserArgs, config: RTConfig) -> "RegionTool":
-        mode = config.capture.mode
-        match mode:
-            case CaptureMode.SCREENSHOT:
-                return RTScreenShot(args, config)
-            case CaptureMode.VIDEOFILE:
-                return RTVideoFile(args, config)
-            case _:
-                raise NotImplementedError(f"RegionTool does not support {mode} yet")
-
-    def _init(self, display: list[int]) -> None:
-        self.display = display
-
+    def init_window(self, width: int, height: int) -> None:
         self.root = tk.Tk()
-        self.root.geometry(f"{self.size[0]}x{self.size[1]}+0+0")
+        self.root.geometry(f"{width}x{height}+0+0")
         self.root.wm_title("Region Tool")
 
-        self.canvas = tk.Canvas(self.root, width=self.size[0], height=self.size[1])
+        self.canvas = tk.Canvas(self.root,
+                                width=width,
+                                height=height)
         self.canvas.pack(fill=tk.BOTH, expand=True)
 
         # Bind the mouse events
@@ -125,37 +131,27 @@ class RegionTool(ABC):
         self.canvas.bind("<ButtonRelease-1>", self.__on_release)  # Left mouse button release
         self.root.bind("<Key>", self.__on_keypress)
         self.root.bind("<Escape>", self.stop)
-    
+
     def run(self) -> None:
         print(REGION_TOOL_INSTRUCTIONS)
         self.root.mainloop()
 
-    def _set_image(self, image: np.ndarray) -> None:
-        h,w,_ = image.shape
-        sw,sh = self.size
-        ar, sar = w/h, sw/sh
-        
-        img = Image.fromarray(image)
-        if sw == w and sh == h:
-            self.sf = 1
-        elif ar == sar:
-            self.sf = sw/w
-            img = img.resize((sw, sh))
-        else:
-            ## to keep aspect ratio of original image, find scale-factor which fits to screensize
-            self.sf = min(sw/w, sh/h)
-            img = img.resize((int(w*self.sf), int(h*self.sf)))
+    def set_background(self, image: np.ndarray) -> None:
+        img_ = Image.fromarray(image)
 
-        self.__photoimage = PhotoImage(img)
-        self.canvas.create_image(0, 0, anchor=tk.NW, image=self.__photoimage)
+        self.__photo_ref = PhotoImage(img_)
+        self.canvas.delete("background")
+        self.canvas.create_image(0, 0, anchor=tk.NW, image=self.__photo_ref, tags="background")
         self.render()
 
     def render(self) -> None:
-        for reg_key, region in self.sels.items():
-            if reg_key not in RegionTool.REGION_MAP:
-                self.__draw_selection(region, reg_key, False)
-                continue
+        if not self.running:
+            return
 
+        for reg_key, bbox in self.bbox_sels.items():
+            self.__draw_selection(cast(BBox_t, bbox), reg_key, False)
+
+        for reg_key, region in self.region_sels.items():
             self.canvas.delete(reg_key)
             for model_attr, model_value in region.model_dump().items():
                 dashed = model_attr not in RegionTool.COLOURS
@@ -166,9 +162,12 @@ class RegionTool(ABC):
                         self.__draw_selection(el, reg_key, dashed)
 
     def __draw_selection(self, abs_rect: BBox_t, tag: str, dashed: bool) -> None:
-        x, y = abs_rect[0]-self.display[0], abs_rect[1]-self.display[1]
-        rect = (x, y, x + abs_rect[2], y + abs_rect[3])
-        self.__draw_rect(rect, tag, dashed)
+        left = abs_rect[0]-self.capture_rect[0]
+        top  = abs_rect[1]-self.capture_rect[1]
+        right = left + abs_rect[2]
+        bottom = top + abs_rect[3]
+
+        self.__draw_rect((left, top, right, bottom), tag, dashed)
 
     def __draw_rect(self, rect: BBox_t, tag: str, dashed = False) -> None:
         if tag != self.selected:
@@ -186,45 +185,67 @@ class RegionTool(ABC):
 
     def __on_click(self, event: tk.Event) -> None:
         """Handle the initial click by saving the start coordinates."""
-        self.start_x, self.start_y = event.x, event.y
+        self.start = Point(event.x, event.y)
 
     def __on_drag(self, event: tk.Event) -> None:
         """Handle the drag operation by updating the overlay with the region"""
-        self.end_x, self.end_y = event.x, event.y
-        rect = [self.start_x, self.start_y, self.end_x, self.end_y]
+        if self.start is None:
+            return
+
+        rect = (self.start.x, self.start.y, event.x, event.y)
         self.canvas.delete("active_drag")
         self.__draw_rect(rect, "active_drag")
 
     def __on_release(self, event: tk.Event) -> None:
         """Handle the release of the mouse button, close the program."""
-        self.end_x, self.end_y = event.x, event.y
-        tlx, tly = min(self.start_x, self.end_x), min(self.start_y, self.end_y)
-        brx, bry = max(self.start_x, self.end_x), max(self.start_y, self.end_y)
-        self.sels["new_region"] = (tlx+self.display[0], tly+self.display[1], brx-tlx, bry-tly)
+        if self.start is None:
+            return
+
+        offset = Point(self.capture_rect[0], self.capture_rect[1])
+        start  = self.start + offset
+        end    = Point(event.x, event.y) + offset
+
+        new_region_rect = start.rect(end)
+        self.bbox_sels["new_region"] = new_region_rect
         self.selected = "new_region"
+
+        self.start = None
+        self.canvas.delete("active_drag")
         self.render()
 
     def __on_keypress(self, event: tk.Event) -> None:
         if event.keycode in RegionTool.REGIONS:
-            reg = RegionTool.REGIONS[event.keycode]
-            if self.selected == "new_region":
-                self.__set_sels(reg, self.sels.pop("new_region"))
-                self.selected = None
-            elif reg in self.sels: ## TODO: bug regions exist, make new selection, set reg
-                self.selected = reg
-        
+            self.__key_regions(event)
         elif event.keycode == Keys.DELETE:
-            if self.selected is not None:
-                self.sels.pop(self.selected)
-                self.canvas.delete(self.selected)
-                self.selected = None
-
+            self.__key_delete()
         elif event.keycode == Keys.RETURN:
             self._on_return()
         elif event.keycode in Keys:
             self._on_arrows(event)
 
         self.render()
+
+    def __key_regions(self, event: tk.Event) -> None:
+        assert event.keycode in RegionTool.REGIONS
+
+        reg = RegionTool.REGIONS[event.keycode]
+        if self.selected == "new_region":
+            self.__set_model(reg, self.bbox_sels.pop("new_region"))
+            self.canvas.delete("new_region")
+            self.selected = None
+        elif reg in self.bbox_sels or reg in self.region_sels:
+            ## TODO: bug regions exist, make new selection, set reg
+            self.selected = reg    
+
+    def __key_delete(self) -> None:
+        if self.selected is not None:
+            if self.selected in self.bbox_sels:
+                self.bbox_sels.pop(self.selected)
+            elif self.selected in self.region_sels:
+                self.region_sels.pop(self.selected)
+
+            self.canvas.delete(self.selected)
+            self.selected = None
 
     @abstractmethod
     def _on_arrows(self, event: tk.Event) -> None:
@@ -236,28 +257,34 @@ class RegionTool(ABC):
         self.stop()
 
     def _save_config(self) -> None:
-        out_data = {reg: getattr(self.sels[reg], reg)
-                    for reg in RegionTool.REGIONS.values()
-                    if self.sels.get(reg, False)}
-        self.config.capture.regions = RTRegionsCFG.model_validate(out_data)
+        region_data = {reg_key: getattr(self.region_sels[reg_key], reg_key)
+                    for reg_key in self.region_sels}
+
+        self.config.capture.regions = RTRegionsCFG.model_validate(region_data)
         with open(self.config.config_path, "w") as f_out:
-            f_out.write(self.config.model_dump_json(indent=4, exclude_none=True))
+            config_data = self.config.model_dump_json(indent=4, exclude_none=True)
+            f_out.write(config_data)
 
     def stop(self, *_) -> None:
+        self.running = False
         self.root.destroy()
 
 
 class RTScreenShot(RegionTool):
     def __init__(self, args: AnalyserArgs, config: RTConfig) -> None:
         super(RTScreenShot, self).__init__(config)
+        
         monitors = get_monitors()
-        self.monitor: Monitor = monitors[args.display-1]
+        display = monitors[args.display-1]
+        self._capture_rect = monitor_rect(display)
+        ss_img = screenshot(region=self._capture_rect, allScreens=True)
 
-        display = [self.monitor.x, self.monitor.y, self.monitor.width, self.monitor.height]
-        self.image = np.array(screenshot(region=display, allScreens=True)) # type: ignore
-
-        self._init(display)
-        self._set_image(self.image)
+        self.init_window(display.width, display.height)
+        self.set_background(np.array(ss_img))
+    
+    @property
+    def capture_rect(self) -> Rect_t:
+        return self._capture_rect
 
     def _on_arrows(self, _: tk.Event) -> None:
         ...
@@ -283,16 +310,21 @@ class RTVideoFile(RegionTool):
         "fps": cv2.CAP_PROP_FPS
     }
 
-    def __init__(self, args: AnalyserArgs, config: RTConfig) -> None:
-        super(RTVideoFile, self).__init__(config)    
-        self.args = args
-
-        display = [0, 0, self.size.width, self.size.height]
-        self._init(display)
+    def __init__(self, config: RTConfig) -> None:
+        super(RTVideoFile, self).__init__(config)
 
         self.frame_idx = 0
-        self.__video = self.new_video(self.config)
-        self.image = self.__set_frame(self.frame_idx)
+        self.video = self.new_video(self.config)
+        self.image = self.__get_frame(self.video, self.frame_idx)
+
+        assert self.image is not None, "Cannot get video frame"
+        self._capture_rect = (0, 0, self.image.shape[1], self.image.shape[0])
+        self.init_window(self.image.shape[1], self.image.shape[0])
+        self.set_background(self.image)
+    
+    @property
+    def capture_rect(self) -> Rect_t:
+        return self._capture_rect
 
     def new_video(self, config: RTConfig) -> cv2.VideoCapture:
         if config.capture.file is None:
@@ -300,8 +332,8 @@ class RTVideoFile(RegionTool):
 
         try:
             video = cv2.VideoCapture(str(config.capture.file))
-            self.vdets = VideoDetails(**{k: int(video.get(pid))
-                                        for k,pid in RTVideoFile.VIDEO_PROPS.items()})
+            vid_dets_dict = {k: int(video.get(pid)) for k,pid in RTVideoFile.VIDEO_PROPS.items()}
+            self.vdets = VideoDetails(**vid_dets_dict)
         except Exception as e:
             raise ValueError(f"An Error occurred when attempting to read from video file\n{e}")
 
@@ -316,9 +348,9 @@ class RTVideoFile(RegionTool):
         return cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
     def __set_frame(self, frame_idx: int) -> Optional[np.ndarray]:
-        image = self.__get_frame(self.__video, frame_idx)
+        image = self.__get_frame(self.video, frame_idx)
         if image is not None:
-            self._set_image(image)
+            self.set_background(image)
         return image
 
     def _on_arrows(self, event: tk.Event) -> None:
@@ -343,7 +375,7 @@ class RTVideoFile(RegionTool):
         self.image = self.__set_frame(self.frame_idx)
     
     def stop(self, *_) -> None:
-        if self.__video:
-            self.__video.release()
+        if self.video:
+            self.video.release()
         
         super().stop()

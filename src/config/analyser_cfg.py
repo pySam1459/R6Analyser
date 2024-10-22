@@ -2,9 +2,10 @@ import os
 from collections import Counter
 from functools import partial
 from pathlib import Path
-from pydantic import BaseModel, Field, field_validator, computed_field, model_validator, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, field_validator, computed_field, model_validator
 from typing import Any, Optional, Self, Type
 
+from ocr import OCRParams
 from settings import Settings
 from utils import load_file, recursive_union, gen_default_name, GameTypeRoundMap, BBox_t
 from utils.enums import GameType, CaptureMode, IGNMatrixMode, Team, SaveFileType
@@ -23,7 +24,7 @@ __all__ = [
 class DebugCfg(BaseModel):
     config_keys:    bool = False
     red_percentage: bool = False
-    headshot_perc:  bool = False
+    headshot_match: bool = False
     infer_time:     bool = False
 
     model_config = ConfigDict(extra="ignore")
@@ -37,20 +38,25 @@ class SaveCfg(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
 
-class CaptureDefaults(BaseModel):
-    scale_by: float
-    period:  float
+class SchedulerCfg(BaseModel):
+    scoreline: int = Field(default=1000, ge=0.0)
+    timer:     int = Field(default=500,  ge=0.0)
+    killfeed:  int = Field(default=300,  ge=0.0)
+
+    model_config = ConfigDict(extra="ignore")
 
 
 class Defaults(BaseModel):
-    capture: CaptureDefaults
-    save:    SaveCfg
+    save:      SaveCfg
+    scheduler: SchedulerCfg
 
     max_rounds_map:      GameTypeRoundMap
     rounds_per_side_map: GameTypeRoundMap
     overtime_rounds_map: GameTypeRoundMap
 
     defuser_timer: int
+
+    ocr_params:    OCRParams
 
     model_config = ConfigDict(extra="ignore")
 
@@ -64,9 +70,6 @@ class CaptureParser(BaseModel):
     regions: RegionsParser
     file:    Optional[Path] = None
     url:     Optional[str] = None
-
-    scale_by: float = Field(default=2, ge=0.5, le=8)
-    period:   float = Field(default=0.5, ge=0.0, le=2.0)
 
     model_config = ConfigDict(extra="forbid")
 
@@ -110,8 +113,12 @@ class SaveParser(BaseModel):
     def validate_path(self) -> Self:
         if self.path is None:
             return self
-        if not self.path.parent.exists():
-            raise ValueError(f"Directory {self.path.parent} does not exist!")
+
+        parent = self.path.parent
+        if not parent.exists() and parent.name == "saves":
+            parent.mkdir()
+        elif not parent.exists():
+            raise ValueError(f"Directory {parent} does not exist!")
         return self
     
     @model_validator(mode="after")
@@ -125,8 +132,8 @@ class SaveParser(BaseModel):
 
 
 class ConfigParser(BaseModel):
-    name:        Optional[str]         = Field(default=None, min_length=1, max_length=64)
-    config_path: Path
+    name:                Optional[str] = Field(default=None, min_length=1, max_length=64)
+    config_path:         Path
 
     ## required
     game_type:           GameType
@@ -135,7 +142,8 @@ class ConfigParser(BaseModel):
     team0:               list[str]     = Field(default_factory=list, min_length=0, max_length=5)
     team1:               list[str]     = Field(default_factory=list, min_length=0, max_length=5)
 
-    save: SaveParser
+    save:                SaveParser
+    scheduler:           SchedulerCfg
     
     ## inferred/optional
     max_rounds:          Optional[int] = Field(default=None, ge=1, le=25)
@@ -148,10 +156,12 @@ class ConfigParser(BaseModel):
     rounds_per_side_map: GameTypeRoundMap
     overtime_rounds_map: GameTypeRoundMap
 
-    defuser_timer: int
+    defuser_timer:       int
+
+    ocr_params:          OCRParams
 
     ## debug
-    debug: DebugCfg
+    debug:               DebugCfg
 
     model_config = ConfigDict(extra="forbid", use_enum_values=True)
 
@@ -224,6 +234,7 @@ class RegionsCfg(BaseModel):
 
     num_kf_lines: int
     kf_buf:       int
+    kf_buf_mult:  float
 
     team1_score:  BBox_t
     team2_score:  BBox_t
@@ -239,9 +250,6 @@ class CaptureCfg(BaseModel):
     file:    Optional[Path] = None
     url:     Optional[str] = None
 
-    scale_by: float
-    period:  float
-
     model_config = ConfigDict(extra="ignore")
 
 
@@ -256,6 +264,7 @@ class Config(BaseModel):
     team1:             list[str]
 
     save:              SaveCfg
+    scheduler:         SchedulerCfg
 
     ign_mode:          IGNMatrixMode = Field(exclude=True)
 
@@ -263,9 +272,9 @@ class Config(BaseModel):
     max_rounds:        int           = Field(exclude=True)
     rounds_per_side:   int           = Field(exclude=True)
     overtime_rounds:   int           = Field(exclude=True)
-
     defuser_timer:     int           = Field(exclude=True)
 
+    ocr_params:        OCRParams     = Field(exclude=True)
     debug:             DebugCfg      = Field(exclude=True)
 
     model_config = ConfigDict(extra="ignore", use_enum_values=True)
@@ -285,7 +294,10 @@ def validate_analyser_dict(cfg: dict[str, Any],
                            df:  dict[str, Any],
                            dbg: dict[str, Any]) -> Config:
 
+    ## config propreties recursively insert/replace into defaults
     cfg = recursive_union(df, cfg)
+
+    ## debug props are unioned on top
     cfg_parsed = ConfigParser.model_validate(cfg | dbg)
     return Config.model_validate(cfg_parsed.model_dump(exclude_none=True))
 

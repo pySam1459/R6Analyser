@@ -4,7 +4,9 @@ from re import compile
 
 IGN_REGEX = compile(r"^[0-9a-zA-Z\-_\.]{2,18}$")
 SOFTWARE_KEY_PATTERN = r"^[a-f0-9]{64}$"
-SCORELINE_PATTERN = r"^\d+$"
+SCORELINE_PATTERN = r"^\d{1,2}$"
+TIMESTAMP_PATTERN = r"^\d+:\d{2}$"
+NUMBER_PATTERN = r"^\d+$"
 
 __SETTINGS_PATH       = Path("settings")
 DEBUG_PATH            = __SETTINGS_PATH / "debug.json"
@@ -34,13 +36,9 @@ TIMER_CHARLIST = DIGITS + ":."
 IGN_CHARLIST   = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-_"
 
 ## IGNMAT
-IM_LEVEN_THRESHOLD = 0.65 ## threshold for Levenshtein distance to determine equality
+IM_LEVEN_THRESHOLD = 0.7 ## threshold for Levenshtein distance to determine equality
 IM_TEAM_DET_THRESHOLD = 3
 
-
-LANGUAGES = [
-    "en"
-]
 
 KILLFEED_PHRASES = [
     "has found the bomb",

@@ -5,6 +5,7 @@ from typing import Optional, Self
 from settings import Settings
 from utils import BBox_t
 from utils.enums import CaptureMode, GameType
+
 from .utils import validate_config
 
 
@@ -15,7 +16,15 @@ __all__ = [
 ]
 
 
-class RTRegionsCFG(BaseModel):
+class RTRegionParams(BaseModel):
+    num_kf_lines: Optional[int] = None
+    kf_buf:       Optional[int] = None
+    kf_buf_mult:  Optional[float] = None
+
+    model_config = ConfigDict(extra="ignore")
+
+
+class RTRegionsCFG(RTRegionParams):
     timer:   Optional[BBox_t] = None
     kf_line: Optional[BBox_t] = None
 
@@ -26,6 +35,9 @@ class RTCaptureCFG(BaseModel):
     mode:    CaptureMode
     regions: Optional[RTRegionsCFG] = None
     file:    Optional[Path] = None
+
+    scale_by: Optional[float] = None
+    period:   Optional[float] = None
 
     model_config = ConfigDict(extra="forbid")
 

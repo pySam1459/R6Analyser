@@ -28,19 +28,26 @@ class RegionBBoxes(BaseModel):
     @property
     def max_bounds(self) -> BBox_t:
         """This field is the bbox containing all other bounding boxes"""
-        tl, br = [inf, inf], [-inf, -inf] ## [left,top],[right,bottom]
-        single_boxes = [v for v in self.__dict__.values() if isinstance(v, tuple)]
-        list_boxes  = [el for v in self.__dict__.values() if isinstance(v, list) for el in v]
+        top, left, bot, right = inf, inf, -inf, -inf
+        single_boxes = [bbox
+                        for bbox in self.__dict__.values()
+                        if isinstance(bbox, tuple)]
+        list_boxes  = [bbox
+                       for bbox_list in self.__dict__.values()
+                       for bbox in bbox_list
+                       if isinstance(bbox_list, list) and isinstance(bbox_list[0], tuple)]
 
         all_boxes = single_boxes + list_boxes
         if len(all_boxes) == 0:
             raise ValueError("No boxes defined")
 
         for bbox in all_boxes:
-            tl[:] = [min(tl[0], bbox[0]), min(tl[1], bbox[1])]
-            br[:] = [max(br[0], bbox[0]+bbox[2]), max(br[1], bbox[1]+bbox[3])]
+            top   = min(top,   bbox[0])
+            left  = min(left,  bbox[1])
+            bot   = max(bot,   bbox[1]+bbox[3])
+            right = max(right, bbox[0]+bbox[2])
         
-        return cast(BBox_t, (tl[0], tl[1], br[0]-tl[0], br[1]-tl[1]))
+        return cast(BBox_t, (top, left, right-left, bot-top))
 
 
 def offset_bbox(bbox: BBox_t, offset: tuple[int,int]) -> BBox_t:

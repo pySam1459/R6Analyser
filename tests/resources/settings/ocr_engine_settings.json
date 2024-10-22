@@ -1,6 +1,4 @@
 {
-    "ocr_engine": "tesserocr",
     "tessdata": "./tessdata",
-    "language": "en",
     "config_list_derive": true
 }

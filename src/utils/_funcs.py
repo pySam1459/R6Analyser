@@ -1,9 +1,12 @@
 import json
 import random
+import cv2
+import numpy as np
 from colorsys import hsv_to_rgb
 from datetime import datetime
 from pathlib import Path
-from typing import Any, TypeVar
+from sys import exit
+from typing import Any, TypeVar, cast
 
 
 # ----- HELPER FUNCTIONS -----
@@ -91,6 +94,21 @@ def perc_s(n: int|float, d: int|float) -> float:
 def fmt_s(*args):
     return str2f(perc_s(*args))
 
+
+def resize_height(image: np.ndarray, height: int, inter = cv2.INTER_LINEAR) -> np.ndarray:
+    h,w = image.shape
+    dim = (int(w*height/h), height)
+    return cast(np.ndarray, cv2.resize(image, dim, interpolation=inter))
+
+def squeeze_image(image: np.ndarray, factor: float) -> np.ndarray:
+    return cv2.resize(image, None, fx=factor, fy=1.0, interpolation=cv2.INTER_CUBIC)
+
+def clip_around(image: np.ndarray, factor: float) -> np.ndarray:
+    assert factor < 0.5
+    h,w,*_ = image.shape
+    wbuf = int(w*factor)
+    hbuf = int(h*factor)
+    return image[hbuf:-hbuf,wbuf:-wbuf]
 
 # bounding box functions
 def rect_collision(r1: list[int], r2: list[int]) -> bool:

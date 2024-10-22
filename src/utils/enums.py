@@ -1,4 +1,4 @@
-from enum import Enum, IntEnum
+from enum import Enum, IntEnum, auto
 
 
 class IGNMatrixMode(str, Enum):
@@ -16,6 +16,11 @@ class CaptureMode(str, Enum):
     VIDEOFILE  = "videofile"
     YOUTUBE    = "youtube"
     TWITCH     = "twitch"
+
+
+class CaptureTimeType(Enum):
+    TIME = auto()
+    FPS = auto()
 
 
 class WinCondition(str, Enum):

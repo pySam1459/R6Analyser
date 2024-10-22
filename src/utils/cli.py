@@ -25,8 +25,8 @@ class CliArgs(BaseModel):
                                           pattern=SOFTWARE_KEY_PATTERN,
                                           validation_alias="key",
                                           exclude=True)
-    verbose:  int       = Field(default=1, ge=0, le=3)
-    sets_path: Path     = Field(default=SETTINGS_PATH, validation_alias="settings")
+    verbose:       int  = Field(default=1, ge=0, le=3)
+    sets_path:     Path = Field(default=SETTINGS_PATH, validation_alias="settings")
 
     check_regions: bool
     test_regions:  bool
@@ -37,6 +37,15 @@ class CliArgs(BaseModel):
     display:       int  = 0
 
     model_config = ConfigDict(extra="ignore")
+
+    @property
+    def is_test(self) -> bool:
+        return self.check_regions or self.test_regions
+    
+    @property
+    def is_tool(self) -> bool:
+        return self.region_tool
+
 
     @field_validator("config_path", mode="before")
     @classmethod

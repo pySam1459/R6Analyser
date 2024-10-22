@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass as odataclass
 from Levenshtein import ratio
 from typing import Optional
 
@@ -7,7 +7,7 @@ from utils.enums import Team
 from .player import Player, FixedPlayer
 
 
-@dataclass
+@odataclass
 class Teams:
     team0: list[Player]
     team1: list[Player]

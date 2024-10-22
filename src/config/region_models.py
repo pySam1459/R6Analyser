@@ -1,7 +1,8 @@
-from pydantic import BaseModel, ConfigDict, Field, field_validator, computed_field
-from typing import Any
+from pydantic import BaseModel, ConfigDict, Field, computed_field
 
 from utils import BBox_t
+
+from .utils import InBBox_t
 
 
 __all__ = [
@@ -10,23 +11,10 @@ __all__ = [
 ]
 
 
-@classmethod
-def validate_bounding_box(cls, v: Any):
-    if v is None:
-        return v
-    if not isinstance(v, tuple) or len(v) != 4 or not all(isinstance(el, int) for el in v):
-        raise ValueError("must be of length=4 and type Tuple[int, int, int, int]")
-    if any(el < 0 for el in v):
-        raise ValueError("elements must be positive integers")
-    return v
-
-
 class TimerRegion(BaseModel):
-    timer:        BBox_t
+    timer: InBBox_t
 
-    model_config = ConfigDict(extra="forbid")
-
-    validate_timer_bbox = field_validator("timer")(validate_bounding_box)
+    model_config = ConfigDict(extra="ignore")
 
     @computed_field
     @property
@@ -50,21 +38,19 @@ class TimerRegion(BaseModel):
 
 
 class KFLineRegion(BaseModel):
-    kf_line:      BBox_t
+    kf_line:      InBBox_t
 
     num_kf_lines: int   = Field(default=3,   ge=0, le=4)
     kf_buf:       int   = Field(default=4,   ge=0)
     kf_buf_mult:  float = Field(default=1.4, ge=1.0)
 
-    model_config = ConfigDict(extra="forbid")
-
-    validate_kf_line_bbox = field_validator("kf_line")(validate_bounding_box)
+    model_config = ConfigDict(extra="ignore")
 
     @computed_field
     @property
     def kf_lines(self) -> list[BBox_t]:
         x, y, w, h = self.kf_line
         return [
-            (x, y - int(h * self.kf_buf_mult * i) - self.kf_buf, w, h + self.kf_buf * 2)
+            (x, y - int(h * self.kf_buf_mult * i), w, h)
             for i in range(self.num_kf_lines)
         ]

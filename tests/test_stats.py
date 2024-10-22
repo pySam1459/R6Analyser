@@ -25,7 +25,7 @@ def parse_kfrecord(el: dict[str,Any], player_map: PlayerMap_t) -> KFRecord:
     assert "player" in el and "target" in el and "time" in el
     return KFRecord(player_map[el["player"]],
                     player_map[el["target"]],
-                    Timestamp.model_validate(el["time"]),
+                    Timestamp(**el["time"]),
                     el.get("headshot", False))
 
 
