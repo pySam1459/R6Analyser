@@ -1,11 +1,13 @@
 from abc import ABC, abstractmethod
-from typing import Optional, Sequence
+from typing import Optional
 
 from utils.enums import IGNMatrixMode, Team
-from .utils import Player, TeamTable
+
+from .player import Player
+from .utils import TeamTable, Teams, get_chars
 
 
-__all__ = [ "IGNMatrix" ]
+__all__ = ["IGNMatrix"]
 
 
 class IGNMatrix(ABC):
@@ -20,6 +22,8 @@ class IGNMatrix(ABC):
         self._team0 = team0
         self._team1 = team1
 
+        self._charlist = get_chars(team0 + team1)
+
         self._ttable = TeamTable({ign: Team.TEAM0 for ign in team0} | {ign: Team.TEAM1 for ign in team1})
 
     @property
@@ -33,20 +37,23 @@ class IGNMatrix(ABC):
     @property
     def mode(self) -> IGNMatrixMode:
         return self.__mode
+    
+    @property
+    def charlist(self) -> str:
+        return self._charlist
+
 
     @abstractmethod
     def get(self, pign: str) -> Optional[Player]:
-        ...
+        """Returns the most-likely Player instance for a given pign"""
     
     @abstractmethod
-    def get_teams(self) -> tuple[Sequence[Player], Sequence[Player]]:
-        """Returns a a pair of lists containing the valid players"""
-        ...
+    def get_teams(self) -> Teams:
+        """Returns a Teams object containing 2 lists of Player instances"""
     
     @abstractmethod
     def evaluate(self, pign: str) -> float:
-        ...
+        """Returns a eval score for a given pign, eval'd against the ttable and matrix"""
     
     def update_mats(self, pign: str, tign: str) -> None:
         """Records pign killing t(arget)ign, used by IGNMatrixInfer"""
-        ...

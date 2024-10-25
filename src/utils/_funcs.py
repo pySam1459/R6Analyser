@@ -1,9 +1,12 @@
+import json
 import random
+import cv2
+import numpy as np
 from colorsys import hsv_to_rgb
 from datetime import datetime
-from json import load as __json_load
 from pathlib import Path
-from typing import Any, TypeVar
+from sys import exit
+from typing import Any, TypeVar, cast
 
 
 # ----- HELPER FUNCTIONS -----
@@ -27,20 +30,23 @@ def load_json(file_path: Path):
 
     try:
         with open(file_path, "r", encoding="utf-8") as f_in:
-            return __json_load(f_in)
+            return json.load(f_in)
 
     except Exception as e:
         exit(f"JSON ERROR: Exception occurred when trying to open {file_path}!\n{str(e)}")
 
 
 # non-builtin functions
+T = TypeVar('T')
 def ndefault(value: Any, default: Any) -> Any:
     """return value is None ? default : value"""
     if value is None: return default
     return value
 
-Ta = TypeVar('Ta')
-def transpose(matrix: list[list[Ta]]) -> list[list[Ta]]:
+def filter_none(arr: list[T | None]) -> list[T]:
+    return [el for el in arr if el is not None]
+
+def transpose(matrix: list[list[T]]) -> list[list[T]]:
     """Transposes a 2d matrix"""
     return [list(row) for row in zip(*matrix)]
 
@@ -61,16 +67,14 @@ def gen_random_colour() -> tuple[int,int,int]:
     r,g,b = hsv_to_rgb(h, s, v)
     return (int(r*255), int(g*255), int(b*255))
 
-def argmax(x):
+def argmax(arr: list[Any]) -> int:
     """https://github.com/cjohnson318/til/blob/main/python/argmax-without-numpy.md"""
-    return max(range(len(x)), key=lambda i: x[i])
+    return max(range(len(arr)), key=lambda i: arr[i])
 
-Tb = TypeVar('Tb')
-def flatten(arr: list[list[Tb]]) -> list[Tb]:
+def flatten(arr: list[list[T]]) -> list[T]:
     return [el for inner in arr for el in inner]
 
-Tc = TypeVar('Tc')
-def listsub(src: list[Tc], sub: list[Tc]) -> list[Tc]:
+def listsub(src: list[T], sub: list[T]) -> list[T]:
     """Removes the elements in sub from src"""
     return [v for v in src if v not in sub]
 
@@ -81,12 +85,30 @@ def str2f(v: float) -> str:
     """Converts v to a 2f rounded string"""
     return f"{v:.2f}"
 
-def div_s(n: int|float, d: int|float) -> float:
+def perc_s(n: int|float, d: int|float) -> float:
     """Performs n / d, returning 0.0 on d == 0"""
     if d == 0:
         return 0.0
-    return n / d
+    return n / d * 100.0
 
+def fmt_s(*args):
+    return str2f(perc_s(*args))
+
+
+def resize_height(image: np.ndarray, height: int, inter = cv2.INTER_LINEAR) -> np.ndarray:
+    h,w = image.shape
+    dim = (int(w*height/h), height)
+    return cast(np.ndarray, cv2.resize(image, dim, interpolation=inter))
+
+def squeeze_image(image: np.ndarray, factor: float) -> np.ndarray:
+    return cv2.resize(image, None, fx=factor, fy=1.0, interpolation=cv2.INTER_CUBIC)
+
+def clip_around(image: np.ndarray, factor: float) -> np.ndarray:
+    assert factor < 0.5
+    h,w,*_ = image.shape
+    wbuf = int(w*factor)
+    hbuf = int(h*factor)
+    return image[hbuf:-hbuf,wbuf:-wbuf]
 
 # bounding box functions
 def rect_collision(r1: list[int], r2: list[int]) -> bool:
@@ -115,6 +137,11 @@ def rect_proximity(r1: list[int], r2: list[int]) -> float:
 def point_in_rect(point: list[int], rect: list[int]) -> bool:
     """Checks if a 2d point is inside a rectangle"""
     return rect[0] <= point[0] <= rect[0]+rect[2] and rect[1] <= point[1] <= rect[1]+rect[3]
+
+
+def compute_rect_ratio(rect1: list[int], rect2: list[int]) -> float:
+    """Computes Area(rect1) / Area(rect2)"""
+    return (rect1[2] * rect1[3]) / (rect2[2] * rect2[3])
 
 
 def compute_iou(rect1: list[int], rect2: list[int]) -> float:

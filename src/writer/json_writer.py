@@ -20,4 +20,4 @@ class JsonWriter(Writer):
         """Writes the history to a json file"""
 
         with open(self._save_path, "w") as f_out:
-                json.dump(history.model_dump(), f_out, indent=4)
+            json.dump(history.model_dump(), f_out, indent=4)

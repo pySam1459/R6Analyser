@@ -1,13 +1,4 @@
-from enum import Enum, IntEnum
-
-
-__all__ = [
-    "IGNMatrixMode",
-    "CaptureMode",
-    "WinCondition",
-    "Team",
-    "GameType",
-]
+from enum import Enum, IntEnum, auto
 
 
 class IGNMatrixMode(str, Enum):
@@ -23,6 +14,13 @@ class IGNMatrixMode(str, Enum):
 class CaptureMode(str, Enum):
     SCREENSHOT = "screenshot"
     VIDEOFILE  = "videofile"
+    YOUTUBE    = "youtube"
+    TWITCH     = "twitch"
+
+
+class CaptureTimeType(Enum):
+    TIME = auto()
+    FPS = auto()
 
 
 class WinCondition(str, Enum):
@@ -38,6 +36,11 @@ class Team(IntEnum):
     TEAM0   =  0
     TEAM1   =  1
 
+    @property
+    def opp(self) -> 'Team':
+        assert self != Team.UNKNOWN
+        return Team(1-self.value)
+
 
 class GameType(str, Enum):
     COMP       = "comp"
@@ -45,10 +48,6 @@ class GameType(str, Enum):
     RANKED     = "ranked"
     STANDARD   = "standard"
     CUSTOM     = "custom"
-
-
-class OCREngineType(str, Enum):
-    EASYOCR = "easyocr"
 
 
 class SaveFileType(str, Enum):

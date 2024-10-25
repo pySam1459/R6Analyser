@@ -1,0 +1,55 @@
+{
+    "save": {
+        "file_type": "xlsx",
+        "save_dir": "saves"
+    },
+    "scheduler": {
+        "scoreline": 1000,
+        "timer": 1000,
+        "killfeed": 500
+    },
+
+    "max_rounds_map": {
+        "comp": 15,
+        "scrim": 12,
+        "ranked": 9,
+        "standard": 7,
+        "custom": -1
+    },
+    "rounds_per_side_map": {
+        "comp": 6,
+        "scrim": 6,
+        "ranked": 3,
+        "standard": 3,
+        "custom": -1
+    },
+    "overtime_rounds_map": {
+        "comp": 3,
+        "scrim": 0,
+        "ranked": 3,
+        "standard": 1,
+        "custom": -1
+    },
+
+    "defuser_timer": 45,
+
+    "ocr_params": {
+        "sl_scalex": 0.4,
+        "sl_scaley": 0.5,
+        "sl_clip_around": 0.1,
+
+        "hue_std": 0.0025,
+        "sat_std": 0.02,
+        "col_zscore": 3,
+
+        "seg_min_area": 0.025,
+        "seg_mask_th": 0.25,
+        "seg_min_width": 0.1,
+        "seg_black_th": 64,
+        "seg_dist_th": 0.75,
+        "seg_dist_vert_th": 0.5,
+    
+        "hs_wide_sf": 1.35,
+        "hs_th": 0.65
+    }
+}

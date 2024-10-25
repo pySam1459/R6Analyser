@@ -25,6 +25,10 @@ class Writer(ABC):
     @property
     def type(self) -> SaveFileType:
         return self._type
+    
+    @property
+    def save_path(self) -> Path:
+        return self._save_path
 
     @abstractmethod
     def write(self, history: History, ignmat: IGNMatrix) -> None:

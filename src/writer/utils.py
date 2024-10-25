@@ -42,11 +42,7 @@ def default_save_file(suffix="xlsx") -> str:
 
 
 def get_players(hround: HistoryRound, ignmat: IGNMatrix) -> list[Player]:
-    team0, team1 = ignmat.get_teams()
-    if hround.atk_side == Team.TEAM1:
-        return team1 + team0
-    else: ## if atk_side == Team0 or Unknown
-        return team0 + team1
+    return ignmat.get_teams().combine(hround.atk_side)
 
 def is_valid_kill(record: KFRecord) -> bool:
     return record.player.team != record.target.team

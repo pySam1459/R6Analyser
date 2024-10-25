@@ -1,30 +1,43 @@
 from pathlib import Path
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from typing import Optional, Self
 
 from settings import Settings
 from utils import BBox_t
 from utils.enums import CaptureMode, GameType
+
 from .utils import validate_config
 
 
 __all__ = [
     "RTConfig",
+    "RTRegionsCFG",
     "create_regiontool_config"
 ]
 
 
-class RTRegionsCFG(BaseModel):
+class RTRegionParams(BaseModel):
+    num_kf_lines: Optional[int] = None
+    kf_buf:       Optional[int] = None
+    kf_buf_mult:  Optional[float] = None
+
+    model_config = ConfigDict(extra="ignore")
+
+
+class RTRegionsCFG(RTRegionParams):
     timer:   Optional[BBox_t] = None
     kf_line: Optional[BBox_t] = None
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")
 
 
 class RTCaptureCFG(BaseModel):
     mode:    CaptureMode
     regions: Optional[RTRegionsCFG] = None
     file:    Optional[Path] = None
+
+    scale_by: Optional[float] = None
+    period:   Optional[float] = None
 
     model_config = ConfigDict(extra="forbid")
 
@@ -40,8 +53,9 @@ class RTCaptureCFG(BaseModel):
 
 
 class RTConfig(BaseModel): ## Region tool config
-    config_path: Path
+    config_path: Path = Field(exclude=True)
 
+    name:        Optional[str] = None
     game_type:   GameType
     spectator:   bool
     capture:     RTCaptureCFG

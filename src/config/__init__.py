@@ -4,14 +4,15 @@ from typing import cast
 from settings import Settings
 from utils.cli import AnalyserArgs
 from .analyser_cfg import Config, create_analyser_config
-from .regiontool_cfg import RTConfig, create_regiontool_config
+from .regiontool_cfg import RTConfig, RTRegionsCFG, create_regiontool_config
 
 
 __all__ = [
     "create_config",
     "create_config_list",
     "Config",
-    "RTConfig"
+    "RTConfig",
+    "RTRegionsCFG"
 ]
 
 

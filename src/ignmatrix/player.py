@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from enum import Enum, auto
-from Levenshtein import ratio as leven_ratio
+from Levenshtein import ratio
 from typing import Optional, Callable, Self
 
 from utils.constants import IM_TEAM_DET_THRESHOLD
@@ -118,7 +118,7 @@ class AdaptivePlayer(Player):
         self.__noccr += 1
 
     def fuzzy_contains(self, pign: str, threshold: float) -> bool:
-        return any(map(lambda var: leven_ratio(pign, var) >= threshold, self.__names))
+        return any(map(lambda var: ratio(pign, var) >= threshold, self.__names))
 
     def add(self, pign: str, threshold: float) -> bool:
         if pign in self.__names:
@@ -135,7 +135,7 @@ class AdaptivePlayer(Player):
         return pign in self.__names or self.fuzzy_contains(pign, threshold)
     
     def evaluate(self, pign: str) -> float:
-        return float(pign in self.__names) or max([leven_ratio(pign, var) for var in self.__names])
+        return float(pign in self.__names) or max([ratio(pign, var) for var in self.__names])
     
     ## --- Opps ---
     def inc_oppteam(self, oppteam: Team, td_callback: Callable[[Self], None], count = 1) -> None:

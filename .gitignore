@@ -4,9 +4,12 @@ saves/
 images/
 archive/
 
+tessdata/
+
 my-tests/
 .coverage
 .pytest_cache/
+tests/out/
 
 .vscode/
 
@@ -15,6 +18,8 @@ build/
 dist/
 
 .env
+SOFTWARE_KEY
+
 configs/*.json
 !example.json
 

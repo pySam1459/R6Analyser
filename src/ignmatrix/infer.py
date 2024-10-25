@@ -1,12 +1,11 @@
-from Levenshtein import ratio as leven_ratio
-from typing import Optional, Sequence
+from typing import Optional
 
-from utils.constants import IM_LEVEN_THRESHOLD, IM_TEAM_DET_THRESHOLD
+from utils.constants import IM_LEVEN_THRESHOLD, IGN_CHARLIST
 from utils.enums import IGNMatrixMode, Team
 
 from .base import IGNMatrix
 from .player import Player, AdaptivePlayer
-from .utils import Player
+from .utils import Teams
 
 
 __all__ = ["IGNMatrixInfer"]
@@ -17,6 +16,10 @@ class IGNMatrixInfer(IGNMatrix):
         super(IGNMatrixInfer, self).__init__(IGNMatrixMode.INFER, team0, team1)
 
         self.__mat: list[AdaptivePlayer] = []
+    
+    @property
+    def charlist(self) -> str:
+        return IGN_CHARLIST
 
     def get(self, pign: str) -> Optional[Player]:
         if (pl := self._ttable.check(pign, IM_LEVEN_THRESHOLD)) is not None:
@@ -31,15 +34,15 @@ class IGNMatrixInfer(IGNMatrix):
         """sorted is more appropriate over heapq.nlargest as k ~= len(__heap)"""
         return sorted(filter(Player.has_team, self.__mat), key=lambda x: x.noccr)[:k]
 
-    def get_teams(self) -> tuple[Sequence[Player], Sequence[Player]]:
+    def get_teams(self) -> Teams:
         players = self._ttable.get_players()
         fxd_length = len(players)
 
         if fxd_length < 10:
             players.extend(self._mat_get_topK(10-fxd_length))
 
-        return ([pl for pl in players if pl.team == 0],
-                [pl for pl in players if pl.team == 1])
+        return Teams([pl for pl in players if pl.team == Team.TEAM0],
+                     [pl for pl in players if pl.team == Team.TEAM1])
 
     def evaluate(self, pign: str) -> float:
         max_score = max([ap.evaluate(pign) for ap in self.__mat])

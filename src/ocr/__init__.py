@@ -1,3 +1,11 @@
-from .engine import OCREngine, OCResult, OCRLine
+from .engine import OCREngine, OCRLineResult
+from .utils import OCReadMode, OCRParams, HSVColourRange
 
-__all__ = ["OCREngine", "OCResult", "OCRLine"]
+
+__all__ = [
+    "OCREngine",
+    "OCReadMode",
+    "OCRLineResult",
+    "OCRParams",
+    "HSVColourRange"
+]

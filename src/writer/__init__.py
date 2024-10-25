@@ -8,14 +8,19 @@ from .xlsx_writer import XlsxWriter
 from .json_writer import JsonWriter
 
 
-__all__ = ["create_writer"]
+__all__ = [
+    "Writer",
+    "create_writer"
+]
 
 
 def get_save_path(config: Config) -> Path:
     if config.save.path is not None:
         return config.save.path
     
-    return config.save.save_dir / config.name / config.save.file_type
+    ext = config.save.file_type.value
+    save_file = f"{config.name}.{ext}"
+    return config.save.save_dir / save_file
 
 
 def create_writer(config: Config) -> Writer:

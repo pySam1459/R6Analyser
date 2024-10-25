@@ -1,0 +1,5 @@
+{
+    "tessdata": "./tessdata",
+
+    "config_list_derive": true
+}

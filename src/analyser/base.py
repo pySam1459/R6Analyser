@@ -1,23 +1,26 @@
-import cv2
-import numpy as np
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
-from time import time
-from typing import Optional
+from time import perf_counter
+from pydantic.dataclasses import dataclass
+from typing import Callable, Generic, TypeVar, Type
 
-from capture import Timer, RegionBBoxes, create_capture, ImageRegions_t
+from assets import Assets
+from capture import InPersonRegions, SpectatorRegions, create_capture
 from config import Config
 from history import History
 from ignmatrix import create_ignmatrix
 from ocr import OCREngine
-from settings import create_settings
-from utils.enums import Team
+from scheduler import create_scheduler
+from settings import Settings
+from utils.enums import Team, CaptureTimeType
 from utils.cli import AnalyserArgs
 from writer import create_writer
 from utils import *
 
 
-__all__ = ["Analyser", "State"]
+__all__ = [
+    "Analyser",
+    "State"
+]
 
 
 @dataclass
@@ -28,145 +31,141 @@ class State:
     bomb_planted: bool
 
 
-class Analyser(ABC):
+class RoundTimer:
+    def __init__(self, get_time_func: Callable[[], float]) -> None:
+        self._get_time = get_time_func
+
+        self._current_time: Timestamp
+        self._defuse_countdown_timer: Optional[float] = None
+
+    @property
+    def time(self) -> float:
+        return self._get_time()
+
+
+    @property
+    def ctime(self) -> Timestamp:
+        return self._current_time
+    
+    @ctime.setter
+    def ctime(self, value: Timestamp) -> None:
+        self._current_time = value
+    
+    @property
+    def defuse_countdown(self) -> Optional[float]:
+        return self._defuse_countdown_timer
+    
+    @defuse_countdown.setter
+    def defuse_countdown(self, value: Optional[float]) -> None:
+        self._defuse_countdown_timer = value
+
+
+T = TypeVar('T', InPersonRegions, SpectatorRegions)
+class Analyser(Generic[T], ABC):
     """Main class `Analyser`
     Operates the main inference loop `run` and records match/round information"""
 
-    def __init__(self, args: AnalyserArgs, config: Config):
+    def __init__(self, args: AnalyserArgs,
+                 config: Config,
+                 settings: Settings,
+                 region_type: Type[T]):
+
         self.args = args
         self.config = config
-        self.settings = create_settings(args.sets_path)
-        self._debug_print("config_keys", f"Config\n{self.config}")
+        self.settings = settings
+        self._debug_print("config_keys", f"Config\n{config}")
 
-        self.capture = create_capture(self.config)
+        self.assets = Assets(self.settings.assets_path)
+        self.capture = create_capture(config, region_type)
+        self.ocr_engine = OCREngine(config.ocr_params, settings, self.assets)
 
-        self.test_and_checks()
-        if self.is_a_test:
-            return
+        self.ign_matrix = create_ignmatrix(config)
+        self.history = History()
+        self.writer = create_writer(config)
 
         self.running = False
-        self.timer = Timer(self.capture.get_time, period=self.config.capture.period)
-
         self.state = State(in_round=False, end_round=True, bomb_planted=False)
-        self.history = History()
-        self.writer = create_writer(self.config)
+        self.timer = RoundTimer(self.capture.get_time)
 
-        self.prog_bar = ProgressBar(add_postfix=self.config.debug.infer_time)
-        self.current_time: Timestamp
-        self.defuse_countdown_timer: Optional[float] = None
+        self.prog_bar: ProgressBar
 
-        self.ign_matrix = create_ignmatrix(self.config)
-        self.ocr_engine = OCREngine.new(self.settings.ocr_engine, "en")
-        self._verbose_print(0, self.ocr_engine.load_msg())
-
-        self.handlers = [
-            self._handle_scoreline,
-            self._handle_timer,
-            self._handle_feed,
-        ]
-
-    ## ----- CHECK & TEST -----
-    def test_and_checks(self) -> None:
-        self.is_a_test = False
-        if self.args.check_regions:
-            self._check_regions()
-            self.is_a_test = True
-        if self.args.test_regions:
-            self._test_regions()
-            self.is_a_test = True
-
-    @abstractmethod
-    def _check_regions(self) -> None:
-        ...
-
-    @abstractmethod
-    def _test_regions(self) -> None:
-        ...
+        self.scheduler = create_scheduler(config, self.capture, {
+            "scoreline": self._handle_scoreline,
+            "timer":     self._handle_timer,
+            "killfeed":  self._handle_feed
+        })
 
     # ----- MAIN LOOP -----
     def run(self):
-        """Main program loop, calls the handlers every `capture.period` seconds"""
         self.running = True
         self._verbose_print(0, "Running...")
 
-        self.timer.update()
         while self.running:
-            if not self.timer.step():
-                continue
-
-            _infer_start = time()
-
-            regions = self.capture.next(self._get_regions())
-            for handler_func in self.handlers:
-                handler_func(regions)
-
-            self._debug_infertime(time() - _infer_start)
-            self.timer.update()
+            start = perf_counter()
+            stop_signal = self.scheduler.tick()
+            if stop_signal:
+                self._end_game()
+                return
+            
+            if (infer_time := perf_counter() - start) > 0.001:
+                self._debug_postfix(f"{infer_time:.3f}s | {self.capture.get_time()}")
             self.prog_bar.refresh()
-    
-    def _debug_infertime(self, dt: float) -> None:
-        if self.config.debug.infer_time:
-            self.prog_bar.set_postfix(f"{dt:.3f}s")
-            self.prog_bar.refresh()
-    
-    ## ----- OCR -----
-    def _screenshot_preprocess(self,
-                               image: np.ndarray,
-                               to_gray: bool = True,
-                               denoise: bool = False,
-                               squeeze_width: float = 1.0) -> np.ndarray:
-        """
-        To increase the accuracy of the EasyOCR readtext function, a few preprocessing techniques are used
-          - RGB to Grayscale conversion
-          - Denoise the image using fastNlMeansDenoising
-          - Resize by factor `Config.SCREENSHOT_RESIZE` (normally 2-4)
-          - Squeeze the width of the image, useful for scoreline OCR
-        """
-        if to_gray:
-            image = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
-        if denoise:
-            image = cv2.fastNlMeansDenoising(image, None, 5, 7, 21)
 
-        scale_by = self.config.capture.scale_by
-        if squeeze_width != 1.0:
-            sf_w, sf_h = scale_by * squeeze_width, scale_by
+
+    ## ----- CHECK & TEST -----
+    def __ask_for_time(self) -> Timestamp:
+        while True:
+            timestamp_s = input("Timestamp >> ")
+            if not timestamp_s:
+                exit()
+
+            ts = Timestamp.from_str(timestamp_s)
+            if ts is not None:
+                return ts
+            else:
+                print("Invalid Timestamp")
+
+    def test_and_checks(self) -> None:
+        if self.capture.time_type == CaptureTimeType.FPS:
+            dt = self.__ask_for_time().to_int()
+            regions = self.capture.next(dt, jump=True)
         else:
-            sf_w = sf_h = scale_by
+            regions = self.capture.next()
 
-        new_width = int(image.shape[1] * sf_w)
-        new_height = int(image.shape[0] * sf_h)
-        return cv2.resize(image, (new_width, new_height), interpolation=cv2.INTER_LINEAR)
+        if regions is None:
+            self._verbose_print(0, "Error Cannot capture regions!")
+            return
 
-    def _readtext(self, image: np.ndarray, prob = 0.0, allowlist: Optional[str] = None) -> list[str]:
-        """Performs the EasyOCR inference and cleans the output based on the model's assigned probabilities and a threshold"""
-        results = self.ocr_engine.read(image, allowlist=allowlist)
-        return [out.text for out in results if out.prob > prob]
-    
-    def _readbatch(self, images: list[np.ndarray], prob = 0.0, allowlist: Optional[str] = None) -> list[list[str]]:
-        results = self.ocr_engine.read_batch(images, allowlist=allowlist)
-        return [[out.text for out in res if out.prob > prob] for res in results]
+        if self.args.check_regions:
+            self._check_regions(regions)
 
+        if self.args.test_regions:
+            self._test_regions(regions)
+
+    @abstractmethod
+    def _check_regions(self, regions: T) -> None:
+        ...
+
+    @abstractmethod
+    def _test_regions(self, regions: T) -> None:
+        ...
 
     ## ----- IN ROUND OCR FUNCTIONS -----
     @abstractmethod
-    def _get_regions(self) -> RegionBBoxes:
+    def _handle_scoreline(self, regions: T) -> None:
         ...
 
     @abstractmethod
-    def _handle_scoreline(self, regions: ImageRegions_t) -> None:
+    def _handle_timer(self, regions: T) -> None:
         ...
-    
+
     @abstractmethod
-    def _handle_timer(self, regions: ImageRegions_t) -> None:
-        ...
-    
-    @abstractmethod
-    def _handle_feed(self, regions: ImageRegions_t) -> None:
+    def _handle_feed(self, regions: T) -> None:
         ...
 
     ## ----- GAME STATE FUNCTIONS -----
     @abstractmethod
-    def _new_round(self, score1: int, score2: int) -> None:
+    def _new_round(self, sl: Scoreline) -> None:
         ...
 
     @abstractmethod
@@ -182,8 +181,10 @@ class Analyser(ABC):
     def _end_game(self) -> None:
         ...
     
-    def _stop_analyser(self) -> None:
+    def stop(self) -> None:
         self.running = False
+        self.capture.stop()
+        self.ocr_engine.stop()
     
     def _get_last_winner(self) -> Team:
         """The program cannot currently detect who wins the final round, so get the user to input that info"""
@@ -197,10 +198,25 @@ class Analyser(ABC):
         return Team(int(winner))
 
     ## ----- PRINT FUNCTION -----
+    @property
+    def __print(self) -> Callable[..., None]:
+        if getattr(self, "prog_bar", None) is None:
+            return print
+        else:
+            return self.prog_bar.print
+
     def _verbose_print(self, verbose_value: int, *prompt) -> None:
         if self.args.verbose > verbose_value:
-            self.prog_bar.print("Info:", *prompt)
+            self.__print("Info:", *prompt)
 
     def _debug_print(self, key: str, *prompt) -> None:
         if self.config.__dict__.get(key, False):
-            self.prog_bar.print("Debug:", *prompt)
+            self.__print("Debug:", *prompt)
+    
+    def _debug_postfix(self, postfix: str) -> None:
+        self.prog_bar.set_postfix(postfix)
+        self.prog_bar.refresh()
+
+    def _debug_infertime(self, dt: float) -> None:
+        if self.config.debug.infer_time:
+            self._debug_postfix(f"{dt:.3f}s")

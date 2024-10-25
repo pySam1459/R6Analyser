@@ -2,26 +2,29 @@ import os
 from collections import Counter
 from functools import partial
 from pathlib import Path
-from pydantic import BaseModel, Field, field_validator, computed_field, model_validator, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, field_validator, computed_field, model_validator
 from typing import Any, Optional, Self, Type
 
+from ocr import OCRParams
 from settings import Settings
 from utils import load_file, recursive_union, gen_default_name, GameTypeRoundMap, BBox_t
 from utils.enums import GameType, CaptureMode, IGNMatrixMode, Team, SaveFileType
 from utils.constants import DEFAULT_SAVE_DIR, IGN_REGEX, RED, WHITE
-from .utils import validate_config
+
+from .region_models import TimerRegion, KFLineRegion
+from .utils import validate_config, VALID_URLS
 
 
 __all__ = [
     "Config",
-    "create_analyser_config"
+    "create_analyser_config",
 ]
 
 
 class DebugCfg(BaseModel):
     config_keys:    bool = False
     red_percentage: bool = False
-    headshot_perc:  bool = False
+    headshot_match: bool = False
     infer_time:     bool = False
 
     model_config = ConfigDict(extra="ignore")
@@ -35,80 +38,38 @@ class SaveCfg(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
 
-class CaptureDefaults(BaseModel):
-    scale_by: float
-    period:  float
+class SchedulerCfg(BaseModel):
+    scoreline: int = Field(default=1000, ge=0.0)
+    timer:     int = Field(default=500,  ge=0.0)
+    killfeed:  int = Field(default=300,  ge=0.0)
+
+    model_config = ConfigDict(extra="ignore")
 
 
 class Defaults(BaseModel):
-    capture: CaptureDefaults
-    save:    SaveCfg
+    save:      SaveCfg
+    scheduler: SchedulerCfg
 
     max_rounds_map:      GameTypeRoundMap
     rounds_per_side_map: GameTypeRoundMap
     overtime_rounds_map: GameTypeRoundMap
 
+    defuser_timer: int
+
+    ocr_params:    OCRParams
+
     model_config = ConfigDict(extra="ignore")
 
 
-class RegionsParser(BaseModel):
-    timer:        BBox_t
-    kf_line:      BBox_t
-
-    num_kf_lines: int   = Field(default=3,   ge=0, le=4)
-    kf_buf:       int   = Field(default=4,   ge=0)
-    kf_buf_mult:  float = Field(default=1.4, ge=1.0)
-
+class RegionsParser(TimerRegion, KFLineRegion):
     model_config = ConfigDict(extra="allow")
-
-    @field_validator('timer', 'kf_line')
-    @classmethod
-    def validate_bounding_box(cls, v: Any):
-        if v is None:
-            return v
-        if not isinstance(v, tuple) or len(v) != 4 or not all(isinstance(el, int) for el in v):
-            raise ValueError("must be of length=4 and type Tuple[int, int, int, int]")
-        if any(el < 0 for el in v):
-            raise ValueError("elements must be positive integers")
-        return v
-    
-    @computed_field
-    @property
-    def team1_score(self) -> BBox_t:
-        return (self.timer[0] - self.timer[2]//2, self.timer[1], self.timer[2]//2, self.timer[3])
-
-    @computed_field
-    @property
-    def team2_score(self) -> BBox_t:
-        return (self.timer[0] + self.timer[2], self.timer[1], self.timer[2]//2, self.timer[3])
-
-    @computed_field
-    @property
-    def team1_side(self) -> BBox_t:
-        return (self.timer[0] - int(self.timer[2]*0.95), self.timer[1], self.timer[2]//2, self.timer[3])
-
-    @computed_field
-    @property
-    def team2_side(self) -> BBox_t:
-        return (self.timer[0] + int(self.timer[2]*1.45), self.timer[1], self.timer[2]//2, self.timer[3])
-
-    @computed_field
-    @property
-    def kf_lines(self) -> list[BBox_t]:
-        x, y, w, h = self.kf_line
-        return [
-            (x, y - int(h * self.kf_buf_mult * i) - self.kf_buf, w, h + self.kf_buf * 2)
-            for i in range(self.num_kf_lines)
-        ]
 
 
 class CaptureParser(BaseModel):
     mode:    CaptureMode
     regions: RegionsParser
     file:    Optional[Path] = None
-
-    scale_by: float = Field(default=2, ge=0.5, le=8)
-    period:   float = Field(default=0.5, ge=0.0, le=2.0)
+    url:     Optional[str] = None
 
     model_config = ConfigDict(extra="forbid")
 
@@ -122,6 +83,25 @@ class CaptureParser(BaseModel):
             elif not os.access(self.file, os.R_OK):
                 raise ValueError(f"Permission Error: Invalid permissions to read video file {self.file}")
         return self
+    
+    @model_validator(mode="after")
+    def validate_url(self) -> Self:
+        if self.mode not in [CaptureMode.YOUTUBE, CaptureMode.TWITCH]:
+            return self
+        
+        if self.url is None:
+            raise ValueError(f"{self.mode.value} capture mode required `url` field to be specified")
+
+        if self.mode not in VALID_URLS:
+            return self
+
+        valid_urls = VALID_URLS[self.mode]
+        for vurl in valid_urls:
+            if self.url.startswith(vurl):
+                return self
+        else:
+            valid_urls_str = ", ".join(valid_urls)
+            raise ValueError(f"Invalid {self.mode.value} URL: {self.url}\nIt must start with {valid_urls_str}")
 
 
 class SaveParser(BaseModel):
@@ -133,8 +113,12 @@ class SaveParser(BaseModel):
     def validate_path(self) -> Self:
         if self.path is None:
             return self
-        if not self.path.parent.exists():
-            raise ValueError(f"Directory {self.path.parent} does not exist!")
+
+        parent = self.path.parent
+        if not parent.exists() and parent.name == "saves":
+            parent.mkdir()
+        elif not parent.exists():
+            raise ValueError(f"Directory {parent} does not exist!")
         return self
     
     @model_validator(mode="after")
@@ -148,8 +132,8 @@ class SaveParser(BaseModel):
 
 
 class ConfigParser(BaseModel):
-    name:        Optional[str]         = Field(default=None, min_length=1, max_length=64)
-    config_path: Path
+    name:                Optional[str] = Field(default=None, min_length=1, max_length=64)
+    config_path:         Path
 
     ## required
     game_type:           GameType
@@ -157,6 +141,9 @@ class ConfigParser(BaseModel):
     capture:             CaptureParser
     team0:               list[str]     = Field(default_factory=list, min_length=0, max_length=5)
     team1:               list[str]     = Field(default_factory=list, min_length=0, max_length=5)
+
+    save:                SaveParser
+    scheduler:           SchedulerCfg
     
     ## inferred/optional
     max_rounds:          Optional[int] = Field(default=None, ge=1, le=25)
@@ -169,8 +156,12 @@ class ConfigParser(BaseModel):
     rounds_per_side_map: GameTypeRoundMap
     overtime_rounds_map: GameTypeRoundMap
 
-    save: SaveParser
-    debug: DebugCfg
+    defuser_timer:       int
+
+    ocr_params:          OCRParams
+
+    ## debug
+    debug:               DebugCfg
 
     model_config = ConfigDict(extra="forbid", use_enum_values=True)
 
@@ -243,11 +234,12 @@ class RegionsCfg(BaseModel):
 
     num_kf_lines: int
     kf_buf:       int
+    kf_buf_mult:  float
 
+    team0_score:  BBox_t
     team1_score:  BBox_t
-    team2_score:  BBox_t
+    team0_side:   BBox_t
     team1_side:   BBox_t
-    team2_side:   BBox_t
 
     model_config = ConfigDict(extra="ignore")
 
@@ -256,9 +248,7 @@ class CaptureCfg(BaseModel):
     mode:    CaptureMode
     regions: RegionsCfg
     file:    Optional[Path] = None
-
-    scale_by: float
-    period:  float
+    url:     Optional[str] = None
 
     model_config = ConfigDict(extra="ignore")
 
@@ -273,14 +263,18 @@ class Config(BaseModel):
     team0:             list[str]
     team1:             list[str]
 
+    save:              SaveCfg
+    scheduler:         SchedulerCfg
+
     ign_mode:          IGNMatrixMode = Field(exclude=True)
 
     last_winner:       Team          = Field(exclude=True)
     max_rounds:        int           = Field(exclude=True)
     rounds_per_side:   int           = Field(exclude=True)
     overtime_rounds:   int           = Field(exclude=True)
+    defuser_timer:     int           = Field(exclude=True)
 
-    save:              SaveCfg
+    ocr_params:        OCRParams     = Field(exclude=True)
     debug:             DebugCfg      = Field(exclude=True)
 
     model_config = ConfigDict(extra="ignore", use_enum_values=True)
@@ -300,7 +294,10 @@ def validate_analyser_dict(cfg: dict[str, Any],
                            df:  dict[str, Any],
                            dbg: dict[str, Any]) -> Config:
 
+    ## config propreties recursively insert/replace into defaults
     cfg = recursive_union(df, cfg)
+
+    ## debug props are unioned on top
     cfg_parsed = ConfigParser.model_validate(cfg | dbg)
     return Config.model_validate(cfg_parsed.model_dump(exclude_none=True))
 

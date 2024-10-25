@@ -36,10 +36,12 @@
     "include": [
         "assets/atkside_icon.jpg",
         "assets/headshot.jpg",
+        "configs/example.json",
         "settings.json",
         "debug.json",
         "defaults.json",
-        "LICENSE"
+        "LICENSE",
+        "tessdata"
     ],
     "include-no-exe": [
         "requirements.txt",
