@@ -8,14 +8,16 @@ pygame.init()
 
 base = Path("tests/resources/kfline")
 files = [f for f in listdir(base) if f.endswith((".png", ".jpg"))]
+files = [f for f in files if f.startswith("X Benja")]
+
 images = [pygame.image.load(base / file) for file in files]
 
 
 data = {}
-i = 1
+i = -1
 
 def save():
-    with open(base / "colours2.json", "w") as f_out:
+    with open(base / "colours-single.json", "w") as f_out:
         json.dump(data, f_out, indent=2)
 
 

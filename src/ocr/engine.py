@@ -96,8 +96,8 @@ class OCREngine(BaseOCREngine):
     ## Handler Read methods
     def read_score(self, score: np.ndarray) -> Optional[str]:
         score = clip_around(score, self.params.sl_clip_around)
-        score_median = cv2.medianBlur(score, 3)
 
+        score_median = cv2.medianBlur(score, 3)
         text_median = self._read_score(score_median)
         if text_median is not None:
             return text_median
