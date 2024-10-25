@@ -104,12 +104,11 @@ class Analyser(Generic[T], ABC):
             start = perf_counter()
             stop_signal = self.scheduler.tick()
             if stop_signal:
-                self.stop()
+                self._end_game()
                 return
             
             if (infer_time := perf_counter() - start) > 0.001:
                 self._debug_postfix(f"{infer_time:.3f}s | {self.capture.get_time()}")
-                # self._debug_infertime(infer_time)
             self.prog_bar.refresh()
 
 
@@ -129,7 +128,7 @@ class Analyser(Generic[T], ABC):
     def test_and_checks(self) -> None:
         if self.capture.time_type == CaptureTimeType.FPS:
             dt = self.__ask_for_time().to_int()
-            regions = self.capture.next(dt)
+            regions = self.capture.next(dt, jump=True)
         else:
             regions = self.capture.next()
 

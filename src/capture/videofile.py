@@ -17,7 +17,7 @@ class VideoFileCapture(FpsCapture[T]):
         self.fps = self.__get_fps(self.cap)
 
         self.total_frames = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        self.current_frame = 0
+        self.frame_idx = 0
     
     def __load_video(self, config: Config) -> cv2.VideoCapture:
         if config.capture.file is None:
@@ -38,22 +38,25 @@ class VideoFileCapture(FpsCapture[T]):
 
         return fps
 
-    def __next_frame(self, frame_interval: int) -> Optional[np.ndarray]:
-        new_frame = self.current_frame + frame_interval
-        if new_frame >= self.total_frames:
+    def __next_frame(self, frame_interval: int, jump: bool) -> Optional[np.ndarray]:
+        self.frame_idx = self.frame_idx + frame_interval
+        if self.frame_idx >= self.total_frames:
             return None
+
+        if jump:
+            self.cap.set(cv2.CAP_PROP_POS_FRAMES, self.frame_idx)
+            frame_interval = 1
 
         for _ in range(frame_interval):
             ret, frame = self.cap.read()
             if not ret:
                 return None
 
-        self.current_frame = new_frame 
         return cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
-    def next(self, dt: float) -> Optional[T]:
+    def next(self, dt: float, jump = False) -> Optional[T]:
         frame_interval = max(int(round(self.fps * dt)), 1)
-        frame = self.__next_frame(frame_interval)
+        frame = self.__next_frame(frame_interval, jump)
         if frame is None:
             return None
 

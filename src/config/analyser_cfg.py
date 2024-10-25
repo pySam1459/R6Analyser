@@ -236,10 +236,10 @@ class RegionsCfg(BaseModel):
     kf_buf:       int
     kf_buf_mult:  float
 
+    team0_score:  BBox_t
     team1_score:  BBox_t
-    team2_score:  BBox_t
+    team0_side:   BBox_t
     team1_side:   BBox_t
-    team2_side:   BBox_t
 
     model_config = ConfigDict(extra="ignore")
 

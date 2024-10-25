@@ -35,7 +35,7 @@ class Capture(Generic[T], ABC):
         ...
 
     @abstractmethod
-    def next(self, dt: Optional[float] = None) -> Optional[T]:
+    def next(self, dt: Optional[float] = None, jump = False) -> Optional[T]:
         ...
 
     @abstractmethod
@@ -71,7 +71,7 @@ class TimeCapture(Capture[T], ABC):
 
 
 class FpsCapture(Capture[T], ABC):
-    current_frame: int
+    frame_idx: int
     fps: float
 
     @property
@@ -79,8 +79,8 @@ class FpsCapture(Capture[T], ABC):
         return CaptureTimeType.FPS
 
     @abstractmethod
-    def next(self, dt: Optional[float] = None) -> Optional[T]:
+    def next(self, dt: Optional[float] = None, jump = False) -> Optional[T]:
         ...
     
     def get_time(self) -> float:
-        return self.current_frame / self.fps
+        return self.frame_idx / self.fps

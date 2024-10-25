@@ -17,10 +17,10 @@ class RegionBBoxes(BaseModel):
     timer:       Optional[BBox_t] = None
     kf_lines:    Optional[list[BBox_t]] = None
 
+    team0_score: Optional[BBox_t] = None
     team1_score: Optional[BBox_t] = None
-    team2_score: Optional[BBox_t] = None
+    team0_side:  Optional[BBox_t] = None
     team1_side:  Optional[BBox_t] = None
-    team2_side:  Optional[BBox_t] = None
 
     model_config = ConfigDict(extra="ignore")
 
@@ -73,10 +73,10 @@ def crop_bboxes(image: np.ndarray, bboxes: RegionBBoxes) -> dict[str, np.ndarray
 class InPersonRegions(BaseModel):
     timer:       np.ndarray
     kf_lines:    list[np.ndarray]
+    team0_score: np.ndarray
     team1_score: np.ndarray
-    team2_score: np.ndarray
+    team0_side:  np.ndarray
     team1_side:  np.ndarray
-    team2_side:  np.ndarray
 
     model_config = ConfigDict(extra="ignore", arbitrary_types_allowed=True)
 

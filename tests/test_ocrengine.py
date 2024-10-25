@@ -1,4 +1,5 @@
 import cv2
+import numpy as np
 import pytest
 from os import listdir, makedirs
 from pathlib import Path
@@ -6,15 +7,26 @@ from shutil import rmtree
 from time import perf_counter
 from Levenshtein import ratio
 from PIL import Image
+from typing import Sequence
 
 from assets import Assets
-from ocr import OCREngine, OCRLineResult, OCRParams
+from ocr import OCREngine, OCRLineResult, OCRParams, HSVColourRange
+from ocr.utils import get_hsv_dist
 from settings import Settings, create_settings
-from utils import load_json, squeeze_image, clip_around
+from utils import load_json
+
 
 
 def load_test_files(parent: Path) -> list[Path]:
-    return [parent / file for file in listdir(parent) if file.endswith((".png", ".jpg"))]
+    return [parent / file
+            for file in listdir(parent)
+            if file.endswith((".png", ".jpg"))]
+
+
+def load_rgb(file: Path) -> np.ndarray:
+    bgr_img = cv2.imread(str(file), cv2.IMREAD_COLOR)
+    return cv2.cvtColor(bgr_img, cv2.COLOR_BGR2RGB)
+
 
 project_base = Path(__file__).parent.parent
 res_path = project_base / "tests" / "resources"
@@ -25,6 +37,7 @@ sl_test_files = load_test_files(sl_test_files_parent)
 
 kflines_test_files_parent = res_path / "kfline"
 kflines_test_files = load_test_files(kflines_test_files_parent)
+kfline_colours = load_json(kflines_test_files_parent / "colours.json")
 
 timer_test_files_parent = res_path / "timer"
 timer_test_files = load_test_files(timer_test_files_parent)
@@ -76,16 +89,10 @@ def write_score_out_image(test_file: Path, image: Image.Image) -> None:
 def test_ocr_engine_scoreline(test_file: Path,
                               ocr_params: OCRParams,
                               settings: Settings) -> None:
-    image = cv2.imread(str(test_file), cv2.IMREAD_COLOR)
-    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    image = load_rgb(test_file)
 
     engine = OCREngine(ocr_params, settings, None)  # type: ignore
     score = engine.read_score(image)
-
-    # image_ = clip_around(image, ocr_params.sl_clip_around)
-    # image_ = cv2.resize(image_, None, fx=ocr_params.sl_scalex, fy=ocr_params.sl_scaley, interpolation=cv2.INTER_CUBIC)
-    # th_img = engine._debug_threshold(image_)
-    # write_score_out_image(test_file, th_img)
 
     expected_text, _ = test_file.stem.split("_", maxsplit=1)
 
@@ -94,6 +101,8 @@ def test_ocr_engine_scoreline(test_file: Path,
     else:
         assert score is not None, f"None was returned instead of: {expected_text}"
         assert score == expected_text, f"Score: {score} does not match expected text: {expected_text}"
+    
+    engine.stop()
 
 
 # --- KFLINE ---
@@ -110,26 +119,39 @@ def write_kflines_out_images(test_file: Path, olr: OCRLineResult):
         cv2.imwrite(str(kfline_out_path / "right.jpg"), ri)
 
 
+def get_colours(test_file: Path, ocr_params: OCRParams) -> Sequence[HSVColourRange]:
+    stds = (ocr_params.hue_std, ocr_params.sat_std)
+    if test_file.stem.startswith("none"):
+        colours = ((0.0815, 0.75, 255.0), (0.572, 0.874, 255.0))
+        return (get_hsv_dist(colours[0], stds), get_hsv_dist(colours[1], stds))
+
+    else:
+        assert test_file.stem in kfline_colours, f"You haven't added the colours of test {test_file.stem} to colours.json"
+        colours = kfline_colours[test_file.stem]
+        return (get_hsv_dist(colours[0], stds), get_hsv_dist(colours[1], stds))
+
+
 @pytest.mark.parametrize("test_file", kflines_test_files, ids=get_ids)
 def test_ocr_engine_kfline(test_file: Path,
                            ocr_params: OCRParams,
                            settings: Settings,
                            assets: Assets) -> None:
-    image = cv2.imread(str(test_file), cv2.IMREAD_COLOR)
-    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    image = load_rgb(test_file)
+    colours = get_colours(test_file, ocr_params)
 
     engine = OCREngine(ocr_params, settings, assets)
+    engine._set_colours(colours[0], colours[1])
 
-    ocr_line_res = engine.read_kfline(image)
+    result = engine.read_kfline(image)
 
-    if ocr_line_res is not None:
-        write_kflines_out_images(test_file, ocr_line_res)
+    if result is not None:
+        write_kflines_out_images(test_file, result)
 
     if test_file.stem.startswith("none"):
-        assert ocr_line_res is None, "OCRLineResult must be None"
+        assert result is None, "OCRLineResult must be None"
         return
 
-    assert ocr_line_res is not None, "OCRLineResult is None"
+    assert result is not None, "OCRLineResult is None"
 
     parts = test_file.stem.split(" ")
     if len(parts) == 2:
@@ -144,16 +166,16 @@ def test_ocr_engine_kfline(test_file: Path,
     MIN_RATIO = 0.7
 
     if left == "":
-        assert ocr_line_res.left is None, f"if left='', ocr_left is {ocr_line_res.left}"
+        assert result.left is None, f"if left='', ocr_left is {result.left}"
     else:
-        assert ocr_line_res.left is not None, f"ocr left should be defined"
-        rat_left = ratio(ocr_line_res.left, left)
-        assert rat_left >= MIN_RATIO, f"ratio: {rat_left}, left value: {ocr_line_res.left}"
+        assert result.left is not None, f"ocr left should be defined"
+        rat_left = ratio(result.left, left)
+        assert rat_left >= MIN_RATIO, f"ratio: {rat_left}, left value: {result.left}"
     
-    rat_right = ratio(ocr_line_res.right, right)
-    assert rat_right >= MIN_RATIO, f"ratio: {rat_right}, right value: {ocr_line_res.right}"
+    rat_right = ratio(result.right, right)
+    assert rat_right >= MIN_RATIO, f"ratio: {rat_right}, right value: {result.right}"
 
-    assert ocr_line_res.headshot == headshot, f"headshot: {ocr_line_res.headshot}"
+    assert result.headshot == headshot, f"headshot: {result.headshot}"
     engine.stop()
 
 
@@ -162,8 +184,7 @@ def test_ocr_engine_kfline(test_file: Path,
 def test_ocr_engine_timer(test_file: Path,
                           ocr_params: OCRParams,
                           settings: Settings) -> None:
-    image = cv2.imread(str(test_file), cv2.IMREAD_COLOR)
-    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    image = load_rgb(test_file)
 
     engine = OCREngine(ocr_params, settings, None) # type: ignore
 
@@ -209,3 +230,4 @@ def test_ocr_engine_kfline_performance(ocr_params: OCRParams,
     total = end-start
     print(f"Total: {total}s\t\tAverage: {total/n_iter}s")
     
+    engine.stop()

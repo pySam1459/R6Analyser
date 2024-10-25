@@ -43,7 +43,7 @@ class InPersonAnalyser(Analyser):
         """Extracts the current scoreline visible and determines when a new rounds starts"""
         if not self.running or not self.state.end_round: return
 
-        scoreline = self.__read_scoreline(regions.team1_score, regions.team2_score)
+        scoreline = self.__read_scoreline(regions.team0_score, regions.team1_score)
         if not scoreline:
             return
 
@@ -56,14 +56,17 @@ class InPersonAnalyser(Analyser):
         self.history.cround.atk_side = self.__read_atk_side(regions)
         self._verbose_print(1, f"Atk Side: {self.history.cround.atk_side}")
     
-    def __read_scoreline(self, team1_score: np.ndarray, team2_score: np.ndarray) -> Optional[Scoreline]:
-        left_text  = self.ocr_engine.read_score(team1_score)
+    def __read_scoreline(self, team0_score: np.ndarray, team1_score: np.ndarray) -> Optional[Scoreline]:
+        left_text  = self.ocr_engine.read_score(team0_score)
         if left_text is None:
             return None
 
-        right_text = self.ocr_engine.read_score(team2_score)
+        right_text = self.ocr_engine.read_score(team1_score)
         if right_text is None:
             return None
+
+        if not self.ocr_engine.has_colours:
+            self.ocr_engine.set_colours(team0_score, team1_score)
 
         return Scoreline(left=int(left_text), right=int(right_text))
     
@@ -99,7 +102,7 @@ class InPersonAnalyser(Analyser):
 
         if (self.end_round_seconds is not None and
                 self.end_round_seconds + InPersonAnalyser.END_ROUND_SECONDS < self.timer.time
-                and self.__read_scoreline(regions.team1_score, regions.team2_score) is None):
+                and self.__read_scoreline(regions.team0_score, regions.team1_score) is None):
             self._end_round()
             self.end_round_seconds = None
 
@@ -303,7 +306,7 @@ class InPersonAnalyser(Analyser):
         This method is called when the `--test-regions` flag is added to the program call,
         runs inference on a single screenshot.
         """
-        scoreline = self.__read_scoreline(regions.team1_score, regions.team2_score)
+        scoreline = self.__read_scoreline(regions.team0_score, regions.team1_score)
         atkside   = self.__read_atk_side(regions)
         time_read, is_bomb_countdown = self.ocr_engine.read_timer(regions.timer)
         print(f"\nTest: {scoreline=} | {atkside=} | {time_read} | {is_bomb_countdown=}")

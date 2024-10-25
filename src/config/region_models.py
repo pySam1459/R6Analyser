@@ -18,22 +18,22 @@ class TimerRegion(BaseModel):
 
     @computed_field
     @property
-    def team1_score(self) -> BBox_t:
+    def team0_score(self) -> BBox_t:
         return (self.timer[0] - self.timer[2]//2, self.timer[1], self.timer[2]//2, self.timer[3])
 
     @computed_field
     @property
-    def team2_score(self) -> BBox_t:
+    def team1_score(self) -> BBox_t:
         return (self.timer[0] + self.timer[2], self.timer[1], self.timer[2]//2, self.timer[3])
 
     @computed_field
     @property
-    def team1_side(self) -> BBox_t:
+    def team0_side(self) -> BBox_t:
         return (self.timer[0] - int(self.timer[2]*0.95), self.timer[1], self.timer[2]//2, self.timer[3])
 
     @computed_field
     @property
-    def team2_side(self) -> BBox_t:
+    def team1_side(self) -> BBox_t:
         return (self.timer[0] + int(self.timer[2]*1.45), self.timer[1], self.timer[2]//2, self.timer[3])
 
 

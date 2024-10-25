@@ -96,9 +96,9 @@
             "path": "/path/to/somewhere.xlsx"
         },
         "scheduler": {
-            "scoreline": 5.0,
-            "timer": 0.25,
-            "killfeed": 0.5
+            "scoreline": 5000,
+            "timer": 250,
+            "killfeed": 500
         },
         "team0": [
             "Player1",
@@ -120,7 +120,7 @@
         "defuser_timer": 30,
 
         "ocr_params": {
-            "bs_left_clip": 0.35,
+            "sat_std": 0.03,
             "hs_th": 0.7
         }
     },

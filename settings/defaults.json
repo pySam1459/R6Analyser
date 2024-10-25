@@ -34,20 +34,20 @@
     "defuser_timer": 45,
 
     "ocr_params": {
-        "sl_squeeze": 0.75,
+        "sl_scalex": 0.4,
+        "sl_scaley": 0.5,
         "sl_clip_around": 0.1,
 
+        "hue_std": 0.0025,
+        "sat_std": 0.02,
+        "col_zscore": 3,
+
         "seg_min_area": 0.025,
+        "seg_mask_th": 0.25,
+        "seg_min_width": 0.1,
         "seg_black_th": 64,
         "seg_dist_th": 0.75,
         "seg_dist_vert_th": 0.5,
-    
-        "bs_left_clip": 0.4,
-        "bs_right_clip": 0.1,
-    
-        "xc_window": 10,
-        "xc_messy_th": 0.85,
-        "xc_right_clip": 0.1,
     
         "hs_wide_sf": 1.35,
         "hs_th": 0.65
