@@ -10,10 +10,11 @@ from typing import Sequence, cast
 
 @dataclass
 class OCRParams:
-    sl_scalex:        float = 0.4
-    sl_scaley:        float = 0.5
+    sl_scalex:        float = 0.1
+    sl_scaley:        float = 0.15
     sl_clip_around:   float = 0.05
 
+    hue_offset:       int   = 34
     hue_std:          float = 0.0025
     sat_std:          float = 0.02
     col_zscore:       float = 4
@@ -21,6 +22,7 @@ class OCRParams:
     seg_min_area:     float = 0.025
     seg_mask_th:      float = 0.25
     seg_min_width:    float = 0.1
+    seg_black_clip:   int   = 4
     seg_black_th:     int   = 64
     seg_dist_th:      float = 0.75
     seg_dist_vert_th: float = 0.5

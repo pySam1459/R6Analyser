@@ -1,17 +1,38 @@
 import pygame
 import json
+import cv2
+import numpy as np
 from os import listdir
 from pathlib import Path
-from colorsys import rgb_to_hsv
 pygame.init()
+
+
+def rgb_to_hsv(r, g, b):
+    maxc = max(r, g, b)
+    minc = min(r, g, b)
+    rangec = (maxc-minc)
+    v = maxc
+    if minc == maxc:
+        return 0.0, 0.0, v
+    s = rangec / maxc
+    rc = (maxc-r) / rangec
+    gc = (maxc-g) / rangec
+    bc = (maxc-b) / rangec
+    if r == maxc:
+        h = bc-gc
+    elif g == maxc:
+        h = 2.0+rc-bc
+    else:
+        h = 4.0+gc-rc
+    h = (h/6.0) # % 1.0
+    return h, s, v
 
 
 base = Path("tests/resources/kfline")
 files = [f for f in listdir(base) if f.endswith((".png", ".jpg"))]
-files = [f for f in files if f.startswith("X Benja")]
+files = [f for f in files if f.startswith("Chiika_Fujiwara X Kooli.MIR")]
 
 images = [pygame.image.load(base / file) for file in files]
-
 
 data = {}
 i = -1
@@ -63,9 +84,12 @@ while True:
     if pygame.mouse.get_pressed()[0]:
         pos = pygame.mouse.get_pos()
         col = image.get_at(pos)
-        hsv = rgb_to_hsv(col.r, col.g, col.b)
-        colour[0] += hsv[0]
-        colour[1] += hsv[1]
+        np_col = np.array([[[col.r, col.g, col.b]]], dtype=np.uint8)
+
+        lab = cv2.cvtColor(np_col, cv2.COLOR_RGB2LAB)
+        print(lab)
+        # colour[0] += hsv[0]
+        # colour[1] += hsv[1]
         cn += 1
 
     pygame.display.update()

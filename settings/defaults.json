@@ -38,6 +38,7 @@
         "sl_scaley": 0.5,
         "sl_clip_around": 0.1,
 
+        "hue_offset": 34,
         "hue_std": 0.0025,
         "sat_std": 0.02,
         "col_zscore": 3,
@@ -45,7 +46,8 @@
         "seg_min_area": 0.025,
         "seg_mask_th": 0.25,
         "seg_min_width": 0.1,
-        "seg_black_th": 64,
+        "seg_black_th": 24,
+        "seg_black_clip": 4,
         "seg_dist_th": 0.75,
         "seg_dist_vert_th": 0.5,
     

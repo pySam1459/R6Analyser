@@ -92,6 +92,9 @@ def test_ocr_engine_scoreline(test_file: Path,
     image = load_rgb(test_file)
 
     engine = OCREngine(ocr_params, settings, None)  # type: ignore
+    engine._debug_vars = {"th_path": out_path / "scoreline" / test_file.name}
+    makedirs(out_path / "scoreline", exist_ok=True)
+
     score = engine.read_score(image)
 
     expected_text, _ = test_file.stem.split("_", maxsplit=1)

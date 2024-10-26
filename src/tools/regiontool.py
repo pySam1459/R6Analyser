@@ -234,7 +234,6 @@ class RegionTool(Generic[T], ABC):
             self.canvas.delete("new_region")
             self.selected = None
         elif reg in self.bbox_sels or reg in self.region_sels:
-            ## TODO: bug regions exist, make new selection, set reg
             self.selected = reg    
 
     def __key_delete(self) -> None:

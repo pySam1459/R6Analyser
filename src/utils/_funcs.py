@@ -6,7 +6,7 @@ from colorsys import hsv_to_rgb
 from datetime import datetime
 from pathlib import Path
 from sys import exit
-from typing import Any, TypeVar, cast
+from typing import Any, TypeVar, cast, Optional, Callable
 
 
 # ----- HELPER FUNCTIONS -----
@@ -67,9 +67,18 @@ def gen_random_colour() -> tuple[int,int,int]:
     r,g,b = hsv_to_rgb(h, s, v)
     return (int(r*255), int(g*255), int(b*255))
 
-def argmax(arr: list[Any]) -> int:
-    """https://github.com/cjohnson318/til/blob/main/python/argmax-without-numpy.md"""
-    return max(range(len(arr)), key=lambda i: arr[i])
+
+def argmax(arr: list[Any], key: Optional[Callable] = None) -> int:
+    if key is None:
+        return max(range(len(arr)), key=lambda i: arr[i])
+    else:
+        return max(range(len(arr)), key=lambda i: key(arr[i]))
+
+def argmin(arr: list[Any], key: Optional[Callable] = None) -> int:
+    if key is None:
+        return min(range(len(arr)), key=lambda i: arr[i])
+    else:
+        return min(range(len(arr)), key=lambda i: key(arr[i]))
 
 def flatten(arr: list[list[T]]) -> list[T]:
     return [el for inner in arr for el in inner]

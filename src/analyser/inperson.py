@@ -171,6 +171,7 @@ class InPersonAnalyser(Analyser):
         self.history.cround.killfeed.append(record)
 
         if record.player.type == Player_t.INFER or record.target.type == Player_t.INFER:
+            ## TODO: add read_kfline teams here
             self.ign_matrix.update_mats(record.player.ign, record.target.ign)
             self.ign_matrix.update_mats(record.target.ign, record.player.ign)
 

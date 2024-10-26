@@ -57,10 +57,9 @@ def get_mask_lr(mask: np.ndarray, params: OCRParams) -> Optional[tuple[int, int]
 
     return None
 
-
 def get_seg_lr(line: np.ndarray, cols: HSVColourRange, params: OCRParams) -> Optional[tuple[int,int]]:
     mask = cv2.inRange(line, cols.low, cols.high)
-    # print(cols.low, cols.high)
+
     return get_mask_lr(mask, params)
 
 
@@ -83,7 +82,8 @@ def get_black_left(black_section: np.ndarray, params: OCRParams) -> Optional[int
 
 
 def get_black_tb(black_section: np.ndarray, params: OCRParams) -> tuple[int,int]:
-    black_section_vert = np.transpose(black_section, (1, 0, 2))
+    black_clipped = black_section[:,params.seg_black_clip:-params.seg_black_clip]
+    black_section_vert = np.transpose(black_clipped, (1, 0, 2))
     vert_dist = get_dist(black_section_vert, params.seg_black_th, params.seg_dist_vert_th)
     
     indices = np.where(vert_dist)[0]
