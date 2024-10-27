@@ -5,6 +5,7 @@ from typing import Callable, Optional
 
 from config import Config
 from history import History, KFRecord
+from ignmatrix import Player
 from ocr import OCREngine
 from utils import Scoreline, mode_count
 from utils.enums import IGNMatrixMode
@@ -43,6 +44,8 @@ class SmartKillfeed:
     def add(self, record: KFRecord, _type: KFRecord_t) -> None:
         if record in self.__history.cround.killfeed:
             return
+        if self.is_dead(record.player) or self.is_dead(record.target):
+            return
 
         match _type:
             case KFRecord_t.NORMAL:
@@ -60,6 +63,10 @@ class SmartKillfeed:
             self.__purgatory[record] = 1
         else:
             self.__purgatory[record] += 1
+    
+    def is_dead(self, pl: Player) -> bool:
+        return any([record.target == pl
+                    for record in self.__history.cround.killfeed])
 
     def reset(self) -> None:
         self.__purgatory.clear()

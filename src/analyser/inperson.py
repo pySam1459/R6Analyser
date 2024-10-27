@@ -263,7 +263,8 @@ class InPersonAnalyser(Analyser):
 
         timer_region = self.capture.get_region("timer")
         if timer_region is not None:
-            self.state.bomb_planted = self.ocr_engine.get_is_bomb_countdown(timer_region)
+            timer, is_bomb_countdown = self.ocr_engine.read_timer(timer_region)
+            self.state.bomb_planted = timer is None and is_bomb_countdown
         
         self.history.fix_round()
 

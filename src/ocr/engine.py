@@ -165,23 +165,17 @@ class OCREngine(BaseOCREngine):
 
     def read_timer(self, timer_img: np.ndarray) -> tuple[Optional[Timestamp], bool]:
         """Returns (timer: Optional[Timestamp], is_bomb_countdown: bool)"""
-        if self.get_is_bomb_countdown(timer_img):
-            self.__last_timer = None
-            return None, True
-
         not_timer_img = ~cv2.cvtColor(timer_img, cv2.COLOR_RGB2GRAY) # type: ignore
-        denoised_image = cv2.medianBlur(not_timer_img, 3)
-        th_image = denoised_image > OCR_TIMER_THRESHOLD # type: ignore
+        denoised_image = cast(np.ndarray, cv2.medianBlur(not_timer_img, 3))
+        th_image = denoised_image > OCR_TIMER_THRESHOLD
 
         results = self.readtext([denoised_image, th_image], OCReadMode.LINE, TIMER_CHARLIST)
         self.__last_timer = self.__pick_timer_result(results)
-        return self.__last_timer, False
 
-    def get_is_bomb_countdown(self, timer_img: np.ndarray) -> bool:
         red_perc = get_timer_redperc(timer_img)
         self.debug_print("red_percentage", f"{red_perc=}")
 
-        return red_perc > BOMB_COUNTDOWN_RT
+        return self.__last_timer, red_perc > BOMB_COUNTDOWN_RT
 
     def __pick_timer_result(self, results: list[str]) -> Optional[Timestamp]:
         converted_results = [self.__convert_raw_to_ts(res) for res in results]
