@@ -11,7 +11,7 @@ from typing import Sequence
 
 from assets import Assets
 from ocr import OCREngine, OCRLineResult, OCRParams, HSVColourRange
-from ocr.utils import get_hsv_dist
+from ocr.utils import get_hsv_range
 from settings import Settings, create_settings
 from utils import load_json
 
@@ -125,13 +125,13 @@ def write_kflines_out_images(test_file: Path, olr: OCRLineResult):
 def get_colours(test_file: Path, ocr_params: OCRParams) -> Sequence[HSVColourRange]:
     stds = (ocr_params.hue_std, ocr_params.sat_std)
     if test_file.stem.startswith("none"):
-        colours = ((0.0815, 0.75, 255.0), (0.572, 0.874, 255.0))
-        return (get_hsv_dist(colours[0], stds), get_hsv_dist(colours[1], stds))
+        colours = ((127, 127), (127, 127))
+        return (get_hsv_range(colours[0], stds), get_hsv_range(colours[1], stds))
 
     else:
         assert test_file.stem in kfline_colours, f"You haven't added the colours of test {test_file.stem} to colours.json"
         colours = kfline_colours[test_file.stem]
-        return (get_hsv_dist(colours[0], stds), get_hsv_dist(colours[1], stds))
+        return (get_hsv_range(colours[0], stds), get_hsv_range(colours[1], stds))
 
 
 @pytest.mark.parametrize("test_file", kflines_test_files, ids=get_ids)

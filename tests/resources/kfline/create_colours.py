@@ -7,38 +7,24 @@ from pathlib import Path
 pygame.init()
 
 
-def rgb_to_hsv(r, g, b):
-    maxc = max(r, g, b)
-    minc = min(r, g, b)
-    rangec = (maxc-minc)
-    v = maxc
-    if minc == maxc:
-        return 0.0, 0.0, v
-    s = rangec / maxc
-    rc = (maxc-r) / rangec
-    gc = (maxc-g) / rangec
-    bc = (maxc-b) / rangec
-    if r == maxc:
-        h = bc-gc
-    elif g == maxc:
-        h = 2.0+rc-bc
-    else:
-        h = 4.0+gc-rc
-    h = (h/6.0) # % 1.0
-    return h, s, v
+def cvt_rgb2hsv(image: np.ndarray) -> np.ndarray:
+    hsv_img = cv2.cvtColor(image, cv2.COLOR_RGB2HSV_FULL)
+    hsv_img[:,:,0] += 38  # type: ignore
+    return hsv_img
 
 
 base = Path("tests/resources/kfline")
 files = [f for f in listdir(base) if f.endswith((".png", ".jpg"))]
-files = [f for f in files if f.startswith("Chiika_Fujiwara X Kooli.MIR")]
 
-images = [pygame.image.load(base / file) for file in files]
+images = [
+    pygame.transform.scale2x(pygame.image.load(base / file))
+    for file in files]
 
 data = {}
-i = -1
+i = 16
 
 def save():
-    with open(base / "colours-single.json", "w") as f_out:
+    with open(base / "colours.json", "w") as f_out:
         json.dump(data, f_out, indent=2)
 
 
@@ -53,7 +39,7 @@ def next():
     window = pygame.display.set_mode(image.get_size())
 
 
-colour = [0.0, 0.0]
+colour = [0, 0]
 cn = 0
 c1, c2 = None, None
 
@@ -65,12 +51,11 @@ while True:
         
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_1:
-                c1 = [colour[0]/cn, colour[1]/cn]
-                colour = [0., 0]
-                cn = 0
+                c1 = [colour[0] // cn, colour[1] // cn]
             if event.key == pygame.K_2:
-                c2 = [colour[0]/cn, colour[1]/cn]
-                colour = [0., 0]
+                c2 = [colour[0] // cn, colour[1] // cn]
+            if event.key == pygame.K_1 or event.key == pygame.K_2:
+                colour = [0, 0]
                 cn = 0
 
             if event.key == pygame.K_RETURN:
@@ -85,11 +70,10 @@ while True:
         pos = pygame.mouse.get_pos()
         col = image.get_at(pos)
         np_col = np.array([[[col.r, col.g, col.b]]], dtype=np.uint8)
+        hsv = cvt_rgb2hsv(np_col).squeeze((0, 1))
 
-        lab = cv2.cvtColor(np_col, cv2.COLOR_RGB2LAB)
-        print(lab)
-        # colour[0] += hsv[0]
-        # colour[1] += hsv[1]
+        colour[0] += int(hsv[0])
+        colour[1] += int(hsv[1])
         cn += 1
 
     pygame.display.update()

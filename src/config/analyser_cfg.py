@@ -54,7 +54,8 @@ class Defaults(BaseModel):
     rounds_per_side_map: GameTypeRoundMap
     overtime_rounds_map: GameTypeRoundMap
 
-    defuser_timer: int
+    defuser_timer:  int
+    sl_majority_th: int
 
     ocr_params:    OCRParams
 
@@ -157,6 +158,7 @@ class ConfigParser(BaseModel):
     overtime_rounds_map: GameTypeRoundMap
 
     defuser_timer:       int
+    sl_majority_th:      int
 
     ocr_params:          OCRParams
 
@@ -273,6 +275,7 @@ class Config(BaseModel):
     rounds_per_side:   int           = Field(exclude=True)
     overtime_rounds:   int           = Field(exclude=True)
     defuser_timer:     int           = Field(exclude=True)
+    sl_majority_th:    int           = Field(exclude=True)
 
     ocr_params:        OCRParams     = Field(exclude=True)
     debug:             DebugCfg      = Field(exclude=True)

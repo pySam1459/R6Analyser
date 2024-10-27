@@ -5,7 +5,7 @@ from typing import Optional
 
 from utils.enums import Team
 
-from .utils import OCRParams, HSVColourRange
+from .utils import OCRParams, HSVColourRange, cvt_rgb2hsv
 
 
 @odataclass
@@ -59,7 +59,6 @@ def get_mask_lr(mask: np.ndarray, params: OCRParams) -> Optional[tuple[int, int]
 
 def get_seg_lr(line: np.ndarray, cols: HSVColourRange, params: OCRParams) -> Optional[tuple[int,int]]:
     mask = cv2.inRange(line, cols.low, cols.high)
-
     return get_mask_lr(mask, params)
 
 
@@ -116,6 +115,9 @@ def create_full_line_segment(kfline_img: np.ndarray,
     else:
         x, x2 = r1, l0
 
+    if x2-x < params.seg_black_clip*2:
+        return None
+
     black_section = kfline_img[:,x:x2]
     y,h = get_black_tb(black_section, params)
 
@@ -159,7 +161,7 @@ def segment(kfline_img: np.ndarray,
             t1_cols: HSVColourRange,
             params: OCRParams) -> Optional[KfLineSegments]:
     
-    kfline_hsv = cv2.cvtColor(kfline_img, cv2.COLOR_RGB2HSV)
+    kfline_hsv = cvt_rgb2hsv(kfline_img, params.hue_offset)
     lr0 = get_seg_lr(kfline_hsv, t0_cols, params)
     lr1 = get_seg_lr(kfline_hsv, t1_cols, params)
     if lr0 is None and lr1 is None:

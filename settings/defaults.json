@@ -32,16 +32,17 @@
     },
 
     "defuser_timer": 45,
+    "sl_majority_th": 5,
 
     "ocr_params": {
         "sl_scalex": 0.4,
         "sl_scaley": 0.5,
         "sl_clip_around": 0.1,
 
-        "hue_offset": 34,
-        "hue_std": 0.0025,
-        "sat_std": 0.02,
-        "col_zscore": 3,
+        "hue_offset": 38,
+        "hue_std": 13,
+        "sat_std": 4,
+        "col_zscore": 2.5,
 
         "seg_min_area": 0.025,
         "seg_mask_th": 0.25,

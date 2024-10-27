@@ -35,26 +35,6 @@ class OCRLineResult:
     middle_image: Optional[np.ndarray] = None
 
 
-def get_headshot_match(middle_segment: np.ndarray,
-                       hs_asset: np.ndarray,
-                       params: OCRParams):
-    """Uses template matching to determine if a kf line has a headshot"""
-    ## TODO: could potentially cache the hs_asset resized, with wide version for speedup
-    middle_gray = cv2.cvtColor(middle_segment, cv2.COLOR_RGB2GRAY)
-
-    hs_asset = resize_height(hs_asset, middle_segment.shape[0])
-    result = cv2.matchTemplate(middle_gray, hs_asset, cv2.TM_CCOEFF_NORMED)
-    _, max_val, _, _ = cv2.minMaxLoc(result)
-
-    ## try matching against a wider template
-    hs_asset_wide = cv2.resize(hs_asset, None, fx=params.hs_wide_sf, fy=1.0, interpolation=cv2.INTER_LINEAR)
-    result_wide = cv2.matchTemplate(middle_gray, hs_asset_wide, cv2.TM_CCOEFF_NORMED)
-    _, max_val_wide, _, _ = cv2.minMaxLoc(result_wide)
-
-    max_val = max(max_val, max_val_wide)
-    return max_val
-
-
 class OCREngine(BaseOCREngine):
     team0_colours: HSVColourRange
     team1_colours: HSVColourRange
@@ -71,15 +51,18 @@ class OCREngine(BaseOCREngine):
         self.__last_timer: Optional[Timestamp] = None
     
     ## Team colour methods
-    def read_team_colour(self, team_score_image: np.ndarray) -> tuple[int,int,int]:
+    def read_team_huesat(self, score_image: np.ndarray) -> tuple[int,int]:
         """Reads the team colour my averaging the colour over the threshold mask of the team score"""
-        th_img = self._read_threshold(team_score_image)
+        th_img = np.asarray(self._read_threshold(score_image))
 
-        mask = np.asarray(th_img) == 0
-        masked_colours = team_score_image[mask]
-        avg_colour: np.ndarray = np.mean(masked_colours, axis=0)
-        r,g,b = avg_colour.astype(np.int64)
-        return (r, g, b)
+        mask = th_img == 0
+        masked_score = score_image[mask]
+
+        masked_colours = masked_score.reshape(1, -1, 3)
+        masked_hsv = cvt_rgb2hsv(masked_colours, self.params.hue_offset)
+
+        avg_colour: np.ndarray = np.mean(masked_hsv[0,:,:2], axis=0).astype(np.uint8)
+        return (avg_colour[0], avg_colour[1])
     
     def _set_colours(self, rang0: HSVColourRange, rang1: HSVColourRange) -> None:
         self.team0_colours = rang0
@@ -88,11 +71,11 @@ class OCREngine(BaseOCREngine):
     
     def set_colours(self, team0_score: np.ndarray, team1_score: np.ndarray) -> None:
         stds = (self.params.hue_std, self.params.sat_std)
-        rgb = self.read_team_colour(team0_score)
-        colours0 = get_colour_range(rgb, stds, self.params.col_zscore)
+        hs = self.read_team_huesat(team0_score)
+        colours0 = get_hsv_range(hs, stds, self.params.col_zscore)
 
-        rgb = self.read_team_colour(team1_score)
-        colours1 = get_colour_range(rgb, stds, self.params.col_zscore)
+        hs = self.read_team_huesat(team1_score)
+        colours1 = get_hsv_range(hs, stds, self.params.col_zscore)
 
         self._set_colours(colours0, colours1)
 
@@ -134,7 +117,8 @@ class OCREngine(BaseOCREngine):
         
         middle_image = segment_output.middle.image
 
-        headshot_match = get_headshot_match(middle_image, self.__assets["headshot_mask"], self.params)
+        headshot_asset = self.__assets["headshot_mask"]
+        headshot_match = self.get_headshot_match(middle_image, headshot_asset)
         is_headshot = headshot_match >= self.params.hs_th
         self.debug_print("headshot_match", headshot_match)
 
@@ -151,6 +135,31 @@ class OCREngine(BaseOCREngine):
         return OCRLineResult(left_text, right_text, is_headshot,
                              segment_output.left_team, segment_output.right_team,
                              left_image, right_image, middle_image)
+
+    def get_headshot_match(self, middle_segment: np.ndarray,
+                                 hs_asset: np.ndarray):
+        """Uses template matching to determine if a kf line has a headshot"""
+        ## TODO: could potentially cache the hs_asset resized, with wide version for speedup
+        middle_gray = cv2.cvtColor(middle_segment, cv2.COLOR_RGB2GRAY)
+
+        vals = []
+        for mask in [hs_asset, hs_asset[2:-2,:]]:
+            mask = resize_height(mask, middle_segment.shape[0])
+            result = cv2.matchTemplate(middle_gray, mask, cv2.TM_CCOEFF_NORMED)
+            _, max_val, _, _ = cv2.minMaxLoc(result)
+            vals.append(max_val)
+
+            ## try matching against a wider template
+            mask_wide = cv2.resize(mask,
+                                    None,
+                                    fx=self.params.hs_wide_sf,
+                                    fy=1.0,
+                                    interpolation=cv2.INTER_LINEAR)
+            result_wide = cv2.matchTemplate(middle_gray, mask_wide, cv2.TM_CCOEFF_NORMED)
+            _, max_val_wide, _, _ = cv2.minMaxLoc(result_wide)
+            vals.append(max_val_wide)
+
+        return max(vals)
 
 
     def read_timer(self, timer_img: np.ndarray) -> tuple[Optional[Timestamp], bool]:

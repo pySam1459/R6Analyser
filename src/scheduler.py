@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from time import perf_counter
 from typing import Callable, TypeVar, TypeAlias, Generic
 
 from capture import Capture, InPersonRegions, SpectatorRegions
@@ -72,7 +73,7 @@ class FpsScheduler(Scheduler, Generic[T]):
         for handle in self._handlers:
             self.__handler_timers[handle] -= dt
             htimer = self.__handler_timers[handle]
-
+            
             if htimer <= 0:
                 dt_ms = dt / 1000.0
                 if regions is None and (regions := self._capture.next(dt_ms)) is None:

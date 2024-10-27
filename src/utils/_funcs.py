@@ -103,6 +103,9 @@ def perc_s(n: int|float, d: int|float) -> float:
 def fmt_s(*args):
     return str2f(perc_s(*args))
 
+def mode_count(arr: list[T]) -> T:
+    return max(set(arr), key=lambda x: arr.count(x))
+
 
 def resize_height(image: np.ndarray, height: int, inter = cv2.INTER_LINEAR) -> np.ndarray:
     h,w = image.shape

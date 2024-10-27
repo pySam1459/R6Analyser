@@ -1,5 +1,7 @@
 import cv2
 import numpy as np
+import decord
+from decord import VideoReader
 from typing import Type, TypeVar, Optional
 
 from config import Config
@@ -13,50 +15,32 @@ class VideoFileCapture(FpsCapture[T]):
     def __init__(self, config: Config, region_model: Type[T]) -> None:
         super(VideoFileCapture, self).__init__(config, region_model)
         
-        self.cap = self.__load_video(config)
-        self.fps = self.__get_fps(self.cap)
+        self.vr = self.__load_video(config)
+        self.fps = self.vr.get_avg_fps()
 
-        self.total_frames = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        self.total_frames = len(self.vr)
         self.frame_idx = 0
     
-    def __load_video(self, config: Config) -> cv2.VideoCapture:
+    def __load_video(self, config: Config) -> VideoReader:
         if config.capture.file is None:
             raise ValueError("Invalid Config! Video file is not provided! Please add videofile path to capture.file")
 
         video_path = config.capture.file
-        cap = cv2.VideoCapture(str(video_path))
+        try:
+            return VideoReader(str(video_path), num_threads=1)
+        except Exception as e:
+            raise ValueError(f"Video Capture Error: Unable to open video file {video_path}\n{e}")
 
-        if not cap.isOpened():
-            raise ValueError(f"Video Capture Error: Unable to open video file {video_path}")
-        
-        return cap
-
-    def __get_fps(self, cap: cv2.VideoCapture) -> float:
-        fps = cap.get(cv2.CAP_PROP_FPS)
-        if fps <= 0:
-            raise ValueError("Video Capture Error: Invalid FPS value. Cannot proceed.")
-
-        return fps
-
-    def __next_frame(self, frame_interval: int, jump: bool) -> Optional[np.ndarray]:
+    def __next_frame(self, frame_interval: int) -> Optional[np.ndarray]:
         self.frame_idx = self.frame_idx + frame_interval
         if self.frame_idx >= self.total_frames:
             return None
+        
+        return self.vr[self.frame_idx].asnumpy()
 
-        if jump:
-            self.cap.set(cv2.CAP_PROP_POS_FRAMES, self.frame_idx)
-            frame_interval = 1
-
-        for _ in range(frame_interval):
-            ret, frame = self.cap.read()
-            if not ret:
-                return None
-
-        return cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-
-    def next(self, dt: float, jump = False) -> Optional[T]:
+    def next(self, dt: float, *_, **__) -> Optional[T]:
         frame_interval = max(int(round(self.fps * dt)), 1)
-        frame = self.__next_frame(frame_interval, jump)
+        frame = self.__next_frame(frame_interval)
         if frame is None:
             return None
 
@@ -64,4 +48,4 @@ class VideoFileCapture(FpsCapture[T]):
         return self._set_regions(frame)
     
     def stop(self) -> None:
-        self.cap.release()
+        ...
