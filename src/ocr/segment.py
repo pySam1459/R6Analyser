@@ -3,15 +3,21 @@ import numpy as np
 from dataclasses import dataclass as odataclass
 from typing import Optional
 
+from utils import BBox_t
 from utils.enums import Team
 
-from .utils import OCRParams, HSVColourRange
+from .utils import OCRParams, HSVColourRange, cvt_rgb2hsv
 
 
 @odataclass
 class Segment:
     image: np.ndarray
     rect:  list[int]
+
+    @staticmethod
+    def create(image: np.ndarray, rect: list[int]) -> 'Segment':
+        x,y,w,h = rect
+        return Segment(image=image[y:y+h,x:x+w], rect=rect)
 
 
 @odataclass
@@ -57,56 +63,42 @@ def get_mask_lr(mask: np.ndarray, params: OCRParams) -> Optional[tuple[int, int]
 
     return None
 
+def get_mask_tb(mask: np.ndarray, params: OCRParams) -> tuple[int,int]:
+    dist = np.mean(mask, axis=1) > params.seg_mask_th
+    indices = np.where(dist)[0]
+    return indices[0], indices[-1]
 
-def get_seg_lr(line: np.ndarray, cols: HSVColourRange, params: OCRParams) -> Optional[tuple[int,int]]:
+def get_seg_box(line: np.ndarray, cols: HSVColourRange, params: OCRParams) -> Optional[BBox_t]:
     mask = cv2.inRange(line, cols.low, cols.high)
-    # print(cols.low, cols.high)
-    return get_mask_lr(mask, params)
-
-
-## --- Crop Black Section ---
-def get_dist(black_section: np.ndarray, threshold: int, dist_th: float) -> np.ndarray:
-    black_gray: np.ndarray = cv2.cvtColor(black_section, cv2.COLOR_RGB2GRAY)
-    mask = (black_gray < threshold).astype(np.uint8)
-    return np.mean(mask, axis=0) > dist_th
-
-
-def get_black_left(black_section: np.ndarray, params: OCRParams) -> Optional[int]:
-    dist = get_dist(black_section, params.seg_black_th, params.seg_dist_th)
-    w = dist.shape[0]
-    dist = dist[:-int(w*0.9)]
-    diffs = np.diff(dist)
-    indices = np.where(diffs != 0)[0]
-    if len(indices) == 0:
+    lr = get_mask_lr(mask, params)
+    if lr is None:
         return None
-    return indices[-1]
+
+    tb = get_mask_tb(mask[:,lr[0]:lr[1]], params)
+    return (lr[0], tb[0], lr[1], tb[1])
 
 
-def get_black_tb(black_section: np.ndarray, params: OCRParams) -> tuple[int,int]:
-    black_section_vert = np.transpose(black_section, (1, 0, 2))
-    vert_dist = get_dist(black_section_vert, params.seg_black_th, params.seg_dist_vert_th)
+## --- Black Section ---
+def get_black_left(kf_line: np.ndarray, params: OCRParams) -> Optional[int]:
+    black_gray: np.ndarray = cv2.cvtColor(kf_line, cv2.COLOR_RGB2GRAY)
+    mask = (black_gray < params.seg_black_th).astype(np.uint8)
+    dist = np.mean(mask, axis=0) > params.seg_dist_th
     
-    indices = np.where(vert_dist)[0]
-    if len(indices) < 2:
-        return (0, black_section.shape[0])
-
-    else:
-        top, bot = indices[0], indices[-1]
-        return (top, min(black_section.shape[0], bot-top+1))
-
-
-## --- Create Segments ---
-def create_segment(image: np.ndarray, rect: list[int]) -> Segment:
-    x,y,w,h = rect
-    return Segment(image=image[y:y+h,x:x+w], rect=rect)
+    width = dist.shape[0]
+    rls, pos = rle(dist)
+    for i in range(len(rls)-2, -1, -1):
+        run, p = rls[i], pos[i]
+        if dist[p-1] == 0 and run > width * params.seg_min_width:
+            return p
+    return None
 
 
 def create_full_line_segment(kfline_img: np.ndarray,
-                             lr0: tuple[int,int],
-                             lr1: tuple[int,int],
+                             box0: BBox_t,
+                             box1: BBox_t,
                              params: OCRParams) -> Optional[KfLineSegments]:
-    l0,r0 = lr0
-    l1,r1 = lr1
+    l0,t0,r0,b0 = box0
+    l1,t1,r1,b1 = box1
     if l0 < l1 < r0 or l1 < l0 < r1:
         ## segments cannot intersect
         return None
@@ -116,12 +108,12 @@ def create_full_line_segment(kfline_img: np.ndarray,
     else:
         x, x2 = r1, l0
 
-    black_section = kfline_img[:,x:x2]
-    y,h = get_black_tb(black_section, params)
+    y = min(t0, t1)
+    h = max(b0-t0, b1-t1)
 
-    seg0    = create_segment(kfline_img, [l0, y, r0-l0, h])
-    seg1    = create_segment(kfline_img, [l1, y, r1-l1, h])
-    seg_mid = create_segment(kfline_img, [x,  y, x2-x,  h])
+    seg0    = Segment.create(kfline_img, [l0, y, r0-l0, h])
+    seg1    = Segment.create(kfline_img, [l1, y, r1-l1, h])
+    seg_mid = Segment.create(kfline_img, [x,  y, x2-x,  h])
 
     if r0 < l1:
         return KfLineSegments(left=seg0, right=seg1, middle=seg_mid,
@@ -132,23 +124,20 @@ def create_full_line_segment(kfline_img: np.ndarray,
 
 
 def create_part_line_segment(kfline_img: np.ndarray,
-                             lr: tuple[int,int],
+                             box: BBox_t,
                              team: Team,
                              params: OCRParams) -> Optional[KfLineSegments]:
     width = kfline_img.shape[1]
-    l,r = lr
+    l,t,r,b = box
     if r < width * 0.95:
         return None
     
-    black_left = get_black_left(kfline_img[:,l:r], params)
+    black_left = get_black_left(kfline_img[:,:l], params)
     if black_left is None:
         return None
     
-    black_section = kfline_img[:,black_left:l]
-    y,h = get_black_tb(black_section, params)
-    
-    right_seg = create_segment(kfline_img, [l, y, r-l, h])
-    mid_seg   = create_segment(kfline_img, [black_left, y, l, h])
+    right_seg = Segment.create(kfline_img, [l, t, r-l, b-t])
+    mid_seg   = Segment.create(kfline_img, [black_left, t, l-black_left, b-t])
 
     return KfLineSegments(left=None, right=right_seg, middle=mid_seg,
                           left_team=Team.UNKNOWN, right_team=team)
@@ -159,16 +148,16 @@ def segment(kfline_img: np.ndarray,
             t1_cols: HSVColourRange,
             params: OCRParams) -> Optional[KfLineSegments]:
     
-    kfline_hsv = cv2.cvtColor(kfline_img, cv2.COLOR_RGB2HSV)
-    lr0 = get_seg_lr(kfline_hsv, t0_cols, params)
-    lr1 = get_seg_lr(kfline_hsv, t1_cols, params)
-    if lr0 is None and lr1 is None:
+    kfline_hsv = cvt_rgb2hsv(kfline_img, params.hue_offset)
+    box0 = get_seg_box(kfline_hsv, t0_cols, params)
+    box1 = get_seg_box(kfline_hsv, t1_cols, params)
+    if box0 is None and box1 is None:
         return None
 
-    if lr0 is not None and lr1 is not None:
-        return create_full_line_segment(kfline_img, lr0, lr1, params)
+    elif box0 is not None and box1 is not None:
+        return create_full_line_segment(kfline_img, box0, box1, params)
 
-    if lr0 is not None:
-        return create_part_line_segment(kfline_img, lr0, Team.TEAM0, params)
-    elif lr1 is not None:
-        return create_part_line_segment(kfline_img, lr1, Team.TEAM1, params)
+    elif box0 is not None:
+        return create_part_line_segment(kfline_img, box0, Team.TEAM0, params)
+    elif box1 is not None:
+        return create_part_line_segment(kfline_img, box1, Team.TEAM1, params)

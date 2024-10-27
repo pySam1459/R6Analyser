@@ -42,7 +42,6 @@ class RoundTimer:
     def time(self) -> float:
         return self._get_time()
 
-
     @property
     def ctime(self) -> Timestamp:
         return self._current_time

@@ -5,6 +5,7 @@ from yt_dlp import YoutubeDL
 from typing import Type, TypeVar, Optional, cast
 
 from config import Config
+from utils import Timestamp, ndefault
 
 from .utils import InPersonRegions, SpectatorRegions, crop2bbox
 from .base import *
@@ -25,18 +26,32 @@ class YoutubeVideoCapture(FpsCapture[T]):
         super(YoutubeVideoCapture, self).__init__(config, region_model)
         self.cap = cap
 
+        self.fps = self.cap.get(cv2.CAP_PROP_FPS)
+        self.frame_idx = self.__offset(config.capture.offset)
+    
+    def __offset(self, offset: Optional[Timestamp]) -> int:
+        if offset is None:
+            return 0
+
+        frame_idx = int(round(self.fps * offset.to_int()))
+        if frame_idx >= self.cap.get(cv2.CAP_PROP_FRAME_COUNT):
+            raise ValueError("Capture offset is >= total frames")
+
+        self.cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
+        return frame_idx
+
     def __next_frame(self, frame_interval: int) -> np.ndarray | None:
         new_frame = self.frame_idx + frame_interval
-        self.cap.set(cv2.CAP_PROP_POS_FRAMES, new_frame)
 
-        ret, frame = self.cap.read()
-        if not ret:
-            return None
+        for _ in range(frame_interval):
+            ret, frame = self.cap.read()
+            if not ret:
+                return None
 
         self.frame_idx = new_frame
         return frame
 
-    def next(self, dt: float) -> Optional[T]:
+    def next(self, dt: float, *_, **__) -> Optional[T]:
         frame_interval = max(int(round(dt * self.fps)), 1)
         frame = self.__next_frame(frame_interval)
         if frame is None:
@@ -64,7 +79,7 @@ class YoutubeStreamCapture(TimeCapture[T]):
 
         return frame
 
-    def next(self) -> Optional[T]:
+    def next(self, *_, **__) -> Optional[T]:
         frame = self.__next_frame()
         if frame is None:
             return None
@@ -101,7 +116,10 @@ def get_video_stream_details(youtube_url: str) -> _VideoStream:
             # Find the best available format
             formats: list[dict[str,str]] = info_dict.get('formats', [])
             for f in formats:
-                if f.get('ext') == 'mp4' and f.get('protocol', "").startswith('http'):
+                height = ndefault(f.get("height", 0), 0)
+                if (f.get('ext') == 'mp4' and
+                    f.get('protocol', "").startswith('http') and
+                    height >= 1080):
                     video_url = cast(str, f.get('url'))
                     return _VideoStream(url=video_url, is_live=False)
             else:

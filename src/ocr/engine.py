@@ -1,6 +1,5 @@
 import cv2
 import numpy as np
-from colorsys import rgb_to_hsv
 from dataclasses import dataclass as odataclass
 from re import match
 from tesserocr import PSM
@@ -8,7 +7,9 @@ from typing import Optional, Callable
 
 from assets import Assets
 from settings import Settings
-from utils import Timestamp, resize_height, filter_none, clip_around
+from utils import Timestamp, resize_height, filter_none, clip_around, argmin
+from utils.enums import Team
+from utils.tools import TemplateMatcher
 from utils.constants import *
 
 from .base import BaseOCREngine
@@ -27,34 +28,19 @@ class OCRLineResult:
     right:    str
     headshot: bool
 
+    left_team: Team
+    right_team: Team
+
     left_image:   Optional[np.ndarray] = None
     right_image:  Optional[np.ndarray] = None
     middle_image: Optional[np.ndarray] = None
 
 
-def get_headshot_match(middle_segment: np.ndarray,
-                       hs_asset: np.ndarray,
-                       params: OCRParams):
-    """Uses template matching to determine if a kf line has a headshot"""
-    ## TODO: could potentially cache the hs_asset resized, with wide version for speedup
-    middle_gray = cv2.cvtColor(middle_segment, cv2.COLOR_RGB2GRAY)
-
-    hs_asset = resize_height(hs_asset, middle_segment.shape[0])
-    result = cv2.matchTemplate(middle_gray, hs_asset, cv2.TM_CCOEFF_NORMED)
-    _, max_val, _, _ = cv2.minMaxLoc(result)
-
-    ## try matching against a wider template
-    hs_asset_wide = cv2.resize(hs_asset, None, fx=params.hs_wide_sf, fy=1.0, interpolation=cv2.INTER_LINEAR)
-    result_wide = cv2.matchTemplate(middle_gray, hs_asset_wide, cv2.TM_CCOEFF_NORMED)
-    _, max_val_wide, _, _ = cv2.minMaxLoc(result_wide)
-
-    max_val = max(max_val, max_val_wide)
-    return max_val
-
-
 class OCREngine(BaseOCREngine):
     team0_colours: HSVColourRange
     team1_colours: HSVColourRange
+
+    _debug_vars: dict
 
     def __init__(self, params: OCRParams, settings: Settings, assets: Assets, _debug_print: Optional[Callable] = None) -> None:
         super(OCREngine, self).__init__(settings, _debug_print)
@@ -62,17 +48,22 @@ class OCREngine(BaseOCREngine):
         self.params = params
 
         self.__has_colours = False
+
+        self.__last_timer: Optional[Timestamp] = None
     
     ## Team colour methods
-    def read_team_colour(self, team_score_image: np.ndarray) -> tuple[int,int,int]:
+    def read_team_huesat(self, score_image: np.ndarray) -> tuple[int,int]:
         """Reads the team colour my averaging the colour over the threshold mask of the team score"""
-        th_img = self._read_threshold(team_score_image)
+        th_img = np.asarray(self._read_threshold(score_image))
 
-        mask = np.asarray(th_img) == 0
-        masked_colours = team_score_image[mask]
-        avg_colour: np.ndarray = np.mean(masked_colours, axis=0)
-        r,g,b = avg_colour.astype(np.int64)
-        return (r, g, b)
+        mask = th_img == 0
+        masked_score = score_image[mask]
+
+        masked_colours = masked_score.reshape(1, -1, 3)
+        masked_hsv = cvt_rgb2hsv(masked_colours, self.params.hue_offset)
+
+        avg_colour: np.ndarray = np.mean(masked_hsv[0,:,:2], axis=0).astype(np.uint8)
+        return (avg_colour[0], avg_colour[1])
     
     def _set_colours(self, rang0: HSVColourRange, rang1: HSVColourRange) -> None:
         self.team0_colours = rang0
@@ -81,56 +72,30 @@ class OCREngine(BaseOCREngine):
     
     def set_colours(self, team0_score: np.ndarray, team1_score: np.ndarray) -> None:
         stds = (self.params.hue_std, self.params.sat_std)
-        rgb = self.read_team_colour(team0_score)
-        colours0 = get_colour_range(rgb, stds, self.params.col_zscore)
+        hs = self.read_team_huesat(team0_score)
+        colours0 = get_hsv_range(hs, stds, self.params.col_zscore)
 
-        rgb = self.read_team_colour(team1_score)
-        colours1 = get_colour_range(rgb, stds, self.params.col_zscore)
+        hs = self.read_team_huesat(team1_score)
+        colours1 = get_hsv_range(hs, stds, self.params.col_zscore)
 
         self._set_colours(colours0, colours1)
 
     @property
     def has_colours(self) -> bool:
         return self.__has_colours
-
-    ## Handler Read methods
+    
     def read_score(self, score: np.ndarray) -> Optional[str]:
         score = clip_around(score, self.params.sl_clip_around)
-
         score_median = cv2.medianBlur(score, 3)
-        text_median = self._read_score(score_median)
-        if text_median is not None:
-            return text_median
-        
-        score_gaussian = cv2.GaussianBlur(score, (3, 3), 0)
-        text_gaussian = self._read_score(score_gaussian)
-        return text_gaussian
-
-    def _read_score(self, score: np.ndarray) -> Optional[str]:        
-        score = cv2.resize(score,
+        score_resize = cv2.resize(score_median,
                            None,
                            fx=self.params.sl_scalex,
                            fy=self.params.sl_scaley,
                            interpolation=cv2.INTER_CUBIC)
 
-        text_block = self.readtext(score, PSM.SINGLE_BLOCK, DIGITS)
-        text_char = self.readtext(score, PSM.SINGLE_CHAR, DIGITS)
-
-        match_block = match(SCORELINE_PATTERN, text_block)
-        match_char  = match(SCORELINE_PATTERN, text_char)
-        if match_block and match_char:
-            if len(text_block) == 2: ## scoreline >= 10
-                return text_block
-            else:
-                return text_char
-        elif match_block:
-            return text_block
-        elif match_char:
+        text_char = self.readtext(score_resize, PSM.SINGLE_CHAR, DIGITS)
+        if match(SCORELINE_PATTERN, text_char):
             return text_char
-
-        texts = self.readtext(np.hstack([score]*6), PSM.SINGLE_LINE, DIGITS)
-        if len(texts) > 0 and texts.count(texts[0]) >= 2:
-            return texts[0]
 
         return None
 
@@ -145,56 +110,85 @@ class OCREngine(BaseOCREngine):
                                  self.params)
         if segment_output is None:
             return None
-
-        if segment_output.left is None:
-            left_image = None
-            left_text = None
-        else:
-            left_image = segment_output.left.image
-            left_text = self.readtext(~left_image, OCReadMode.WORD, charlist)
-
+        
         right_image = segment_output.right.image
         right_text = self.readtext(~right_image, OCReadMode.WORD, charlist)
-
+        if len(right_text) <= 2:
+            return None
+        
         middle_image = segment_output.middle.image
-        headshot_match = get_headshot_match(middle_image, self.__assets["headshot_mask"], self.params)
 
+        headshot_asset = self.__assets["headshot_mask"]
+        headshot_match = self.get_headshot_match(middle_image, headshot_asset)
         is_headshot = headshot_match >= self.params.hs_th
         self.debug_print("headshot_match", headshot_match)
 
-        if (left_text is not None and len(left_text) <= 2) or len(right_text) <= 2:
+        if segment_output.left is None:
+            return OCRLineResult(None, right_text, is_headshot,
+                                 Team.UNKNOWN, segment_output.right_team,
+                                 None, right_image, middle_image)
+
+        left_image = segment_output.left.image
+        left_text = self.readtext(~left_image, OCReadMode.WORD, charlist)
+        if len(left_text) <= 2:
             return None
 
         return OCRLineResult(left_text, right_text, is_headshot,
+                             segment_output.left_team, segment_output.right_team,
                              left_image, right_image, middle_image)
+
+    def get_headshot_match(self, middle_segment: np.ndarray,
+                                 hs_asset: np.ndarray):
+        """Uses template matching to determine if a kf line has a headshot"""
+        ## TODO: could potentially cache the hs_asset resized, with wide version for speedup
+        middle_gray = cv2.cvtColor(middle_segment, cv2.COLOR_RGB2GRAY)
+
+        vals = []
+        for mask in [hs_asset, hs_asset[2:-2,:]]:
+            mask = resize_height(mask, middle_segment.shape[0])
+            result = cv2.matchTemplate(middle_gray, mask, cv2.TM_CCOEFF_NORMED)
+            _, max_val, _, _ = cv2.minMaxLoc(result)
+            vals.append(max_val)
+
+            ## try matching against a wider template
+            mask_wide = cv2.resize(mask,
+                                    None,
+                                    fx=self.params.hs_wide_sf,
+                                    fy=1.0,
+                                    interpolation=cv2.INTER_LINEAR)
+            result_wide = cv2.matchTemplate(middle_gray, mask_wide, cv2.TM_CCOEFF_NORMED)
+            _, max_val_wide, _, _ = cv2.minMaxLoc(result_wide)
+            vals.append(max_val_wide)
+
+        return max(vals)
 
 
     def read_timer(self, timer_img: np.ndarray) -> tuple[Optional[Timestamp], bool]:
         """Returns (timer: Optional[Timestamp], is_bomb_countdown: bool)"""
-        if self.get_is_bomb_countdown(timer_img):
-            return None, True
-
         not_timer_img = ~cv2.cvtColor(timer_img, cv2.COLOR_RGB2GRAY) # type: ignore
-        denoised_image = cv2.medianBlur(not_timer_img, 3)
-        th_image = denoised_image > OCR_TIMER_THRESHOLD # type: ignore
+        denoised_image = cast(np.ndarray, cv2.medianBlur(not_timer_img, 3))
+        th_image = denoised_image > OCR_TIMER_THRESHOLD
 
         results = self.readtext([denoised_image, th_image], OCReadMode.LINE, TIMER_CHARLIST)
-        return self.__pick_timer_result(results), False
+        self.__last_timer = self.__pick_timer_result(results)
 
-    def get_is_bomb_countdown(self, timer_img: np.ndarray) -> bool:
         red_perc = get_timer_redperc(timer_img)
         self.debug_print("red_percentage", f"{red_perc=}")
 
-        return red_perc > BOMB_COUNTDOWN_RT
+        return self.__last_timer, red_perc > BOMB_COUNTDOWN_RT
 
     def __pick_timer_result(self, results: list[str]) -> Optional[Timestamp]:
         converted_results = [self.__convert_raw_to_ts(res) for res in results]
         filtered_results = filter_none(converted_results)
         if len(filtered_results) == 0:
             return None
-
-        ## TODO: if multiple, select one with abs time diff closest to last timer result
-        return filtered_results[0]
+        
+        if self.__last_timer is None:
+            return filtered_results[0]
+        
+        lt_int = self.__last_timer.to_int()
+        arg_idx = argmin(filtered_results, lambda ts: abs(ts.to_int() - lt_int + 1))
+        return filtered_results[arg_idx]
 
     def __convert_raw_to_ts(self, raw_result: str) -> Optional[Timestamp]:
         timer_match = match(r"(\d?\d)([:\.])(\d\d)", raw_result)

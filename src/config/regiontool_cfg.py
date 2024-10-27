@@ -1,11 +1,14 @@
 from pathlib import Path
-from pydantic import BaseModel, ConfigDict, Field, model_validator
-from typing import Optional, Self
+from re import match
+from pydantic import BaseModel, ConfigDict, Field, model_validator, field_validator
+from typing import Any, Optional, Self
 
 from settings import Settings
-from utils import BBox_t
+from utils import Timestamp, BBox_t
+from utils.constants import TIMESTAMP_PATTERN
 from utils.enums import CaptureMode, GameType
 
+from .common import CaptureCommon
 from .utils import validate_config
 
 
@@ -31,25 +34,10 @@ class RTRegionsCFG(RTRegionParams):
     model_config = ConfigDict(extra="ignore")
 
 
-class RTCaptureCFG(BaseModel):
-    mode:    CaptureMode
+class RTCaptureCFG(CaptureCommon):
     regions: Optional[RTRegionsCFG] = None
-    file:    Optional[Path] = None
 
-    scale_by: Optional[float] = None
-    period:   Optional[float] = None
-
-    model_config = ConfigDict(extra="forbid")
-
-    @model_validator(mode="after")
-    def file_exists(self) -> Self:
-        if self.mode == CaptureMode.VIDEOFILE:
-            if self.file is None:
-                raise ValueError(f"videofile capture mode requires `file` field to be specified")
-
-            elif not self.file.exists():
-                raise ValueError(f"Video file {self.file} does not exist")
-        return self
+    model_config = ConfigDict(extra="ignore")
 
 
 class RTConfig(BaseModel): ## Region tool config

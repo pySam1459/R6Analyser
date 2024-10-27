@@ -1,4 +1,3 @@
-import os
 from collections import Counter
 from functools import partial
 from pathlib import Path
@@ -7,12 +6,13 @@ from typing import Any, Optional, Self, Type
 
 from ocr import OCRParams
 from settings import Settings
-from utils import load_file, recursive_union, gen_default_name, GameTypeRoundMap, BBox_t
+from utils import Timestamp, load_file, recursive_union, gen_default_name, GameTypeRoundMap, BBox_t
 from utils.enums import GameType, CaptureMode, IGNMatrixMode, Team, SaveFileType
-from utils.constants import DEFAULT_SAVE_DIR, IGN_REGEX, RED, WHITE
+from utils.constants import *
 
+from .common import CaptureCommon
 from .region_models import TimerRegion, KFLineRegion
-from .utils import validate_config, VALID_URLS
+from .utils import validate_config
 
 
 __all__ = [
@@ -33,7 +33,7 @@ class DebugCfg(BaseModel):
 class SaveCfg(BaseModel):
     file_type: SaveFileType
     save_dir:  Path
-    path:      Optional[Path] = Field(default=None)
+    path:      Optional[Path] = None
 
     model_config = ConfigDict(extra="ignore")
 
@@ -54,7 +54,8 @@ class Defaults(BaseModel):
     rounds_per_side_map: GameTypeRoundMap
     overtime_rounds_map: GameTypeRoundMap
 
-    defuser_timer: int
+    defuser_timer:  int
+    sl_majority_th: int
 
     ocr_params:    OCRParams
 
@@ -65,43 +66,10 @@ class RegionsParser(TimerRegion, KFLineRegion):
     model_config = ConfigDict(extra="allow")
 
 
-class CaptureParser(BaseModel):
-    mode:    CaptureMode
+class CaptureParser(CaptureCommon):
     regions: RegionsParser
-    file:    Optional[Path] = None
-    url:     Optional[str] = None
 
     model_config = ConfigDict(extra="forbid")
-
-    @model_validator(mode="after")
-    def file_exists(self) -> Self:
-        if self.mode == CaptureMode.VIDEOFILE:
-            if self.file is None:
-                raise ValueError(f"videofile capture mode requires `file` field to be specified")
-            elif not self.file.exists():
-                raise ValueError(f"Video file {self.file} does not exist")
-            elif not os.access(self.file, os.R_OK):
-                raise ValueError(f"Permission Error: Invalid permissions to read video file {self.file}")
-        return self
-    
-    @model_validator(mode="after")
-    def validate_url(self) -> Self:
-        if self.mode not in [CaptureMode.YOUTUBE, CaptureMode.TWITCH]:
-            return self
-        
-        if self.url is None:
-            raise ValueError(f"{self.mode.value} capture mode required `url` field to be specified")
-
-        if self.mode not in VALID_URLS:
-            return self
-
-        valid_urls = VALID_URLS[self.mode]
-        for vurl in valid_urls:
-            if self.url.startswith(vurl):
-                return self
-        else:
-            valid_urls_str = ", ".join(valid_urls)
-            raise ValueError(f"Invalid {self.mode.value} URL: {self.url}\nIt must start with {valid_urls_str}")
 
 
 class SaveParser(BaseModel):
@@ -120,7 +88,7 @@ class SaveParser(BaseModel):
         elif not parent.exists():
             raise ValueError(f"Directory {parent} does not exist!")
         return self
-    
+
     @model_validator(mode="after")
     def path_override(self) -> Self:
         if self.path is None:
@@ -157,6 +125,7 @@ class ConfigParser(BaseModel):
     overtime_rounds_map: GameTypeRoundMap
 
     defuser_timer:       int
+    sl_majority_th:      int
 
     ocr_params:          OCRParams
 
@@ -247,8 +216,9 @@ class RegionsCfg(BaseModel):
 class CaptureCfg(BaseModel):
     mode:    CaptureMode
     regions: RegionsCfg
-    file:    Optional[Path] = None
-    url:     Optional[str] = None
+    file:    Optional[Path]
+    url:     Optional[str]
+    offset:  Optional[Timestamp]
 
     model_config = ConfigDict(extra="ignore")
 
@@ -268,11 +238,13 @@ class Config(BaseModel):
 
     ign_mode:          IGNMatrixMode = Field(exclude=True)
 
-    last_winner:       Team          = Field(exclude=True)
     max_rounds:        int           = Field(exclude=True)
     rounds_per_side:   int           = Field(exclude=True)
     overtime_rounds:   int           = Field(exclude=True)
+
+    last_winner:       Team          = Field(exclude=True)
     defuser_timer:     int           = Field(exclude=True)
+    sl_majority_th:    int           = Field(exclude=True)
 
     ocr_params:        OCRParams     = Field(exclude=True)
     debug:             DebugCfg      = Field(exclude=True)
@@ -299,7 +271,7 @@ def validate_analyser_dict(cfg: dict[str, Any],
 
     ## debug props are unioned on top
     cfg_parsed = ConfigParser.model_validate(cfg | dbg)
-    return Config.model_validate(cfg_parsed.model_dump(exclude_none=True))
+    return Config.model_validate(cfg_parsed.model_dump())
 
 
 def create_analyser_config(config_path: Path, settings: Settings) -> Config | list[Config]:

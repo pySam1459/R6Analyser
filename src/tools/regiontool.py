@@ -1,8 +1,9 @@
-import cv2
 import tkinter as tk
+import cv2
 import numpy as np
 from abc import ABC, abstractmethod
 from enum import IntEnum
+from decord import VideoReader
 from PIL import Image
 from PIL.ImageTk import PhotoImage
 from pyautogui import screenshot
@@ -57,6 +58,12 @@ class Keys(IntEnum):
     TWO = 50
     THREE = 51
     FOUR = 52
+
+
+class FrameSkips:
+    FRAME_SKIP = 0.1
+    SMALL_SKIP = 1
+    BIG_SKIP   = 10
 
 
 T = TypeVar('T', TimerRegion, KFLineRegion)
@@ -234,7 +241,6 @@ class RegionTool(Generic[T], ABC):
             self.canvas.delete("new_region")
             self.selected = None
         elif reg in self.bbox_sels or reg in self.region_sels:
-            ## TODO: bug regions exist, make new selection, set reg
             self.selected = reg    
 
     def __key_delete(self) -> None:
@@ -298,24 +304,36 @@ class VideoDetails:
     fps: int
 
 
+def on_arrows(frame_idx: int, vdets: VideoDetails, event: tk.Event) -> int:
+    lr_frame_skip = max(int(round(FrameSkips.FRAME_SKIP * vdets.fps)), 1)
+    lr_small_skip = FrameSkips.SMALL_SKIP * vdets.fps
+    lr_big_skip   = FrameSkips.BIG_SKIP * vdets.fps
+        ## TODO: can't hold down left/right, selection scaling
+
+    if event.keycode == Keys.W and frame_idx - lr_frame_skip >= 0: ## up
+        frame_idx -= lr_frame_skip
+    if event.keycode == Keys.A and frame_idx - lr_small_skip >= 0: ## left
+        frame_idx -= lr_small_skip
+    if event.keycode == Keys.Q and frame_idx - lr_big_skip >= 0: ## up
+        frame_idx -= lr_big_skip
+    
+    if event.keycode == Keys.S and frame_idx + lr_frame_skip < vdets.max_frame: ## down
+        frame_idx += lr_frame_skip
+    if event.keycode == Keys.D and frame_idx + lr_small_skip < vdets.max_frame: ## right
+        frame_idx += lr_small_skip
+    if event.keycode == Keys.E and frame_idx + lr_frame_skip < vdets.max_frame: ## up
+        frame_idx += lr_big_skip
+
+    return frame_idx
+
+
 class RTVideoFile(RegionTool):
-    FRAME_SKIP = 0.1
-    SMALL_SKIP = 1
-    BIG_SKIP = 10
-
-    VIDEO_PROPS = {
-        "max_frame": cv2.CAP_PROP_FRAME_COUNT,
-        "frame_width": cv2.CAP_PROP_FRAME_WIDTH,
-        "frame_height": cv2.CAP_PROP_FRAME_HEIGHT,
-        "fps": cv2.CAP_PROP_FPS
-    }
-
     def __init__(self, config: RTConfig) -> None:
         super(RTVideoFile, self).__init__(config)
 
         self.frame_idx = 0
-        self.video = self.new_video(self.config)
-        self.image = self.__get_frame(self.video, self.frame_idx)
+        self.vr = self.new_video(self.config)
+        self.image = self.__get_frame(self.frame_idx)
 
         assert self.image is not None, "Cannot get video frame"
         self._capture_rect = (0, 0, self.image.shape[1], self.image.shape[0])
@@ -326,56 +344,89 @@ class RTVideoFile(RegionTool):
     def capture_rect(self) -> Rect_t:
         return self._capture_rect
 
-    def new_video(self, config: RTConfig) -> cv2.VideoCapture:
+    def new_video(self, config: RTConfig) -> VideoReader:
         if config.capture.file is None:
             raise ValueError(f"Configuration capture file is None!")
 
         try:
-            video = cv2.VideoCapture(str(config.capture.file))
-            vid_dets_dict = {k: int(video.get(pid)) for k,pid in RTVideoFile.VIDEO_PROPS.items()}
-            self.vdets = VideoDetails(**vid_dets_dict)
+            vr = VideoReader(str(config.capture.file), num_threads=1)
+            h,w,*_ = vr[0].asnumpy().shape
+            self.vdets = VideoDetails(
+                max_frame=len(vr),
+                frame_width=w,
+                frame_height=h,
+                fps=vr.get_avg_fps(),
+            )
         except Exception as e:
             raise ValueError(f"An Error occurred when attempting to read from video file\n{e}")
 
-        return video
+        return vr
         
-    def __get_frame(self, video: cv2.VideoCapture, frame_idx: int) -> Optional[np.ndarray]:
-        video.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
-        ret, frame = video.read()
+    def __get_frame(self, frame_idx: int) -> Optional[np.ndarray]:
+        if frame_idx >= self.vdets.max_frame:
+            return None
+
+        return self.vr[frame_idx].asnumpy()
+
+    def __set_frame(self, frame_idx: int) -> Optional[np.ndarray]:
+        image = self.__get_frame(frame_idx)
+        if image is not None:
+            self.set_background(image)
+        return image
+
+    def _on_arrows(self, event: tk.Event) -> None:
+        self.frame_idx = on_arrows(self.frame_idx, self.vdets, event)
+        self.image = self.__set_frame(self.frame_idx)
+
+
+class RTYoutubeVideo(RegionTool):
+    def __init__(self, config: RTConfig, cap: cv2.VideoCapture) -> None:
+        super(RTYoutubeVideo, self).__init__(config)
+
+        self.frame_idx = 0
+        self.cap = cap
+        self.vdets = self.get_details()
+        self.image = self.__get_frame(self.frame_idx)
+
+        assert self.image is not None, "Cannot get video frame"
+        self._capture_rect = (0, 0, self.image.shape[1], self.image.shape[0])
+        self.init_window(self.image.shape[1], self.image.shape[0])
+        self.set_background(self.image)
+    
+    @property
+    def capture_rect(self) -> Rect_t:
+        return self._capture_rect
+
+    def get_details(self) -> VideoDetails:
+        ret, frame = self.cap.read()
+        if ret is None:
+            raise ValueError("Cannot read from youtube video capture")
+
+        h,w,*_ = frame.shape
+        return VideoDetails(
+            max_frame=int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT)),
+            frame_width=w,
+            frame_height=h,
+            fps=int(round(self.cap.get(cv2.CAP_PROP_FPS))),
+        )
+        
+    def __get_frame(self, frame_idx: int) -> Optional[np.ndarray]:
+        if frame_idx >= self.vdets.max_frame:
+            return None
+
+        self.cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
+        ret, frame = self.cap.read()
         if not ret:
             return None
 
         return cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
     def __set_frame(self, frame_idx: int) -> Optional[np.ndarray]:
-        image = self.__get_frame(self.video, frame_idx)
+        image = self.__get_frame(frame_idx)
         if image is not None:
             self.set_background(image)
         return image
 
     def _on_arrows(self, event: tk.Event) -> None:
-        lr_frame_skip = max(int(round(RTVideoFile.FRAME_SKIP * self.vdets.fps)), 1)
-        lr_small_skip = RTVideoFile.SMALL_SKIP * self.vdets.fps
-        lr_big_skip = RTVideoFile.BIG_SKIP * self.vdets.fps
-         ## TODO: can't hold down left/right, selection scaling 
-        if event.keycode == Keys.W and self.frame_idx - lr_frame_skip >= 0: ## up
-            self.frame_idx -= lr_frame_skip
-        if event.keycode == Keys.A and self.frame_idx - lr_small_skip >= 0: ## left
-            self.frame_idx -= lr_small_skip
-        if event.keycode == Keys.Q and self.frame_idx - lr_big_skip >= 0: ## up
-            self.frame_idx -= lr_big_skip
-        
-        if event.keycode == Keys.S and self.frame_idx + lr_frame_skip < self.vdets.max_frame: ## down
-            self.frame_idx += lr_frame_skip
-        if event.keycode == Keys.D and self.frame_idx + lr_small_skip < self.vdets.max_frame: ## right
-            self.frame_idx += lr_small_skip
-        if event.keycode == Keys.E and self.frame_idx + lr_frame_skip < self.vdets.max_frame: ## up
-            self.frame_idx += lr_big_skip
-        
+        self.frame_idx = on_arrows(self.frame_idx, self.vdets, event)
         self.image = self.__set_frame(self.frame_idx)
-    
-    def stop(self, *_) -> None:
-        if self.video:
-            self.video.release()
-        
-        super().stop()

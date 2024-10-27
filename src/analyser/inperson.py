@@ -1,5 +1,6 @@
 import cv2
 import numpy as np
+from dataclasses import dataclass as odataclass
 from os import makedirs
 from typing import Optional, Generator
 
@@ -11,39 +12,40 @@ from ocr import OCRLineResult
 from settings import Settings
 from utils.cli import AnalyserArgs
 from utils.enums import Team, WinCondition
+from utils.tools import TemplateMatcher
 from utils import *
 from utils.constants import *
 
 from .base import Analyser, State
-from .killfeed import SmartKillfeed, KFRecord_t
-from .template_matcher import TemplateMatcher
+from .smart import SmartKillfeed, SmartScoreline, KFRecord_t
 
 
 __all__ = ["InPersonAnalyser"]
 
 
 class InPersonAnalyser(Analyser):
-    NUM_LAST_SECONDS  = 4  ## number of seconds to continue reading killfeed after round end (reliability reasons)
-    END_ROUND_SECONDS = 12 ## number of seconds to check no timer to determine round end
+    END_ROUND_SECONDS = 12  ## number of seconds to check no timer to determine round end
 
     def __init__(self, args: AnalyserArgs, config: Config, settings: Settings) -> None:
         super(InPersonAnalyser, self).__init__(args, config, settings, InPersonRegions)
 
         self.capture: Capture[InPersonRegions]
-        self.skf = SmartKillfeed(self.config, self.history, self._add_record)
         self.atkside_matcher = TemplateMatcher(self.assets["atkside_template"])
+
+        self.skf = SmartKillfeed(self.config, self.history, self._add_record)
+        self.smart_scoreline = SmartScoreline(self.ocr_engine, self.config.sl_majority_th)
 
         self.prog_bar = ProgressBar(add_postfix=self.config.debug.infer_time)
 
-        self.last_kf_seconds = None
         self.end_round_seconds = None
 
     ## ----- SCORELINE -----
     def _handle_scoreline(self, regions: InPersonRegions) -> None:
         """Extracts the current scoreline visible and determines when a new rounds starts"""
-        if not self.running or not self.state.end_round: return
+        if not self.state.end_round:
+            return
 
-        scoreline = self.__read_scoreline(regions.team0_score, regions.team1_score)
+        scoreline = self.smart_scoreline.read(regions.team0_score, regions.team1_score)
         if not scoreline:
             return
 
@@ -52,23 +54,10 @@ class InPersonAnalyser(Analyser):
             return
 
         self._new_round(scoreline)
+        self.smart_scoreline.clear()
 
         self.history.cround.atk_side = self.__read_atk_side(regions)
         self._verbose_print(1, f"Atk Side: {self.history.cround.atk_side}")
-    
-    def __read_scoreline(self, team0_score: np.ndarray, team1_score: np.ndarray) -> Optional[Scoreline]:
-        left_text  = self.ocr_engine.read_score(team0_score)
-        if left_text is None:
-            return None
-
-        right_text = self.ocr_engine.read_score(team1_score)
-        if right_text is None:
-            return None
-
-        if not self.ocr_engine.has_colours:
-            self.ocr_engine.set_colours(team0_score, team1_score)
-
-        return Scoreline(left=int(left_text), right=int(right_text))
     
     def __read_atk_side(self, regions: InPersonRegions) -> Team:
         if self.atkside_matcher.match(regions.team1_side):
@@ -80,7 +69,8 @@ class InPersonAnalyser(Analyser):
     ## ----- TIMER FUNCTION -----
     def _handle_timer(self, regions: InPersonRegions) -> None:
         """Reads and handles the timer information, used to determine when the bomb is planted and when the round ends"""
-        if not self.running or not self.history.is_ready: return
+        if not self.history.is_ready:
+            return
 
         new_time, is_bomb_countdown = self.ocr_engine.read_timer(regions.timer)
 
@@ -92,17 +82,12 @@ class InPersonAnalyser(Analyser):
         elif is_bomb_countdown:
             self.__handle_bomb_countdown()
 
-        ## TODO: sort out this seconds stuff
-        elif self.last_kf_seconds is None and self.end_round_seconds is None and self.state.in_round:
-            self.last_kf_seconds = self.timer.time
+        elif self.state.in_round and self.end_round_seconds is None:
             self.end_round_seconds = self.timer.time
-        
-        if self.last_kf_seconds is not None and self.last_kf_seconds + InPersonAnalyser.NUM_LAST_SECONDS < self.timer.time:
-            self.last_kf_seconds = None
 
-        if (self.end_round_seconds is not None and
-                self.end_round_seconds + InPersonAnalyser.END_ROUND_SECONDS < self.timer.time
-                and self.__read_scoreline(regions.team0_score, regions.team1_score) is None):
+        elif (self.end_round_seconds is not None and
+                self.end_round_seconds + InPersonAnalyser.END_ROUND_SECONDS < self.timer.time and
+                self.ocr_engine.read_score(regions.team0_score) is None):
             self._end_round()
             self.end_round_seconds = None
 
@@ -110,7 +95,6 @@ class InPersonAnalyser(Analyser):
         self.timer.ctime = new_time
         self.timer.defuse_countdown = None
 
-        self.last_kf_seconds = None
         self.end_round_seconds = None
         
         self.prog_bar.set_time(new_time)
@@ -136,9 +120,10 @@ class InPersonAnalyser(Analyser):
     ## ----- KILL FEED -----
     def _handle_feed(self, regions: InPersonRegions) -> None:
         """Handles the killfeed by reading the names, querying the ign matrix and the information to History"""
-        if not self.running or not self.history.is_ready: return
-        if not self.state.in_round and self.last_kf_seconds is None: return
+        if not self.history.is_ready or not self.state.in_round:
+            return
 
+        ## TODO: once a kfline is read for the first time, cache segments, match against to quickly skip
         for line in self.__read_feed(regions.kf_lines):
             player, target = self.__get_players_from_ocrline(line)
             record_type = KFRecord_t.NORMAL
@@ -160,6 +145,7 @@ class InPersonAnalyser(Analyser):
             yield line_out
 
     def __get_players_from_ocrline(self, line: OCRLineResult) -> tuple[Optional[Player], Optional[Player]]:
+        ## do right first, if right is not valid, ocr_line is not valid
         target = self.ign_matrix.get(line.right)
         if line.left is None:
             return None, target
@@ -171,6 +157,7 @@ class InPersonAnalyser(Analyser):
         self.history.cround.killfeed.append(record)
 
         if record.player.type == Player_t.INFER or record.target.type == Player_t.INFER:
+            ## TODO: add read_kfline teams here
             self.ign_matrix.update_mats(record.player.ign, record.target.ign)
             self.ign_matrix.update_mats(record.target.ign, record.player.ign)
 
@@ -185,7 +172,8 @@ class InPersonAnalyser(Analyser):
         To save the correct information for each round, this method must be called just before the start of a new round,
           so that the scoreline and winner attributes can be used
         """
-        if not self.history.is_ready: return
+        if not self.history.is_ready:
+            return
 
         ## infer winner of previous round based on new scoreline
         cround = self.history.cround
@@ -275,7 +263,8 @@ class InPersonAnalyser(Analyser):
 
         timer_region = self.capture.get_region("timer")
         if timer_region is not None:
-            self.state.bomb_planted = self.ocr_engine.get_is_bomb_countdown(timer_region)
+            timer, is_bomb_countdown = self.ocr_engine.read_timer(timer_region)
+            self.state.bomb_planted = timer is None and is_bomb_countdown
         
         self.history.fix_round()
 
@@ -306,10 +295,14 @@ class InPersonAnalyser(Analyser):
         This method is called when the `--test-regions` flag is added to the program call,
         runs inference on a single screenshot.
         """
-        scoreline = self.__read_scoreline(regions.team0_score, regions.team1_score)
+        scoreline = self.smart_scoreline.get_scoreline(regions.team0_score, regions.team1_score)
+        self.ocr_engine.set_colours(regions.team0_score, regions.team1_score)
+
         atkside   = self.__read_atk_side(regions)
         time_read, is_bomb_countdown = self.ocr_engine.read_timer(regions.timer)
         print(f"\nTest: {scoreline=} | {atkside=} | {time_read} | {is_bomb_countdown=}")
+        print(f"Team 0 colours: ", self.ocr_engine.team0_colours)
+        print(f"Team 1 colours: ", self.ocr_engine.team1_colours)
 
         for line in self.__read_feed(regions.kf_lines):
             if line.headshot:
