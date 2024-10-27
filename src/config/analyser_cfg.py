@@ -1,6 +1,7 @@
 from collections import Counter
 from functools import partial
 from pathlib import Path
+from os import makedirs
 from pydantic import BaseModel, ConfigDict, Field, field_validator, computed_field, model_validator
 from typing import Any, Optional, Self, Type
 
@@ -78,24 +79,17 @@ class SaveParser(BaseModel):
     path:      Optional[Path] = None
 
     @model_validator(mode="after")
-    def validate_path(self) -> Self:
-        if self.path is None:
-            return self
-
-        parent = self.path.parent
-        if not parent.exists() and parent.name == "saves":
-            parent.mkdir()
-        elif not parent.exists():
-            raise ValueError(f"Directory {parent} does not exist!")
-        return self
-
-    @model_validator(mode="after")
     def path_override(self) -> Self:
         if self.path is None:
             return self
 
         self.save_dir = self.path.parent
         self.file_type = SaveFileType(self.path.suffix[1:])
+        return self
+    
+    @model_validator(mode="after")
+    def make_save_dir(self) -> Self:
+        makedirs(self.save_dir, exist_ok=True)
         return self
 
 
