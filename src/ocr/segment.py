@@ -79,18 +79,18 @@ def get_seg_box(line: np.ndarray, cols: HSVColourRange, params: OCRParams) -> Op
 
 
 ## --- Black Section ---
-def get_black_left(black_section: np.ndarray, params: OCRParams) -> Optional[int]:
-    black_gray: np.ndarray = cv2.cvtColor(black_section, cv2.COLOR_RGB2GRAY)
+def get_black_left(kf_line: np.ndarray, params: OCRParams) -> Optional[int]:
+    black_gray: np.ndarray = cv2.cvtColor(kf_line, cv2.COLOR_RGB2GRAY)
     mask = (black_gray < params.seg_black_th).astype(np.uint8)
     dist = np.mean(mask, axis=0) > params.seg_dist_th
-
-    w = black_section.shape[1]
-    dist = dist[:-int(w*0.9)]
-    diffs = np.diff(dist)
-    indices = np.where(diffs != 0)[0]
-    if len(indices) == 0:
-        return None
-    return indices[-1]
+    
+    width = dist.shape[0]
+    rls, pos = rle(dist)
+    for i in range(len(rls)-2, -1, -1):
+        run, p = rls[i], pos[i]
+        if dist[p-1] == 0 and run > width * params.seg_min_width:
+            return p
+    return None
 
 
 def create_full_line_segment(kfline_img: np.ndarray,
@@ -107,9 +107,6 @@ def create_full_line_segment(kfline_img: np.ndarray,
         x, x2 = r0, l1
     else:
         x, x2 = r1, l0
-
-    if x2-x < params.seg_black_clip*2:
-        return None
 
     y = min(t0, t1)
     h = max(b0-t0, b1-t1)
@@ -135,12 +132,12 @@ def create_part_line_segment(kfline_img: np.ndarray,
     if r < width * 0.95:
         return None
     
-    black_left = get_black_left(kfline_img[:,l:r], params)
+    black_left = get_black_left(kfline_img[:,:l], params)
     if black_left is None:
         return None
     
     right_seg = Segment.create(kfline_img, [l, t, r-l, b-t])
-    mid_seg   = Segment.create(kfline_img, [black_left, t, l, b-t])
+    mid_seg   = Segment.create(kfline_img, [black_left, t, l-black_left, b-t])
 
     return KfLineSegments(left=None, right=right_seg, middle=mid_seg,
                           left_team=Team.UNKNOWN, right_team=team)

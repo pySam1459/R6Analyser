@@ -22,7 +22,7 @@ class OCRParams:
     seg_mask_th:      float = 0.25
     seg_min_width:    float = 0.1
     seg_black_clip:   int   = 4
-    seg_black_th:     int   = 64
+    seg_black_th:     int   = 24
     seg_dist_th:      float = 0.75
     seg_dist_vert_th: float = 0.5
 

@@ -151,13 +151,19 @@ def test_ocr_engine_kfline(test_file: Path,
     if result is not None:
         write_kflines_out_images(test_file, result)
 
-    if test_file.stem.startswith("none"):
+    stem = test_file.stem
+    if stem.startswith("none"):
         assert result is None, "OCRLineResult must be None"
         return
 
     assert result is not None, "OCRLineResult is None"
 
-    parts = test_file.stem.split(" ")
+    parts = stem.strip("# ").split(" ")
+
+    if stem.startswith("#"): ## suicide
+        stem = stem[1:]
+        parts.insert(0, "")
+    
     if len(parts) == 2:
         headshot = False
         left, right = parts

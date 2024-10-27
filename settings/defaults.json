@@ -49,8 +49,7 @@
         "seg_min_width": 0.1,
         "seg_black_th": 24,
         "seg_black_clip": 4,
-        "seg_dist_th": 0.75,
-        "seg_dist_vert_th": 0.5,
+        "seg_dist_th": 0.5,
     
         "hs_wide_sf": 1.35,
         "hs_th": 0.5
