@@ -253,12 +253,16 @@ class Config(BaseModel):
 
 
 def _load_model_dict(path: Path, model_cls: Type[BaseModel]) -> dict[str, Any]:
-    raw_data = load_file(path)
+    if path.exists():
+        raw_data = load_file(path)
+    else:
+        raw_data = "{}\n"
+
     try:
         config = model_cls.model_validate_json(raw_data)
         return config.model_dump()
     except Exception as e:
-        print(f"{RED}CONFIG PARSE ERROR{WHITE} - Invalid config file at {path}\n{str(e)}")
+        print(f"{RED}CONFIG PARSE ERROR{WHITE} - Invalid settings file at {path}\n{str(e)}")
         raise e
 
 

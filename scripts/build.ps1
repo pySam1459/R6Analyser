@@ -26,9 +26,6 @@ Write-Host "Running tests..."
 
 Write-Host "Running build script..."
 
-# Run the combine script
-& "$VENV_BIN\python.exe" scripts\combine-script.py -b build_config.json -O combined
-
 # Run PyInstaller
 & "$VENV_BIN\pyinstaller.exe" build.spec
 

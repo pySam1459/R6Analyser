@@ -23,8 +23,6 @@ echo "Running tests..."
 
 echo "Running build script..."
 
-"$VENV_BIN/python.exe" scripts/combine-script.py -b build_config.json  -O combined
-
 "$VENV_BIN/pyinstaller.exe" build.spec
 
 "$VENV_BIN\python.exe" scripts/publish.py -b build_config.json -f dist/R6Analyser -O dist/R6Analyser.zip -v1
