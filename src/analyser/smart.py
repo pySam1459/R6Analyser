@@ -44,7 +44,7 @@ class SmartKillfeed:
     def add(self, record: KFRecord, _type: KFRecord_t) -> None:
         if record in self.__history.cround.killfeed:
             return
-        if self.is_dead(record.player) or self.is_dead(record.target):
+        if self.is_dead(record.target):
             return
 
         match _type:

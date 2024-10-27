@@ -2,14 +2,15 @@ import os
 from collections import Counter
 from functools import partial
 from pathlib import Path
+from re import match
 from pydantic import BaseModel, ConfigDict, Field, field_validator, computed_field, model_validator
 from typing import Any, Optional, Self, Type
 
 from ocr import OCRParams
 from settings import Settings
-from utils import load_file, recursive_union, gen_default_name, GameTypeRoundMap, BBox_t
+from utils import Timestamp, load_file, recursive_union, gen_default_name, GameTypeRoundMap, BBox_t
 from utils.enums import GameType, CaptureMode, IGNMatrixMode, Team, SaveFileType
-from utils.constants import DEFAULT_SAVE_DIR, IGN_REGEX, RED, WHITE
+from utils.constants import *
 
 from .region_models import TimerRegion, KFLineRegion
 from .utils import validate_config, VALID_URLS
@@ -33,7 +34,7 @@ class DebugCfg(BaseModel):
 class SaveCfg(BaseModel):
     file_type: SaveFileType
     save_dir:  Path
-    path:      Optional[Path] = Field(default=None)
+    path:      Optional[Path] = None
 
     model_config = ConfigDict(extra="ignore")
 
@@ -67,12 +68,27 @@ class RegionsParser(TimerRegion, KFLineRegion):
 
 
 class CaptureParser(BaseModel):
-    mode:    CaptureMode
+    mode:    CaptureMode 
     regions: RegionsParser
-    file:    Optional[Path] = None
-    url:     Optional[str] = None
+
+    file:    Optional[Path]      = None
+    url:     Optional[str]       = None
+    offset:  Optional[Timestamp] = None
 
     model_config = ConfigDict(extra="forbid")
+
+    @field_validator("offset", mode="before")
+    @classmethod
+    def parse_offset(cls, v: Any) -> Optional[Timestamp]:
+        if v is None:
+            return None
+        if isinstance(v, int) and v >= 0:
+            return Timestamp.from_int(v)
+        elif isinstance(v, str) and match(TIMESTAMP_PATTERN, v):
+            return Timestamp.from_str(v)
+
+        raise ValueError(f"Cannot parse capture offset: {v}")
+
 
     @model_validator(mode="after")
     def file_exists(self) -> Self:
@@ -84,12 +100,12 @@ class CaptureParser(BaseModel):
             elif not os.access(self.file, os.R_OK):
                 raise ValueError(f"Permission Error: Invalid permissions to read video file {self.file}")
         return self
-    
+
     @model_validator(mode="after")
     def validate_url(self) -> Self:
         if self.mode not in [CaptureMode.YOUTUBE, CaptureMode.TWITCH]:
             return self
-        
+
         if self.url is None:
             raise ValueError(f"{self.mode.value} capture mode required `url` field to be specified")
 
@@ -121,7 +137,7 @@ class SaveParser(BaseModel):
         elif not parent.exists():
             raise ValueError(f"Directory {parent} does not exist!")
         return self
-    
+
     @model_validator(mode="after")
     def path_override(self) -> Self:
         if self.path is None:
@@ -249,8 +265,9 @@ class RegionsCfg(BaseModel):
 class CaptureCfg(BaseModel):
     mode:    CaptureMode
     regions: RegionsCfg
-    file:    Optional[Path] = None
-    url:     Optional[str] = None
+    file:    Optional[Path]
+    url:     Optional[str]
+    offset:  Optional[Timestamp]
 
     model_config = ConfigDict(extra="ignore")
 
@@ -270,10 +287,11 @@ class Config(BaseModel):
 
     ign_mode:          IGNMatrixMode = Field(exclude=True)
 
-    last_winner:       Team          = Field(exclude=True)
     max_rounds:        int           = Field(exclude=True)
     rounds_per_side:   int           = Field(exclude=True)
     overtime_rounds:   int           = Field(exclude=True)
+
+    last_winner:       Team          = Field(exclude=True)
     defuser_timer:     int           = Field(exclude=True)
     sl_majority_th:    int           = Field(exclude=True)
 
@@ -302,7 +320,7 @@ def validate_analyser_dict(cfg: dict[str, Any],
 
     ## debug props are unioned on top
     cfg_parsed = ConfigParser.model_validate(cfg | dbg)
-    return Config.model_validate(cfg_parsed.model_dump(exclude_none=True))
+    return Config.model_validate(cfg_parsed.model_dump())
 
 
 def create_analyser_config(config_path: Path, settings: Settings) -> Config | list[Config]:
