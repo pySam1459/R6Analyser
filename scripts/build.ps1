@@ -6,11 +6,11 @@ $script_dir = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location (Split-Path -Parent $script_dir)
 
 # Determine the virtual environment bin directory
-if (Test-Path "venv\Scripts") {
-    $VENV_BIN = "venv\Scripts"
+if (Test-Path "venv-prod\Scripts") {
+    $VENV_BIN = "venv-prod\Scripts"
 }
-elseif (Test-Path "venv\bin") {
-    $VENV_BIN = "venv\bin"
+elseif (Test-Path "venv-prod\bin") {
+    $VENV_BIN = "venv-prod\bin"
 }
 else {
     Write-Error "Error: Cannot find 'Scripts' or 'bin' directory in the virtual environment."
@@ -27,10 +27,10 @@ Write-Host "Running tests..."
 Write-Host "Running build script..."
 
 # Run PyInstaller
-& "$VENV_BIN\pyinstaller.exe" build.spec
+& "$VENV_BIN\pyinstaller.exe" --onefile "src/run.py"
 
 # Run publish script
-& "$VENV_BIN\python.exe" scripts\publish.py -b build_config.json -f dist\R6Analyser -O dist\R6Analyser.zip -v1
+& "$VENV_BIN\python.exe" scripts/build.py -c build_config.json -b build/bundle -d dist -O dist/R6Analyser.zip
 
 # Deactivate the virtual environment
 deactivate

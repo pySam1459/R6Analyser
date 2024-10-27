@@ -7,9 +7,9 @@ script_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd "$script_dir/.."
 
 if [ -d "venv/Scripts" ]; then
-    VENV_BIN="venv/Scripts"
+    VENV_BIN="venv-prod/Scripts"
 elif [ -d "venv/bin" ]; then
-    VENV_BIN="venv/bin"
+    VENV_BIN="venv-prod/bin"
 else
     echo "Error: Cannot find 'Scripts' or 'bin' directory in the virtual environment."
     exit 1
@@ -23,8 +23,8 @@ echo "Running tests..."
 
 echo "Running build script..."
 
-"$VENV_BIN/pyinstaller.exe" build.spec
+"$VENV_BIN/pyinstaller.exe" --onefile "src/run.py"
 
-"$VENV_BIN\python.exe" scripts/publish.py -b build_config.json -f dist/R6Analyser -O dist/R6Analyser.zip -v1
+"$VENV_BIN\python.exe" scripts/build.py -c build_config.json -b build/bundle -d dist -O dist/R6Analyser.zip
 
 deactivate
