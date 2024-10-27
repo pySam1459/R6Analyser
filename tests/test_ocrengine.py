@@ -88,10 +88,11 @@ def write_score_out_image(test_file: Path, image: Image.Image) -> None:
 @pytest.mark.parametrize("test_file", sl_test_files, ids=get_ids)
 def test_ocr_engine_scoreline(test_file: Path,
                               ocr_params: OCRParams,
-                              settings: Settings) -> None:
+                              settings: Settings,
+                              assets: Assets) -> None:
     image = load_rgb(test_file)
 
-    engine = OCREngine(ocr_params, settings, None)  # type: ignore
+    engine = OCREngine(ocr_params, settings, assets)  # type: ignore
     engine._debug_vars = {"th_path": out_path / "scoreline" / test_file.name}
     makedirs(out_path / "scoreline", exist_ok=True)
 
@@ -186,10 +187,11 @@ def test_ocr_engine_kfline(test_file: Path,
 @pytest.mark.parametrize("test_file", timer_test_files, ids=get_ids)
 def test_ocr_engine_timer(test_file: Path,
                           ocr_params: OCRParams,
-                          settings: Settings) -> None:
+                          settings: Settings,
+                          assets: Assets) -> None:
     image = load_rgb(test_file)
 
-    engine = OCREngine(ocr_params, settings, None) # type: ignore
+    engine = OCREngine(ocr_params, settings, assets) # type: ignore
 
     timer, is_bc = engine.read_timer(image)
     if timer is not None:

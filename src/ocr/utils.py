@@ -27,7 +27,7 @@ class OCRParams:
     seg_dist_vert_th: float = 0.5
 
     hs_wide_sf:       float = 1.35
-    hs_th:            float = 0.65
+    hs_th:            float = 0.5
 
 
 class OCReadMode(IntEnum):

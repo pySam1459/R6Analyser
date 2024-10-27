@@ -12,12 +12,12 @@ from ocr import OCRLineResult
 from settings import Settings
 from utils.cli import AnalyserArgs
 from utils.enums import Team, WinCondition
+from utils.tools import TemplateMatcher
 from utils import *
 from utils.constants import *
 
 from .base import Analyser, State
 from .smart import SmartKillfeed, SmartScoreline, KFRecord_t
-from .template_matcher import TemplateMatcher
 
 
 __all__ = ["InPersonAnalyser"]

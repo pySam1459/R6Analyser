@@ -9,6 +9,7 @@ from assets import Assets
 from settings import Settings
 from utils import Timestamp, resize_height, filter_none, clip_around, argmin
 from utils.enums import Team
+from utils.tools import TemplateMatcher
 from utils.constants import *
 
 from .base import BaseOCREngine
