@@ -3,7 +3,7 @@ from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validat
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Optional, Self, Any
 
-from .keycheck import UserKeyData, validate_software_key
+from .keycheck import UserKeyData, validate_software_key, INVALID_KEY_REASONS
 from .constants import SOFTWARE_KEY_PATTERN, SOFTWARE_KEY_FILE, SETTINGS_PATH
 
 
@@ -114,4 +114,5 @@ class AnalyserArgs(Env, CliArgs):
             self.software_key_data = UserKeyData.model_validate(key_data)
             return self
         else:
-            raise ValueError(f"Software Key provided is invalid! Status code {status_code}")
+            reason = INVALID_KEY_REASONS[status_code]
+            raise ValueError(f"Software Key provided is invalid!\nCode {status_code}: {reason}")

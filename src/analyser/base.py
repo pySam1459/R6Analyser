@@ -12,7 +12,9 @@ from ocr import OCREngine
 from scheduler import create_scheduler
 from settings import Settings
 from utils.enums import Team, CaptureTimeType
+from utils.keycheck import send_inc_update
 from utils.cli import AnalyserArgs
+from utils.constants import RED, WHITE
 from writer import create_writer
 from utils import *
 
@@ -195,6 +197,11 @@ class Analyser(Generic[T], ABC):
             continue
 
         return Team(int(winner))
+
+    def _send_key_update(self) -> None:
+        if not send_inc_update(self.args.software_key, ncalls=1):
+            print(f"\n\n{RED}Could not validate software key!{WHITE}\nMake sure you are connected to the internet.\n")
+            exit()
 
     ## ----- PRINT FUNCTION -----
     @property

@@ -3,7 +3,21 @@ from requests import post, Response as ReqsResponse
 from typing import Optional
 
 
-__all__ = ["UserKeyData", "validate_software_key", "send_inc_update"]
+__all__ = [
+    "UserKeyData",
+    "validate_software_key",
+    "send_inc_update",
+    "INVALID_KEY_REASONS"
+]
+
+
+INVALID_KEY_REASONS = {
+    400: "Bad Request, internet issues?",
+    401: "Invalid Key",
+    402: "Key has been Denied! Banned",
+    403: "Key has been Denied! Total Payment has not been received.",
+    404: "Server Error, please contact a developer ASAP.",
+}
 
 
 class UserKeyData(BaseModel):

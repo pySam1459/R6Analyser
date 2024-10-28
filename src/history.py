@@ -188,6 +188,9 @@ class History:
         elif isinstance(other, Scoreline):
             return other.total+1 in self.__round_data
         return False
+    
+    def __len__(self) -> int:
+        return len(self.__round_data)
 
     def fix_round(self) -> None:
         """Should be called by _fix_state, in-case program incorrectly thinks round ended"""

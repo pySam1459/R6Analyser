@@ -11,6 +11,7 @@ from ocr import OCRLineResult
 from settings import Settings
 from utils.cli import AnalyserArgs
 from utils.enums import Team, WinCondition
+from utils.keycheck import send_inc_update
 from utils.tools import TemplateMatcher
 from utils import *
 from utils.constants import *
@@ -199,6 +200,8 @@ class InPersonAnalyser(Analyser):
             self._verbose_print(1, f"Disabled defuser at: {reat}")
 
         self._verbose_print(0, f"Team {cround.winner} wins round {self.history.roundn} by {win_con.value} at {reat}.")
+        if len(self.history) == 1:
+            self._send_key_update()
         if save:
             self.writer.write(self.history, self.ign_matrix)
 
