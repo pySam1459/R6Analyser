@@ -55,8 +55,9 @@ class Defaults(BaseModel):
     rounds_per_side_map: GameTypeRoundMap
     overtime_rounds_map: GameTypeRoundMap
 
-    defuser_timer:  int
-    sl_majority_th: int
+    defuser_timer:       int
+    sl_majority_th:      int
+    ign_ratio_threshold: float
 
     ocr_params:    OCRParams
 
@@ -118,8 +119,9 @@ class ConfigParser(BaseModel):
     rounds_per_side_map: GameTypeRoundMap
     overtime_rounds_map: GameTypeRoundMap
 
-    defuser_timer:       int = Field(ge=1, le=60)
-    sl_majority_th:      int = Field(ge=1, le=10)
+    defuser_timer:       int   = Field(ge=1, le=60)
+    sl_majority_th:      int   = Field(ge=1, le=10)
+    ign_ratio_threshold: float = Field(ge=0.0, le=1.0)
 
     ocr_params:          OCRParams
 
@@ -218,30 +220,31 @@ class CaptureCfg(BaseModel):
 
 
 class Config(BaseModel):
-    name:              str
-    config_path:       Path
+    name:                str
+    config_path:         Path
 
-    game_type:         GameType
-    spectator:         bool
-    capture:           CaptureCfg
-    team0:             list[str]
-    team1:             list[str]
+    game_type:           GameType
+    spectator:           bool
+    capture:             CaptureCfg
+    team0:               list[str]
+    team1:               list[str]
 
-    save:              SaveCfg
-    scheduler:         SchedulerCfg
+    save:                SaveCfg
+    scheduler:           SchedulerCfg
 
-    ign_mode:          IGNMatrixMode = Field(exclude=True)
+    ign_mode:            IGNMatrixMode
 
-    max_rounds:        int           = Field(exclude=True)
-    rounds_per_side:   int           = Field(exclude=True)
-    overtime_rounds:   int           = Field(exclude=True)
+    max_rounds:          int
+    rounds_per_side:     int
+    overtime_rounds:     int
 
-    last_winner:       Team          = Field(exclude=True)
-    defuser_timer:     int           = Field(exclude=True)
-    sl_majority_th:    int           = Field(exclude=True)
+    last_winner:         Team
+    defuser_timer:       int
+    sl_majority_th:      int
+    ign_ratio_threshold: float
 
-    ocr_params:        OCRParams     = Field(exclude=True)
-    debug:             DebugCfg      = Field(exclude=True)
+    ocr_params:          OCRParams
+    debug:               DebugCfg
 
     model_config = ConfigDict(extra="ignore", use_enum_values=True)
 

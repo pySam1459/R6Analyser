@@ -2,7 +2,6 @@ from functools import partial
 from Levenshtein import ratio
 from typing import Optional
 
-from utils.constants import IM_LEVEN_THRESHOLD
 from utils.enums import IGNMatrixMode, Team
 
 from .base import IGNMatrix
@@ -19,15 +18,18 @@ class IGNMatrixFixed(IGNMatrix):
     Separating the different IGN modes aims to improve efficiency, readability and modularity
     """
 
-    def __init__(self, team0: list[str], team1: list[str]) -> None:
-        super(IGNMatrixFixed, self).__init__(IGNMatrixMode.FIXED, team0, team1)
+    def __init__(self, team0: list[str], team1: list[str], leven_th: float) -> None:
+        super(IGNMatrixFixed, self).__init__(IGNMatrixMode.FIXED, team0, team1, leven_th)
 
-        self.__teams = Teams([FixedPlayer(ign, Team.TEAM0) for ign in team0],
-                             [FixedPlayer(ign, Team.TEAM1) for ign in team1])
+        self.__teams = Teams([self._ttable[ign] for ign in team0],
+                             [self._ttable[ign] for ign in team1])
 
-    def get(self, pign: str) -> Optional[Player]:
+    def get(self, pign: str, pteam: Team) -> Optional[Player]:
         """Returns the most-likely Player object from a pseudoIGN or None if the pseudoIGN does not meet the threshold"""
-        return self._ttable.check(pign, IM_LEVEN_THRESHOLD)
+        pl = self._ttable.check(pign, self._ign_threshold)
+        if pl is not None and pl.team == pteam:
+            return pl
+        return None
 
     def get_teams(self) -> Teams:
         """Returns a tuple of the teams currently playing"""

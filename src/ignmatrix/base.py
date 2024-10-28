@@ -17,10 +17,11 @@ class IGNMatrix(ABC):
     The matrix uses Levenshtein distance to determine whether two IGNs are the same (could be improved?)
     """
 
-    def __init__(self, mode: IGNMatrixMode, team0: list[str], team1: list[str]) -> None:
+    def __init__(self, mode: IGNMatrixMode, team0: list[str], team1: list[str], leven_th: float) -> None:
         self.__mode = mode
         self._team0 = team0
         self._team1 = team1
+        self._ign_threshold = leven_th
 
         self._charlist = get_chars(team0 + team1)
 
@@ -44,7 +45,7 @@ class IGNMatrix(ABC):
 
 
     @abstractmethod
-    def get(self, pign: str) -> Optional[Player]:
+    def get(self, pign: str, pteam: Team) -> Optional[Player]:
         """Returns the most-likely Player instance for a given pign"""
     
     @abstractmethod
@@ -55,5 +56,5 @@ class IGNMatrix(ABC):
     def evaluate(self, pign: str) -> float:
         """Returns a eval score for a given pign, eval'd against the ttable and matrix"""
     
-    def update_mats(self, pign: str, tign: str) -> None:
+    def update_mat(self, pign: str, pteam: Team) -> None:
         """Records pign killing t(arget)ign, used by IGNMatrixInfer"""

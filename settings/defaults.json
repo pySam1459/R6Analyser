@@ -33,6 +33,7 @@
 
     "defuser_timer": 45,
     "sl_majority_th": 5,
+    "ign_ratio_threshold": 0.7,
 
     "ocr_params": {
         "sl_scalex": 0.4,
