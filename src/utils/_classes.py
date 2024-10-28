@@ -63,8 +63,15 @@ class Timestamp:
     @staticmethod
     def from_str(string: str) -> Optional['Timestamp']:
         if match(TIMESTAMP_PATTERN, string):
-            m,s = string.split(":")
-            return Timestamp(minutes=int(m), seconds=int(s))
+            colons = string.count(":")
+            if colons == 0:
+                return Timestamp(minutes=0, seconds=int(string))
+            elif colons == 1:
+                m,s = string.split(":")
+                return Timestamp(minutes=int(m), seconds=int(s))
+            elif colons == 2:
+                h,m,s = string.split(":")
+                return Timestamp(minutes=int(h)*60+int(m), seconds=int(s))
         elif match(NUMBER_PATTERN, string):
             return Timestamp.from_int(int(string))
 

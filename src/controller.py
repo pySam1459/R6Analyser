@@ -48,21 +48,24 @@ class Controller:
 
 
     def run(self) -> None:
-        for i, config in enumerate(self.config_list):
-            if self.args.region_tool:
-                self.__run_region_tool(cast(RTConfig, config))
-            else:
-                self.__run_analyser(cast(Config, config))
+        if self.args.region_tool:
+            self.__run_region_tool(cast(RTConfig, self.config_list[0]))
+            return
+
+        for config in self.config_list:
+            self.__run_analyser(cast(Config, config))
 
     def __run_region_tool(self, config: RTConfig) -> None:
         if self.args.delay > 0:
             sleep(self.args.delay)
 
-        print("Info: Running Region Tool...")
+        print(f"Config: {config.name}")
+        print(f"Info: Running Region Tool...")
         rt = create_regiontool(self.args, config)
         rt.run()
     
     def __run_analyser(self, config: Config) -> None:
+        print(f"Config: {config.name}")
         if config.spectator:
             print("Info: Spectator Mode Active")
             analyser = SpectatorAnalyser(self.args, config, self.settings)

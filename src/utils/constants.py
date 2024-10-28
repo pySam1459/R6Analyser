@@ -6,7 +6,7 @@ from re import compile
 IGN_REGEX = compile(r"^[0-9a-zA-Z\-_\.]{2,18}$")
 SOFTWARE_KEY_PATTERN = r"^[a-f0-9]{64}$"
 SCORELINE_PATTERN = r"^\d{1,2}$"
-TIMESTAMP_PATTERN = r"^\d+:\d{2}$"
+TIMESTAMP_PATTERN = r"^(\d+:)?(\d+:)?\d{1,2}$"
 NUMBER_PATTERN = r"^\d+$"
 
 __SETTINGS_PATH       = Path("settings")

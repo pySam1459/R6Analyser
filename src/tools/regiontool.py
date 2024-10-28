@@ -1,3 +1,4 @@
+import json
 import tkinter as tk
 import cv2
 import numpy as np
@@ -267,9 +268,19 @@ class RegionTool(Generic[T], ABC):
                     for reg_key in self.region_sels}
 
         self.config.capture.regions = RTRegionsCFG.model_validate(region_data)
+        config_data = self.config.model_dump(exclude_none=True)
+
+        with open(self.config.config_path, "r") as f_in:
+            existing_data = json.load(f_in)
+        
+        if isinstance(existing_data, dict):
+            existing_data = config_data
+        elif isinstance(existing_data, list):
+            existing_data[0] = config_data
+        
         with open(self.config.config_path, "w") as f_out:
-            config_data = self.config.model_dump_json(indent=4, exclude_none=True)
-            f_out.write(config_data)
+            json.dump(existing_data, f_out, indent=4)
+
 
     def stop(self, *_) -> None:
         self.running = False

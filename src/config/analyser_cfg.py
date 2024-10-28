@@ -221,7 +221,7 @@ class CaptureCfg(BaseModel):
 
 class Config(BaseModel):
     name:                str
-    config_path:         Path
+    config_path:         Path = Field(exclude=True)
 
     game_type:           GameType
     spectator:           bool
@@ -232,11 +232,11 @@ class Config(BaseModel):
     save:                SaveCfg
     scheduler:           SchedulerCfg
 
-    ign_mode:            IGNMatrixMode
+    ign_mode:            IGNMatrixMode = Field(exclude=True)
 
-    max_rounds:          int
-    rounds_per_side:     int
-    overtime_rounds:     int
+    max_rounds:          int = Field(exclude=True)
+    rounds_per_side:     int = Field(exclude=True)
+    overtime_rounds:     int = Field(exclude=True)
 
     last_winner:         Team
     defuser_timer:       int
@@ -244,7 +244,7 @@ class Config(BaseModel):
     ign_ratio_threshold: float
 
     ocr_params:          OCRParams
-    debug:               DebugCfg
+    debug:               DebugCfg = Field(exclude=True)
 
     model_config = ConfigDict(extra="ignore", use_enum_values=True)
 

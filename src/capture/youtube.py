@@ -40,20 +40,23 @@ class YoutubeVideoCapture(FpsCapture[T]):
         self.cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
         return frame_idx
 
-    def __next_frame(self, frame_interval: int) -> np.ndarray | None:
-        new_frame = self.frame_idx + frame_interval
+    def __next_frame(self, frame_interval: int, jump: bool) -> np.ndarray | None:
+        self.frame_idx += frame_interval
+
+        if jump:
+            self.cap.set(cv2.CAP_PROP_POS_FRAMES, self.frame_idx)
+            frame_interval = 1
 
         for _ in range(frame_interval):
             ret, frame = self.cap.read()
             if not ret:
                 return None
 
-        self.frame_idx = new_frame
         return frame
 
-    def next(self, dt: float, *_, **__) -> Optional[T]:
+    def next(self, dt: float, jump = False) -> Optional[T]:
         frame_interval = max(int(round(dt * self.fps)), 1)
-        frame = self.__next_frame(frame_interval)
+        frame = self.__next_frame(frame_interval, jump)
         if frame is None:
             return None
 
