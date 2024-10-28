@@ -282,13 +282,13 @@
         }
     },
     {
-        "name": "ga_test6a-videofile_offset",
+        "name": "ga_test6a-videofile_start",
         "game_type": "comp",
         "spectator": false,
         "capture": {
             "mode": "videofile",
             "file": "./resources/mock-videos/mock.mp4",
-            "offset": "2:00",
+            "start": "2:00",
             "regions": {
                 "timer": [3752, 177, 159, 72],
                 "kf_line": [4273, 469, 410, 26]
@@ -309,13 +309,13 @@
         }
     },
     {
-        "name": "ga_test6a-videofile_offset",
+        "name": "ga_test6a-videofile_start",
         "game_type": "comp",
         "spectator": false,
         "capture": {
             "mode": "youtube",
             "url": "https://www.youtube.com/watch?v=9kT9KQp7GeQ",
-            "offset": "3:00",
+            "start": "3:00",
             "regions": {
                 "timer": [3752, 177, 159, 72],
                 "kf_line": [4273, 469, 410, 26]

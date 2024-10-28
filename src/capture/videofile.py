@@ -18,7 +18,7 @@ class VideoFileCapture(FpsCapture[T]):
         self.fps = self.vr.get_avg_fps()
 
         self.total_frames = len(self.vr)
-        self.frame_idx = self.__offset(config.capture.offset)
+        self.frame_idx = self.__offset(config.capture.start)
     
     def __offset(self, offset: Optional[Timestamp]) -> int:
         if offset is None:

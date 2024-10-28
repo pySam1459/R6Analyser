@@ -214,7 +214,7 @@ class CaptureCfg(BaseModel):
     regions: RegionsCfg
     file:    Optional[Path]
     url:     Optional[str]
-    offset:  Optional[Timestamp]
+    start:   Optional[Timestamp]
 
     model_config = ConfigDict(extra="ignore")
 

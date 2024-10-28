@@ -14,27 +14,35 @@ __all__ = [
 class TimerRegion(BaseModel):
     timer: InBBox_t
 
+    score_width: float = Field(default=0.4, ge=0.0, le=1.0)
+    side_width:  float = Field(default=0.4, ge=0.0, le=1.0)
+
     model_config = ConfigDict(extra="ignore")
 
     @computed_field
     @property
     def team0_score(self) -> BBox_t:
-        return (self.timer[0] - self.timer[2]//2, self.timer[1], self.timer[2]//2, self.timer[3])
+        score_width = int(self.timer[2] * self.score_width)
+        return (self.timer[0] - score_width, self.timer[1], score_width, self.timer[3])
 
     @computed_field
     @property
     def team1_score(self) -> BBox_t:
-        return (self.timer[0] + self.timer[2], self.timer[1], self.timer[2]//2, self.timer[3])
+        score_width = int(self.timer[2] * self.score_width)
+        return (self.timer[0] + self.timer[2], self.timer[1], score_width, self.timer[3])
 
     @computed_field
     @property
     def team0_side(self) -> BBox_t:
-        return (self.timer[0] - int(self.timer[2]*0.95), self.timer[1], self.timer[2]//2, self.timer[3])
+        side_width = int(self.timer[2] * self.side_width)
+        return (self.team0_score[0] - side_width, self.timer[1], side_width, self.timer[3])
 
     @computed_field
     @property
     def team1_side(self) -> BBox_t:
-        return (self.timer[0] + int(self.timer[2]*1.45), self.timer[1], self.timer[2]//2, self.timer[3])
+        x = self.team1_score[0]+self.team1_score[2]
+        side_width = int(self.timer[2] * self.side_width)
+        return (x, self.timer[1], side_width, self.timer[3])
 
 
 class KFLineRegion(BaseModel):

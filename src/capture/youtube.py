@@ -27,7 +27,7 @@ class YoutubeVideoCapture(FpsCapture[T]):
         self.cap = cap
 
         self.fps = self.cap.get(cv2.CAP_PROP_FPS)
-        self.frame_idx = self.__offset(config.capture.offset)
+        self.frame_idx = self.__offset(config.capture.start)
     
     def __offset(self, offset: Optional[Timestamp]) -> int:
         if offset is None:

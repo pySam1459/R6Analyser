@@ -63,13 +63,13 @@
         }
     },
     {
-        "name": "grt_test5b-videofile_offset",
+        "name": "grt_test5b-videofile_start",
         "game_type": "comp",
         "spectator": false,
         "capture": {
             "mode": "videofile",
             "file": "./resources/mock-videos/mock.mp4",
-            "offset": "2:20"
+            "start": "2:20"
         }
     },
     {
@@ -95,13 +95,13 @@
         }
     },
     {
-        "name": "grt_test6b-videofile_offset",
+        "name": "grt_test6b-videofile_start",
         "game_type": "comp",
         "spectator": false,
         "capture": {
             "mode": "youtube",
             "url": "https://youtu.be/9kT9KQp7GeQ",
-            "offset": "0:35"
+            "start": "0:35"
         }
     }
 ]
