@@ -1,36 +1,33 @@
-# Stop execution immediately when a command fails
 $ErrorActionPreference = "Stop"
 
-# Get the directory of the script
 $script_dir = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location (Split-Path -Parent $script_dir)
 
-# Determine the virtual environment bin directory
-if (Test-Path "venv-prod\Scripts") {
-    $VENV_BIN = "venv-prod\Scripts"
+# Determine the venv bin
+if ((Test-Path "venv-prod\Scripts") -And (Test-Path "venv\Scripts")) {
+    $VENV_DEV_BIN = "venv\Scripts"
+    $VENV_PROD_BIN = "venv-prod\Scripts"
 }
-elseif (Test-Path "venv-prod\bin") {
-    $VENV_BIN = "venv-prod\bin"
+elseif ((Test-Path "venv-prod\bin") -And (Test-Path "venv\bin")) {
+    $VENV_DEV_BIN = "venv\bin"
+    $VENV_PROD_BIN = "venv-prod\bin"
 }
 else {
     Write-Error "Error: Cannot find 'Scripts' or 'bin' directory in the virtual environment."
     exit 1
 }
 
-# Activate the virtual environment
-& "$VENV_BIN\Activate.ps1"
+## tests my be run with the dev venv, not prod
+& "$VENV_DEV_BIN\Activate.ps1"
 
 Write-Host "Running tests..."
+& "$VENV_DEV_BIN\pytest.exe" --cov=src
 
-& "$VENV_BIN\pytest.exe"
+deactivate
+& "$VENV_PROD_BIN\Activate.ps1"
 
 Write-Host "Running build script..."
+& "$VENV_PROD_BIN\pyinstaller.exe" build.spec
+& "$VENV_PROD_BIN\python.exe" scripts\build.py -c build_config.json -b build\bundle -d dist -O dist\R6Analyser.zip
 
-# Run PyInstaller
-& "$VENV_BIN\pyinstaller.exe" --onefile "src/run.py"
-
-# Run publish script
-& "$VENV_BIN\python.exe" scripts/build.py -c build_config.json -b build/bundle -d dist -O dist/R6Analyser.zip
-
-# Deactivate the virtual environment
 deactivate

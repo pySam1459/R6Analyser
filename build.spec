@@ -4,7 +4,7 @@
 a = Analysis(
     ['src\\run.py'],
     pathex=[],
-    binaries=[],
+    binaries=[('venv-prod\\Lib\\site-packages\\decord\\decord.dll', '.\\decord')],
     datas=[],
     hiddenimports=[],
     hookspath=[],
