@@ -6,6 +6,13 @@ set -e
 script_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd "$script_dir/.."
 
+if [ -d "build" ]; then
+  rm -rf "build"
+fi
+if [ -d "dist" ]; then
+  rm -rf "dist"
+fi
+
 if [ -d "venv-prod/Scripts" ] && [ -d "venv/Scripts" ]; then
     VENV_PROD_BIN="venv-prod/Scripts"
     VENV_DEV_BIN="venv/Scripts"
@@ -24,8 +31,8 @@ echo "Running tests..."
 deactivate
 source "$VENV_PROD_BIN/activate"
 
-echo "Running build script..."
+echo "Running build scripts..."
 "$VENV_PROD_BIN/pyinstaller.exe" build.spec
-"$VENV_PROD_BIN/python.exe" scripts/build.py -c build_config.json -b build/bundle -d dist -O dist/R6Analyser.zip
+"$VENV_PROD_BIN/python.exe" scripts/bundle.py -c bundle.json -b build/bundle -d dist -O dist/R6Analyser.zip
 
 deactivate

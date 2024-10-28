@@ -64,7 +64,7 @@ def zip_directory(directory_path: Path, output_zip_path: Path):
                 zipf.write(file_path, os.path.relpath(file_path, directory_path))
 
 
-def build(args: argparse.Namespace) -> None:
+def bundle(args: argparse.Namespace) -> None:
     bundle: Path = args.bundle
     dist:   Path = args.dist
     if bundle.exists():
@@ -102,4 +102,4 @@ if __name__ == "__main__":
                         help="output dst for zip file")
 
     args = parser.parse_args()
-    build(args)
+    bundle(args)

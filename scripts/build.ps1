@@ -3,6 +3,13 @@ $ErrorActionPreference = "Stop"
 $script_dir = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location (Split-Path -Parent $script_dir)
 
+if (Test-Path -Path "build") {
+    Remove-Item -Recurse -Force "build"
+}
+if (Test-Path -Path "dist") {
+    Remove-Item -Recurse -Force "dist"
+}
+
 # Determine the venv bin
 if ((Test-Path "venv-prod\Scripts") -And (Test-Path "venv\Scripts")) {
     $VENV_DEV_BIN = "venv\Scripts"
@@ -19,15 +26,14 @@ else {
 
 ## tests my be run with the dev venv, not prod
 & "$VENV_DEV_BIN\Activate.ps1"
-
 Write-Host "Running tests..."
 & "$VENV_DEV_BIN\pytest.exe" --cov=src
 
 deactivate
 & "$VENV_PROD_BIN\Activate.ps1"
 
-Write-Host "Running build script..."
+Write-Host "Running build scripts..."
 & "$VENV_PROD_BIN\pyinstaller.exe" build.spec
-& "$VENV_PROD_BIN\python.exe" scripts\build.py -c build_config.json -b build\bundle -d dist -O dist\R6Analyser.zip
+& "$VENV_PROD_BIN\python.exe" scripts\bundle.py -c bundle.json -b build\bundle -d dist -O dist\R6Analyser.zip
 
 deactivate
