@@ -41,8 +41,8 @@ def default_save_file(suffix="xlsx") -> str:
     return f"{now_time}.{suffix}"
 
 
-def get_players(hround: HistoryRound, ignmat: IGNMatrix) -> list[Player]:
-    return ignmat.get_teams().combine(hround.atk_side)
+def get_players(ignmat: IGNMatrix, first_team: Team) -> list[Player]:
+    return ignmat.get_teams().combine(first_team)
 
 def is_valid_kill(record: KFRecord) -> bool:
     return record.player.team != record.target.team

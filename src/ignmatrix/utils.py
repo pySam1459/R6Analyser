@@ -28,38 +28,40 @@ class Teams:
 class TeamTable:
     """A fixed table of (ign, team) pairs"""
     def __init__(self, player_data: dict[str, Team]) -> None:
-        self.__table = player_data
+        self.__table = {pign: FixedPlayer(pign, pteam)
+                        for pign, pteam in player_data.items()}
         self.__keys = list(player_data)
 
     def check(self, pign: str, threshold: float) -> Optional[Player]:
-        if pign in self.__table:
-            return FixedPlayer(pign, self.__table[pign])
+        if pign in self.__keys:
+            return self.__table[pign]
 
-        score, ign = max([(ratio(ign, pign), ign) for ign in self.__table],
-                         key=lambda t: t[0])
+        score, ign = max([(ratio(ign, pign), ign) for ign in self.__keys],
+                         default=(0, None))
         
-        if score >= threshold:
-            return FixedPlayer(ign, self.__table[ign])
+        if score >= threshold and ign is not None:
+            return self.__table[ign]
 
         return None
     
     def eval(self, pign: str) -> float:
-        if pign in self.__table:
-            return 1.0
-        
-        return max([ratio(ign, pign) for ign in self.__table])
+        return (float(pign in self.__keys) or
+                max([ratio(ign, pign) for ign in self.__table], default=0))
     
     def get_players(self) -> list[Player]:
-        return [FixedPlayer(ign, team) for ign, team in self.__table.items()]
+        return list(self.__table.values())
 
     def igns(self) -> list[str]:
         return self.__keys.copy()
 
     def __len__(self) -> int:
-        return len(self.__table)
+        return len(self.__keys)
     
-    def __contains__(self, el: str) -> bool:
-        return el in self.__table
+    def __contains__(self, pign: str) -> bool:
+        return pign in self.__keys
+    
+    def __getitem__(self, key: str) -> FixedPlayer:
+        return self.__table[key]
 
 
 def get_chars(names: list[str]) -> str:

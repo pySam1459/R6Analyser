@@ -1,13 +1,12 @@
 import cv2
 import numpy as np
-from dataclasses import dataclass as odataclass
 from os import makedirs
 from typing import Optional, Generator
 
 from capture import Capture, InPersonRegions
 from config import Config
 from history import KFRecord
-from ignmatrix import Player, Player_t
+from ignmatrix import Player
 from ocr import OCRLineResult
 from settings import Settings
 from utils.cli import AnalyserArgs
@@ -17,7 +16,7 @@ from utils import *
 from utils.constants import *
 
 from .base import Analyser, State
-from .smart import SmartKillfeed, SmartScoreline, KFRecord_t
+from .smart import SmartScoreline
 
 
 __all__ = ["InPersonAnalyser"]
@@ -32,7 +31,7 @@ class InPersonAnalyser(Analyser):
         self.capture: Capture[InPersonRegions]
         self.atkside_matcher = TemplateMatcher(self.assets["atkside_template"])
 
-        self.skf = SmartKillfeed(self.config, self.history, self._add_record)
+        # self.skf = SmartKillfeed(self.config, self.history, self._add_record)
         self.smart_scoreline = SmartScoreline(self.ocr_engine, self.config.sl_majority_th)
 
         self.prog_bar = ProgressBar(add_postfix=self.config.debug.infer_time)
@@ -123,19 +122,20 @@ class InPersonAnalyser(Analyser):
         if not self.history.is_ready or not self.state.in_round:
             return
 
-        ## TODO: once a kfline is read for the first time, cache segments, match against to quickly skip
         for line in self.__read_feed(regions.kf_lines):
+            self.__update_ignmat(line)
             player, target = self.__get_players_from_ocrline(line)
-            record_type = KFRecord_t.NORMAL
 
-            if (player is None and line.left is None) and target is not None:
-                player = target
-                record_type = KFRecord_t.SUICIDE
-            elif player is None or target is None:
+            if target is None:
                 continue
+            if player is None:
+                player = target
 
             record = KFRecord(player, target, self.timer.ctime, line.headshot)
-            self.skf.add(record, record_type)
+            self._add_record(record)
+            ## TODO: once a kfline is read for the first time, cache segments, match against to quickly skip
+            # if self._add_record(record):
+            #   self.ocr_engine.cache_line(line)
 
     def __read_feed(self, image_lines: list[np.ndarray]) -> Generator[OCRLineResult, None, None]:
         for img_line in image_lines:
@@ -144,26 +144,33 @@ class InPersonAnalyser(Analyser):
                 break
             yield line_out
 
+    def __update_ignmat(self, line: OCRLineResult) -> None:
+        self.ign_matrix.update_mat(line.right, line.right_team)
+
+        if line.left is not None and line.left_team != Team.UNKNOWN:
+            self.ign_matrix.update_mat(line.left, line.left_team)   
+
     def __get_players_from_ocrline(self, line: OCRLineResult) -> tuple[Optional[Player], Optional[Player]]:
         ## do right first, if right is not valid, ocr_line is not valid
-        target = self.ign_matrix.get(line.right)
+        target = self.ign_matrix.get(line.right, line.right_team)
         if line.left is None:
             return None, target
 
-        player = self.ign_matrix.get(line.left)
+        player = self.ign_matrix.get(line.left, line.left_team)
         return player, target
 
-    def _add_record(self, record: KFRecord) -> None:
-        self.history.cround.killfeed.append(record)
+    def _add_record(self, record: KFRecord) -> bool:
+        if record in self.history.cround.killfeed:
+            return False
+        if self.history.cround.is_dead(record.target):
+            return False
 
-        if record.player.type == Player_t.INFER or record.target.type == Player_t.INFER:
-            ## TODO: add read_kfline teams here
-            self.ign_matrix.update_mats(record.player.ign, record.target.ign)
-            self.ign_matrix.update_mats(record.target.ign, record.player.ign)
+        self.history.cround.killfeed.append(record)
 
         self._verbose_print(2, record.to_str())
         self.prog_bar.set_desc(record.to_str(show_time=False))
         self.prog_bar.refresh()
+        return True
 
 
     # ----- GAME STATE -----
@@ -209,7 +216,7 @@ class InPersonAnalyser(Analyser):
         new_round = sl.total + 1
         self.history.new_round(new_round)
         self.history.cround.scoreline = sl
-        self.skf.reset()
+        # self.skf.reset()
 
         self._verbose_print(1, f"New Round: {new_round} | Scoreline: {sl.left}-{sl.right}")
         self.prog_bar.new_round(sl)

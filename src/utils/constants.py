@@ -36,10 +36,6 @@ DIGITS         = "0123456789"
 TIMER_CHARLIST = DIGITS + ":."
 IGN_CHARLIST   = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-_"
 
-## IGNMAT
-IM_LEVEN_THRESHOLD = 0.7 ## threshold for Levenshtein distance to determine equality
-IM_TEAM_DET_THRESHOLD = 3
-
 
 KILLFEED_PHRASES = [
     "has found the bomb",

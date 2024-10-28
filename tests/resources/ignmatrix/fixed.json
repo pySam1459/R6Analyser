@@ -2,22 +2,24 @@
     "team0": ["Samba.", "Kooliburra_", "Bli__xrd.WAR", "DrChickens______", "Pob"],
     "team1": ["Simble", "Bravo-", "cHarIie", "DELTA", "echo..."],
     "good_cases": [
-        {"pign": "Samba.",       "rign": "Samba.",              "id": "In1"},
-        {"pign": "DELTA",        "rign": "DELTA",               "id": "In2"},
-        {"pign": "Samba",        "rign": "Samba.",              "id": "SlightMissing1"},
-        {"pign": "bravo",        "rign": "Bravo-",              "id": "SlightMissing2"},
-        {"pign": "KooliBurrra_", "rign": "Kooliburra_",         "id": "SlightAdd1"},
-        {"pign": "echO...",      "rign": "echo...",             "id": "SlightAdd2"},
-        {"pign": "Blixrd.WAR",   "rign": "Bli__xrd.WAR",        "id": "_Join1"},
-        {"pign": "K0ollbura",    "rign": "Kooliburra_",         "id": "BigChange1"},
-        {"pign": "echo",         "rign": "echo...",             "id": "BigChange3"},
-        {"pign": "DrChickens",   "rign": "DrChickens______",    "id": "BigChange4"}
+        {"pign": "Samba.",       "pteam": 0, "rign": "Samba.",           "id": "In1"},
+        {"pign": "DELTA",        "pteam": 1, "rign": "DELTA",            "id": "In2"},
+        {"pign": "Samba",        "pteam": 0, "rign": "Samba.",           "id": "SlightMissing1"},
+        {"pign": "bravo",        "pteam": 1, "rign": "Bravo-",           "id": "SlightMissing2"},
+        {"pign": "KooliBurrra_", "pteam": 0, "rign": "Kooliburra_",      "id": "SlightAdd1"},
+        {"pign": "echO...",      "pteam": 1, "rign": "echo...",          "id": "SlightAdd2"},
+        {"pign": "Blixrd.WAR",   "pteam": 0, "rign": "Bli__xrd.WAR",     "id": "_Join1"},
+        {"pign": "K0ollbura",    "pteam": 0, "rign": "Kooliburra_",      "id": "BigChange1"},
+        {"pign": "echo",         "pteam": 1, "rign": "echo...",          "id": "BigChange3"},
+        {"pign": "DrChickens",   "pteam": 0, "rign": "DrChickens______", "id": "BigChange4"}
     ],
     "bad_cases": [
-        {"pign": "Secret.WAR",   "id": "NotIn1"},
-        {"pign": "ZestWRLD",     "id": "NotIn2"},
-        {"pign": "Kooli.WAR",    "id": "NotInClose1"},
-        {"pign": "AlphaRomeo",   "id": "NotInClose2"},
-        {"pign": "Brandon",      "id": "NotInClose3"}
+        {"pign": "Secret.WAR",   "pteam": 0, "id": "NotIn1"},
+        {"pign": "ZestWRLD",     "pteam": 1, "id": "NotIn2"},
+        {"pign": "Kooli.WAR",    "pteam": 0, "id": "NotInClose1"},
+        {"pign": "AlphaRomeo",   "pteam": 1, "id": "NotInClose2"},
+        {"pign": "Brandon",      "pteam": 1, "id": "NotInClose3"},
+        {"pign": "Samba.",       "pteam": 1, "id": "WrongTeam1"},
+        {"pign": "DELTA",        "pteam": 0, "id": "WrongTeam2"}
     ]
 }

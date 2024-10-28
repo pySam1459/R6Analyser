@@ -59,11 +59,11 @@ class XlsxWriter(Writer):
         if not history.is_ready:
             return
 
-        players = get_players(history.get_first_round(), ignmat)
+        players = get_players(ignmat, history.get_first_round().atk_side)
         match_stats = compile_match_stats(history, players)
 
         sheets_data = (self.get_match(match_stats, players) |
-                       self.get_rounds(match_stats, history, ignmat))
+                       self.get_rounds(match_stats, history, ignmat, players))
 
         wb = self.create_workbook()
         self.save_workbook(wb, sheets_data)
@@ -90,9 +90,12 @@ class XlsxWriter(Writer):
         ]
     
 
-    def get_rounds(self, match_stats: MatchStats_t, history: History, ignmat: IGNMatrix) -> dict:
+    def get_rounds(self, match_stats: MatchStats_t,
+                   history: History,
+                   ignmat: IGNMatrix,
+                   players: list[Player]) -> dict:
         """Creates a dictionary containing the sheet data for each round"""
-        return {f"Round {self.__get_roundn(round_stats)}": self.__aggregate_round_data(round_stats, hround, ignmat)
+        return {f"Round {self.__get_roundn(round_stats)}": self.__aggregate_round_data(round_stats, hround, ignmat, players)
                 for round_stats, hround in zip(match_stats, history.get_rounds())
                 if len(round_stats) > 0}
 
@@ -103,7 +106,8 @@ class XlsxWriter(Writer):
     def __aggregate_round_data(self,
                                round_stats: RoundStats_t,
                                hround: HistoryRound,
-                               ignmat: IGNMatrix) -> list[list[Any]]:
+                               ignmat: IGNMatrix,
+                               players) -> list[list[Any]]:
         return (
             ROUND_SHEET_STATS_HEADERS +
             self.compile_round_statistics(round_stats, hround, ignmat) +
@@ -112,14 +116,14 @@ class XlsxWriter(Writer):
             self.compile_round_info(hround) + 
                 EMPTY_ROW +
             ROUND_SHEET_KILLFEED_HEADERS +
-            self.compile_round_killfeed(hround)
+            self.compile_round_killfeed(hround, players)
         )
 
     def compile_round_statistics(self,
                                  round_stats: RoundStats_t,
                                  hround: HistoryRound,
                                  ignmat: IGNMatrix) -> list[list[Any]]:
-        players = get_players(hround, ignmat)
+        players = get_players(ignmat, hround.atk_side)
         return [self.__compile_player_stats_row(round_stats[pl.uid], pl)
                 for pl in players
                 if pl.uid in round_stats]
@@ -143,7 +147,12 @@ class XlsxWriter(Writer):
 
     
     def compile_round_info(self, hround: HistoryRound) -> list[list[Any]]:
-        okd_pign, okd_tign, okd_time = self.__get_opening_kd(hround)
+        if len(hround.killfeed) == 0:
+            okd_pign = okd_tign = okd_time = ""
+        else:
+            okd = hround.killfeed[0]
+            okd_pign, okd_tign, okd_time = okd.player.ign, okd.target.ign, str(okd.time)
+
         return [
             ["Site"],
             ["Winning team",  WINNING_TEAM_TEXT[hround.winner]], ## TODO: custom team names
@@ -153,15 +162,8 @@ class XlsxWriter(Writer):
             ["Planted at",    str(ndefault(hround.bomb_planted_at, ""))],
             ["Defused at",    str(ndefault(hround.disabled_defuser_at, ""))],
         ]
-
-    def __get_opening_kd(self, hround: HistoryRound) -> tuple[str, str, str]:
-        opr = next((record for record in hround.killfeed if record.is_valid), None)
-        if opr is None:
-            return ("", "", "")
-        else:
-            return opr.player.ign, opr.target.ign, str(opr.time)
     
-    def compile_round_killfeed(self, hround: HistoryRound) -> list[list[Any]]:
+    def compile_round_killfeed(self, hround: HistoryRound, players: list[Player]) -> list[list[Any]]:
         ## "Player", "Target", "Time", "Trade", "Refrag"
         return [
             [
@@ -171,7 +173,7 @@ class XlsxWriter(Writer):
                 BOOL_MAP[traded_pl is not None],
                 BOOL_MAP[refrag_pl is not None]
             ]
-            for record, traded_pl, refrag_pl in iter_killfeed(hround.killfeed)]
+            for record, traded_pl, refrag_pl in iter_killfeed(hround.killfeed, players)]
 
     ## Save workbook
     def create_workbook(self) -> Workbook:

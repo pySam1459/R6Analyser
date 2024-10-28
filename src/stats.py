@@ -32,17 +32,17 @@ def compile_round_stats(hround: HistoryRound, players: list[Player]) -> RoundSta
                                             pl in hround.disconnects)
                    for pl in players}
 
-    __read_killfeed(round_stats, hround)
+    __read_killfeed(round_stats, hround, players)
     __check_onevx(round_stats, hround, players)
     return round_stats
 
 
 IterKillfeedRet_t: TypeAlias = tuple[KFRecord, Optional[Player], Optional[Player]]
-def iter_killfeed(killfeed: list[KFRecord]) -> Generator[IterKillfeedRet_t, None, None]:
+def iter_killfeed(killfeed: list[KFRecord], players: list[Player]) -> Generator[IterKillfeedRet_t, None, None]:
     seen_records = list[TradedRecord]()
     for record in killfeed:
-        if not record.is_valid:
-            yield (record, None, None)
+        if record.player not in players or record.target not in players:
+            continue
 
         traded_pl = refrag_pl = None
         for srec in seen_records:
@@ -63,8 +63,8 @@ def iter_killfeed(killfeed: list[KFRecord]) -> Generator[IterKillfeedRet_t, None
         seen_records.append(TradedRecord(record))
 
 
-def __read_killfeed(round_stats: RoundStats_t, hround: HistoryRound) -> None:
-    for record, traded_pl, refrag_pl in iter_killfeed(hround.killfeed):
+def __read_killfeed(round_stats: RoundStats_t, hround: HistoryRound, players: list[Player]) -> None:
+    for record, traded_pl, refrag_pl in iter_killfeed(hround.killfeed, players):
         round_stats[record.player.uid].kills += 1
         round_stats[record.player.uid].headshots += record.headshot
         round_stats[record.target.uid].death = 1

@@ -22,6 +22,6 @@ def create_ignmatrix(cfg: Config) -> IGNMatrix:
 
     match cfg.ign_mode:
         case IGNMatrixMode.FIXED:
-            return IGNMatrixFixed(cfg.team0, cfg.team1)
+            return IGNMatrixFixed(cfg.team0, cfg.team1, cfg.ign_ratio_threshold)
         case IGNMatrixMode.INFER:
-            return IGNMatrixInfer(cfg.team0, cfg.team1)
+            return IGNMatrixInfer(cfg.team0, cfg.team1, cfg.ign_ratio_threshold)

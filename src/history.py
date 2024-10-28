@@ -26,11 +26,6 @@ class KFRecord:
     time:     Timestamp
     headshot: bool
 
-    @property
-    def is_valid(self) -> bool:
-        """If team for both player and target is known"""
-        return self.player.team != Team.UNKNOWN and self.target.team != Team.UNKNOWN
-
     def to_str(self, show_time=True) -> str:
         if self.headshot:
             kill_msg = f"{self.player.ign} -> (X) {self.target.ign}"
@@ -113,12 +108,6 @@ class HistoryRound(BaseModel):
         if ts is None:
             return None
         return str(ts)
-
-
-    def valid_killfeed(self) -> Generator[KFRecord, None, None]:
-        for record in self.killfeed:
-            if record.is_valid:
-                yield record
     
     def get_wincon(self, ignmat: IGNMatrix) -> WinCondition:
         """Returns the win condition from the round history"""
@@ -146,6 +135,9 @@ class HistoryRound(BaseModel):
 
         atk_team, def_team = ignmat.get_teams().order(self.atk_side)
         return atk_deaths == len(atk_team) or def_deaths == len(def_team)
+    
+    def is_dead(self, pl: Player) -> bool:
+        return any([record.target == pl for record in self.killfeed])
 
 
 class History:
