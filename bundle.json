@@ -1,0 +1,14 @@
+{
+    "exe": "R6Analyser.exe",
+    "include": [
+        "tessdata",
+        "assets/atkside_template.png",
+        "assets/headshot_mask.png",
+        "assets/asset_map.json",
+        "configs/example.json",
+        "settings/settings.json",
+        "settings/defaults.json",
+        "LICENSE",
+        "README.md"
+    ]
+}

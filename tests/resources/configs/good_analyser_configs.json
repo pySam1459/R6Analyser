@@ -267,5 +267,100 @@
             "save_dir": "new-save",
             "path": "/path/to/somewhere.xlsx"
         }
+    },
+    {
+        "name": "ga_test6a-videofile_normal",
+        "game_type": "comp",
+        "spectator": false,
+        "capture": {
+            "mode": "videofile",
+            "file": "./resources/mock-videos/mock.mp4",
+            "regions": {
+                "timer": [3752, 177, 159, 72],
+                "kf_line": [4273, 469, 410, 26]
+            }
+        }
+    },
+    {
+        "name": "ga_test6a-videofile_offset",
+        "game_type": "comp",
+        "spectator": false,
+        "capture": {
+            "mode": "videofile",
+            "file": "./resources/mock-videos/mock.mp4",
+            "offset": "2:00",
+            "regions": {
+                "timer": [3752, 177, 159, 72],
+                "kf_line": [4273, 469, 410, 26]
+            }
+        }
+    },
+    {
+        "name": "ga_test6a-youtube_normal",
+        "game_type": "comp",
+        "spectator": false,
+        "capture": {
+            "mode": "youtube",
+            "url": "https://youtu.be/9kT9KQp7GeQ",
+            "regions": {
+                "timer": [3752, 177, 159, 72],
+                "kf_line": [4273, 469, 410, 26]
+            }
+        }
+    },
+    {
+        "name": "ga_test6a-videofile_offset",
+        "game_type": "comp",
+        "spectator": false,
+        "capture": {
+            "mode": "youtube",
+            "url": "https://www.youtube.com/watch?v=9kT9KQp7GeQ",
+            "offset": "3:00",
+            "regions": {
+                "timer": [3752, 177, 159, 72],
+                "kf_line": [4273, 469, 410, 26]
+            }
+        }
+    },
+    {
+        "name": "ga_test7-scheduler_normal",
+        "game_type": "comp",
+        "spectator": false,
+        "capture": {
+            "mode": "screenshot",
+            "regions": {
+                "timer": [3752, 177, 159, 72],
+                "kf_line": [4273, 469, 410, 26]
+            }
+        },
+        "scheduler": {
+            "scoreline": 2000,
+            "timer": 250
+        }
+    },
+    {
+        "name": "ga_test8-ocrparams_normal",
+        "game_type": "comp",
+        "spectator": false,
+        "capture": {
+            "mode": "screenshot",
+            "regions": {
+                "timer": [3752, 177, 159, 72],
+                "kf_line": [4273, 469, 410, 26]
+            }
+        },
+        "ocr_params": {
+            "sl_clip_around": 0.05,
+
+            "hue_offset": 32,
+            "hue_std": 15,
+            "sat_std": 5,
+            "col_zscore": 3,
+
+            "seg_min_area": 0.1,
+            "seg_black_th": 32,
+        
+            "hs_th": 0.6
+        }
     }
 ]

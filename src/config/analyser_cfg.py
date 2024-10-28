@@ -1,3 +1,4 @@
+import os
 from collections import Counter
 from functools import partial
 from pathlib import Path
@@ -39,9 +40,9 @@ class SaveCfg(BaseModel):
 
 
 class SchedulerCfg(BaseModel):
-    scoreline: int = Field(default=1000, ge=0.0)
-    timer:     int = Field(default=500,  ge=0.0)
-    killfeed:  int = Field(default=300,  ge=0.0)
+    scoreline: int = Field(default=1000, ge=0)
+    timer:     int = Field(default=500,  ge=0)
+    killfeed:  int = Field(default=300,  ge=0)
 
     model_config = ConfigDict(extra="ignore")
 
@@ -78,24 +79,17 @@ class SaveParser(BaseModel):
     path:      Optional[Path] = None
 
     @model_validator(mode="after")
-    def validate_path(self) -> Self:
-        if self.path is None:
-            return self
-
-        parent = self.path.parent
-        if not parent.exists() and parent.name == "saves":
-            parent.mkdir()
-        elif not parent.exists():
-            raise ValueError(f"Directory {parent} does not exist!")
-        return self
-
-    @model_validator(mode="after")
     def path_override(self) -> Self:
         if self.path is None:
             return self
 
         self.save_dir = self.path.parent
         self.file_type = SaveFileType(self.path.suffix[1:])
+        return self
+    
+    @model_validator(mode="after")
+    def make_save_dir(self) -> Self:
+        os.makedirs(self.save_dir, exist_ok=True)
         return self
 
 
@@ -124,8 +118,8 @@ class ConfigParser(BaseModel):
     rounds_per_side_map: GameTypeRoundMap
     overtime_rounds_map: GameTypeRoundMap
 
-    defuser_timer:       int
-    sl_majority_th:      int
+    defuser_timer:       int = Field(ge=1, le=60)
+    sl_majority_th:      int = Field(ge=1, le=10)
 
     ocr_params:          OCRParams
 
@@ -253,12 +247,16 @@ class Config(BaseModel):
 
 
 def _load_model_dict(path: Path, model_cls: Type[BaseModel]) -> dict[str, Any]:
-    raw_data = load_file(path)
+    if path.exists():
+        raw_data = load_file(path)
+    else:
+        raw_data = "{}\n"
+
     try:
         config = model_cls.model_validate_json(raw_data)
         return config.model_dump()
     except Exception as e:
-        print(f"{RED}CONFIG PARSE ERROR{WHITE} - Invalid config file at {path}\n{str(e)}")
+        print(f"{RED}CONFIG PARSE ERROR{WHITE} - Invalid settings file at {path}\n{str(e)}")
         raise e
 
 

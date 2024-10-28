@@ -56,7 +56,8 @@ def cfg_dict_ga(request):
 
 def test_good_analyser_validate(cfg_dict_ga, cfg_path, settings) -> None:
     with (patch.object(Path, "exists", return_value=True),
-          patch.object(os, "access", return_value=True),
+          patch.object(os,   "access", return_value=True),
+          patch.object(os, "makedirs"),
           patch("config.utils.load_json", return_value=cfg_dict_ga)):
         create_analyser_config(cfg_path, settings)
 
@@ -72,6 +73,7 @@ def cfg_dict_grt(request):
 def test_good_regiontool_validate(cfg_dict_grt, cfg_path, settings) -> None:
     with (patch.object(Path, "exists", return_value=True),
           patch.object(os, "access", return_value=True),
+          patch.object(os, "makedirs"),
           patch("config.utils.load_json", return_value=cfg_dict_grt)):
         create_regiontool_config(cfg_path, settings)
 
@@ -88,6 +90,7 @@ def test_bad_analyser_validate(cfg_dict_ba, cfg_path, settings) -> None:
     with (pytest.raises(ValidationError),
             patch.object(Path, "exists", return_value=True),
             patch.object(os, "access", return_value=True),
+            patch.object(os, "makedirs"),
             patch("config.utils.load_json", return_value=cfg_dict_ba)):
         create_analyser_config(cfg_path, settings)
 
@@ -104,5 +107,6 @@ def test_bad_regiontool_validate(cfg_dict_brt, cfg_path, settings) -> None:
     with (pytest.raises(ValidationError),
             patch.object(Path, "exists", return_value=True),
             patch.object(os, "access", return_value=True),
+            patch.object(os, "makedirs"),
             patch("config.utils.load_json", return_value=cfg_dict_brt)):
         create_regiontool_config(cfg_path, settings)

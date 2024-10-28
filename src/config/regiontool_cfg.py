@@ -37,7 +37,7 @@ class RTRegionsCFG(RTRegionParams):
 class RTCaptureCFG(CaptureCommon):
     regions: Optional[RTRegionsCFG] = None
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
 
 class RTConfig(BaseModel): ## Region tool config

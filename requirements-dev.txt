@@ -1,3 +1,4 @@
+pyinstaller
+pygame
 pytest
 pytest-cov
-pygame
