@@ -1,7 +1,7 @@
+import os
 from collections import Counter
 from functools import partial
 from pathlib import Path
-from os import makedirs
 from pydantic import BaseModel, ConfigDict, Field, field_validator, computed_field, model_validator
 from typing import Any, Optional, Self, Type
 
@@ -40,9 +40,9 @@ class SaveCfg(BaseModel):
 
 
 class SchedulerCfg(BaseModel):
-    scoreline: int = Field(default=1000, ge=0.0)
-    timer:     int = Field(default=500,  ge=0.0)
-    killfeed:  int = Field(default=300,  ge=0.0)
+    scoreline: int = Field(default=1000, ge=0)
+    timer:     int = Field(default=500,  ge=0)
+    killfeed:  int = Field(default=300,  ge=0)
 
     model_config = ConfigDict(extra="ignore")
 
@@ -89,7 +89,7 @@ class SaveParser(BaseModel):
     
     @model_validator(mode="after")
     def make_save_dir(self) -> Self:
-        makedirs(self.save_dir, exist_ok=True)
+        os.makedirs(self.save_dir, exist_ok=True)
         return self
 
 
@@ -118,8 +118,8 @@ class ConfigParser(BaseModel):
     rounds_per_side_map: GameTypeRoundMap
     overtime_rounds_map: GameTypeRoundMap
 
-    defuser_timer:       int
-    sl_majority_th:      int
+    defuser_timer:       int = Field(ge=1, le=60)
+    sl_majority_th:      int = Field(ge=1, le=10)
 
     ocr_params:          OCRParams
 

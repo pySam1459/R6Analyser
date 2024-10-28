@@ -324,7 +324,7 @@
         "other_stuff": "stuff"
     },
     {
-        "name": "ba_test6-videofile_missing_file_field",
+        "name": "ba_test6a-videofile_missing_file_field",
         "game_type": "comp",
         "spectator": false,
         "capture": {
@@ -334,5 +334,59 @@
                 "kf_line": [4273, 469, 410, 26]
             }
         }
+    },
+    {
+        "name": "ba_test6b-videofile_bad_offset_invalid",
+        "game_type": "comp",
+        "spectator": false,
+        "capture": {
+            "mode": "videofile",
+            "file": "./resources/mock-videos/mock.mp4",
+            "offset": "some offset",
+            "regions": {
+                "timer": [3752, 177, 159, 72],
+                "kf_line": [4273, 469, 410, 26]
+            }
+        }
+    },
+    {
+        "name": "ba_test6b-videofile_bad_offset_negative",
+        "game_type": "comp",
+        "spectator": false,
+        "capture": {
+            "mode": "videofile",
+            "file": "./resources/mock-videos/mock.mp4",
+            "offset": -30,
+            "regions": {
+                "timer": [3752, 177, 159, 72],
+                "kf_line": [4273, 469, 410, 26]
+            }
+        }
+    },
+    {
+        "name": "ba_test7-youtube_missing_url_field",
+        "game_type": "comp",
+        "spectator": false,
+        "capture": {
+            "mode": "videofile",
+            "regions": {
+                "timer": [3752, 177, 159, 72],
+                "kf_line": [4273, 469, 410, 26]
+            }
+        }
+    },
+    {
+        "name": "ba_test8-last_winner_invalid",
+        "game_type": "comp",
+        "spectator": false,
+        "capture": {
+            "mode": "videofile",
+            "file": "./resources/mock-videos/mock.mp4",
+            "regions": {
+                "timer": [3752, 177, 159, 72],
+                "kf_line": [4273, 469, 410, 26]
+            }
+        },
+        "last_winner": 3
     }
 ]

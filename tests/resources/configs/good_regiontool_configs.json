@@ -41,7 +41,7 @@
         }
     },
     {
-        "name": "grt_test5-videofile_normal",
+        "name": "grt_test5a-videofile_normal",
         "game_type": "scrim",
         "spectator": false,
         "capture": {
@@ -54,12 +54,54 @@
         }
     },
     {
-        "name": "grt_test6-videofile_no_region_field",
+        "name": "grt_test5b-videofile_no_region_field",
         "game_type": "comp",
         "spectator": false,
         "capture": {
             "mode": "videofile",
             "file": "./resources/mock-videos/mock.mp4"
+        }
+    },
+    {
+        "name": "grt_test5b-videofile_offset",
+        "game_type": "comp",
+        "spectator": false,
+        "capture": {
+            "mode": "videofile",
+            "file": "./resources/mock-videos/mock.mp4",
+            "offset": "2:20"
+        }
+    },
+    {
+        "name": "grt_test6a-youtube_normal",
+        "game_type": "scrim",
+        "spectator": false,
+        "capture": {
+            "mode": "youtube",
+            "url": "https://youtu.be/9kT9KQp7GeQ",
+            "regions": {
+                "timer": [3752, 177, 159, 72],
+                "kf_line": [4273, 469, 410, 26]
+            }
+        }
+    },
+    {
+        "name": "grt_test6b-videofile_no_region_field",
+        "game_type": "comp",
+        "spectator": false,
+        "capture": {
+            "mode": "youtube",
+            "url": "https://www.youtube.com/watch?v=9kT9KQp7GeQ"
+        }
+    },
+    {
+        "name": "grt_test6b-videofile_offset",
+        "game_type": "comp",
+        "spectator": false,
+        "capture": {
+            "mode": "youtube",
+            "url": "https://youtu.be/9kT9KQp7GeQ",
+            "offset": "0:35"
         }
     }
 ]
