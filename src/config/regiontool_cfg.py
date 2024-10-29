@@ -20,9 +20,11 @@ __all__ = [
 
 
 class RTRegionParams(BaseModel):
-    num_kf_lines: Optional[int] = None
-    kf_buf:       Optional[int] = None
-    kf_buf_mult:  Optional[float] = None
+    num_kf_lines: Optional[int]   = None
+    kf_buf:       Optional[int]   = None
+    score_width:  Optional[float] = None
+    side_width:   Optional[float] = None
+    t1_offset:    Optional[int]   = None
 
     model_config = ConfigDict(extra="ignore")
 

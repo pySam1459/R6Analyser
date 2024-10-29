@@ -1,4 +1,13 @@
 {
+    "capture": {
+        "regions": {
+            "num_kf_lines": 3,
+            "kf_buf": 6,
+            "score_width": 0.45,
+            "side_width": 0.45,
+            "t1_offset": 6
+        }
+    },
     "save": {
         "file_type": "xlsx",
         "save_dir": "saves"

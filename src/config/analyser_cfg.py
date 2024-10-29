@@ -199,7 +199,9 @@ class RegionsCfg(BaseModel):
 
     num_kf_lines: int
     kf_buf:       int
-    kf_buf_mult:  float
+    score_width: float
+    side_width:  float
+    t1_offset:   int
 
     team0_score:  BBox_t
     team1_score:  BBox_t
