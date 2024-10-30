@@ -1,8 +1,8 @@
 from abc import ABC, abstractmethod
-from time import perf_counter
-from typing import Callable, TypeVar, TypeAlias, Generic
+from typing import Callable, TypeAlias
 
-from capture import Capture, Regions
+from capture import Capture
+from capture.regions import Regions
 from config import Config
 from utils.enums import CaptureTimeType
 from utils.timer import AtomicTimer

@@ -43,7 +43,7 @@ class InPersonAnalyser(Analyser):
         if not self.state.end_round:
             return
 
-        scoreline = self.smart_scoreline.read(regions.team0_score, regions.team1_score)
+        scoreline = self.smart_scoreline.read(regions)
         if not scoreline:
             return
 
@@ -303,7 +303,7 @@ class InPersonAnalyser(Analyser):
         This method is called when the `--test-regions` flag is added to the program call,
         runs inference on a single screenshot.
         """
-        scoreline = self.smart_scoreline.get_scoreline(regions.team0_score, regions.team1_score)
+        scoreline = self.smart_scoreline.get_scoreline(regions)
         self.ocr_engine.set_colours(regions.team0_score, regions.team1_score)
 
         atkside   = self.__read_atk_side(regions)
