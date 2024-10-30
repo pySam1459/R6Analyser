@@ -3,6 +3,7 @@ from enum import Enum, auto
 from dataclasses import dataclass as odataclass
 from typing import Callable, Optional
 
+from capture.regions import Regions
 from config import Config
 from history import History, KFRecord
 from ignmatrix import Player
@@ -85,18 +86,18 @@ class SmartScoreline:
         self.__majority_th = majority_th
         self.__ballet_box: list[_ScorelineVote] = []
     
-    def get_scoreline(self, team0_score: np.ndarray, team1_score: np.ndarray) -> Optional[Scoreline]:
-        left_text  = self.__ocr_engine.read_score(team0_score)
-        right_text = self.__ocr_engine.read_score(team1_score)
+    def get_scoreline(self, regions: Regions) -> Optional[Scoreline]:
+        left_text  = self.__ocr_engine.read_score(regions.team0_score, regions.team0_side)
+        right_text = self.__ocr_engine.read_score(regions.team1_score, regions.team1_side)
         if left_text is None or right_text is None:
             return None
         else:
             return Scoreline(left=int(left_text), right=int(right_text))
 
-    def read(self, team0_score: np.ndarray, team1_score: np.ndarray) -> Optional[Scoreline]:
-        sl = self.get_scoreline(team0_score, team1_score)
+    def read(self, regions: Regions) -> Optional[Scoreline]:
+        sl = self.get_scoreline(regions)
 
-        vote = _ScorelineVote(sl, team0_score, team1_score)
+        vote = _ScorelineVote(sl, regions.team0_score, regions.team1_score)
         self.__ballet_box.append(vote)
 
         if len(self.__ballet_box) > self.__majority_th:
@@ -105,25 +106,31 @@ class SmartScoreline:
         if any([vote.sl is None for vote in self.__ballet_box]):
             return None
 
-        vote = self.__scoreline_vote()
+        vote = self.__deciding_vote()
         if not self.__ocr_engine.has_colours:
             self.__ocr_engine.set_colours(vote.team0_image, vote.team1_image)
 
         return vote.sl
-    
-    def __scoreline_vote(self) -> _ScorelineVote:
-        lefts = {
+
+    def __deciding_vote(self) -> _ScorelineVote:
+        left_image_map = {
             vote.sl.left: vote.team0_image
             for vote in self.__ballet_box
             if vote.sl is not None
         }
-        rights = {
+        left_scores = [vote.sl.left for vote in self.__ballet_box if vote.sl is not None]
+        left_score = mode_count(left_scores)
+
+        right_image_map = {
             vote.sl.right: vote.team1_image
             for vote in self.__ballet_box
             if vote.sl is not None
         }
-        sl = Scoreline(left=mode_count(list(lefts)), right=mode_count(list(rights)))
-        return _ScorelineVote(sl, lefts[sl.left], rights[sl.right])
+        right_scores = [vote.sl.right for vote in self.__ballet_box if vote.sl is not None]
+        right_score = mode_count(right_scores)
+
+        sl = Scoreline(left=left_score, right=right_score)
+        return _ScorelineVote(sl, left_image_map[sl.left], right_image_map[sl.right])
 
     def clear(self) -> None:
         self.__ballet_box.clear()

@@ -18,13 +18,13 @@ class CaptureCommon(BaseModel):
 
     file:    Optional[Path]      = None
     url:     Optional[str]       = None
-    offset:  Optional[Timestamp] = None
+    start:   Optional[Timestamp] = None
 
     model_config = ConfigDict(extra="ignore")
 
-    @field_validator("offset", mode="before")
+    @field_validator("start", mode="before")
     @classmethod
-    def parse_offset(cls, v: Any) -> Optional[Timestamp]:
+    def parse_start(cls, v: Any) -> Optional[Timestamp]:
         if v is None:
             return None
         if isinstance(v, int) and v >= 0:
@@ -32,7 +32,7 @@ class CaptureCommon(BaseModel):
         elif isinstance(v, str) and match(TIMESTAMP_PATTERN, v):
             return Timestamp.from_str(v)
 
-        raise ValueError(f"Cannot parse capture offset: {v}")
+        raise ValueError(f"Cannot parse capture start: {v}")
 
 
     @model_validator(mode="after")

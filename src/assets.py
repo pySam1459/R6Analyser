@@ -7,7 +7,12 @@ from typing import Self
 from utils import load_file
 
 
-class AssetMap(BaseModel):
+__all__ = [
+    "Assets"
+]
+
+
+class _AssetMap(BaseModel):
     atkside_template: str
     headshot_mask: str
 
@@ -16,7 +21,7 @@ class Assets:
     def __init__(self, assets_path: Path) -> None:
         asset_map_file = assets_path / "asset_map.json"
         json_data = load_file(asset_map_file)
-        self.asset_map = AssetMap.model_validate_json(json_data)
+        self.asset_map = _AssetMap.model_validate_json(json_data)
 
         self.__originals = {name: Assets._load_asset(assets_path / file)
                             for name, file in self.asset_map.model_dump().items()}

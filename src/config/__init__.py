@@ -1,8 +1,9 @@
 from pathlib import Path
 from typing import cast
 
+from args import AnalyserArgs
 from settings import Settings
-from utils.cli import AnalyserArgs
+
 from .analyser_cfg import Config, create_analyser_config
 from .regiontool_cfg import RTConfig, RTRegionsCFG, create_regiontool_config
 

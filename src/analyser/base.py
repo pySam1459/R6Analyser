@@ -1,10 +1,12 @@
 from abc import ABC, abstractmethod
 from time import perf_counter
 from pydantic.dataclasses import dataclass
-from typing import Callable, Generic, TypeVar, Type
+from typing import Callable
 
+from args import AnalyserArgs
 from assets import Assets
-from capture import InPersonRegions, SpectatorRegions, create_capture
+from capture import create_capture
+from capture.regions import Regions
 from config import Config
 from history import History
 from ignmatrix import create_ignmatrix
@@ -13,7 +15,6 @@ from scheduler import create_scheduler
 from settings import Settings
 from utils.enums import Team, CaptureTimeType
 from utils.keycheck import send_inc_update
-from utils.cli import AnalyserArgs
 from utils.constants import RED, WHITE
 from writer import create_writer
 from utils import *
@@ -61,15 +62,13 @@ class RoundTimer:
         self._defuse_countdown_timer = value
 
 
-T = TypeVar('T', InPersonRegions, SpectatorRegions)
-class Analyser(Generic[T], ABC):
+class Analyser(ABC):
     """Main class `Analyser`
     Operates the main inference loop `run` and records match/round information"""
 
     def __init__(self, args: AnalyserArgs,
                  config: Config,
-                 settings: Settings,
-                 region_type: Type[T]):
+                 settings: Settings):
 
         self.args = args
         self.config = config
@@ -77,7 +76,7 @@ class Analyser(Generic[T], ABC):
         self._debug_print("config_keys", f"Config\n{config}")
 
         self.assets = Assets(self.settings.assets_path)
-        self.capture = create_capture(config, region_type)
+        self.capture = create_capture(config)
         self.ocr_engine = OCREngine(config.ocr_params, settings, self.assets)
 
         self.ign_matrix = create_ignmatrix(config)
@@ -144,24 +143,24 @@ class Analyser(Generic[T], ABC):
             self._test_regions(regions)
 
     @abstractmethod
-    def _check_regions(self, regions: T) -> None:
+    def _check_regions(self, regions: Regions) -> None:
         ...
 
     @abstractmethod
-    def _test_regions(self, regions: T) -> None:
+    def _test_regions(self, regions: Regions) -> None:
         ...
 
     ## ----- IN ROUND OCR FUNCTIONS -----
     @abstractmethod
-    def _handle_scoreline(self, regions: T) -> None:
+    def _handle_scoreline(self, regions: Regions) -> None:
         ...
 
     @abstractmethod
-    def _handle_timer(self, regions: T) -> None:
+    def _handle_timer(self, regions: Regions) -> None:
         ...
 
     @abstractmethod
-    def _handle_feed(self, regions: T) -> None:
+    def _handle_feed(self, regions: Regions) -> None:
         ...
 
     ## ----- GAME STATE FUNCTIONS -----

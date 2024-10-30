@@ -1,8 +1,8 @@
 from abc import ABC, abstractmethod
-from time import perf_counter
-from typing import Callable, TypeVar, TypeAlias, Generic
+from typing import Callable, TypeAlias
 
-from capture import Capture, InPersonRegions, SpectatorRegions
+from capture import Capture
+from capture.regions import Regions
 from config import Config
 from utils.enums import CaptureTimeType
 from utils.timer import AtomicTimer
@@ -14,11 +14,10 @@ __all__ = [
 ]
 
 
-T = TypeVar('T', InPersonRegions, SpectatorRegions)
-Handlers_t: TypeAlias = dict[str, Callable[[T], None]]
+Handlers_t: TypeAlias = dict[str, Callable[[Regions], None]]
 
-class Scheduler(Generic[T], ABC):
-    def __init__(self, capture: Capture[T], handlers: Handlers_t) -> None:
+class Scheduler(ABC):
+    def __init__(self, capture: Capture, handlers: Handlers_t) -> None:
         self._capture = capture
         self._handlers = handlers
 
@@ -27,9 +26,9 @@ class Scheduler(Generic[T], ABC):
         ...
 
 
-class TimeScheduler(Scheduler, Generic[T]):
+class TimeScheduler(Scheduler):
     def __init__(self, config: Config,
-                 capture: Capture[T],
+                 capture: Capture,
                  handlers: Handlers_t) -> None:
         super(TimeScheduler, self).__init__(capture, handlers)
 
@@ -57,9 +56,9 @@ class TimeScheduler(Scheduler, Generic[T]):
         return False
 
 
-class FpsScheduler(Scheduler, Generic[T]):
+class FpsScheduler(Scheduler):
     def __init__(self, config: Config,
-                 capture: Capture[T],
+                 capture: Capture,
                  handlers: Handlers_t) -> None:
         super(FpsScheduler, self).__init__(capture, handlers)
 
@@ -85,7 +84,7 @@ class FpsScheduler(Scheduler, Generic[T]):
         return False
 
 
-def create_scheduler(config: Config, capture: Capture[T], handlers: Handlers_t) -> Scheduler:
+def create_scheduler(config: Config, capture: Capture, handlers: Handlers_t) -> Scheduler:
     scheduler_map = {
         CaptureTimeType.TIME: TimeScheduler,
         CaptureTimeType.FPS: FpsScheduler,

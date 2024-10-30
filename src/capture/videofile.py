@@ -1,24 +1,24 @@
 import numpy as np
 from decord import VideoReader
-from typing import Type, TypeVar, Optional
+from typing import Optional
 
 from config import Config
 from utils import Timestamp
+from utils.cv import crop2bbox
 
 from .base import FpsCapture
-from .utils import InPersonRegions, SpectatorRegions, crop2bbox
+from .regions import Regions
 
 
-T = TypeVar('T', InPersonRegions, SpectatorRegions)
-class VideoFileCapture(FpsCapture[T]):
-    def __init__(self, config: Config, region_model: Type[T]) -> None:
-        super(VideoFileCapture, self).__init__(config, region_model)
+class VideoFileCapture(FpsCapture):
+    def __init__(self, config: Config) -> None:
+        super(VideoFileCapture, self).__init__(config)
         
         self.vr = self.__load_video(config)
         self.fps = self.vr.get_avg_fps()
 
         self.total_frames = len(self.vr)
-        self.frame_idx = self.__offset(config.capture.offset)
+        self.frame_idx = self.__offset(config.capture.start)
     
     def __offset(self, offset: Optional[Timestamp]) -> int:
         if offset is None:
@@ -47,7 +47,7 @@ class VideoFileCapture(FpsCapture[T]):
         
         return self.vr[self.frame_idx].asnumpy()
 
-    def next(self, dt: float, *_, **__) -> Optional[T]:
+    def next(self, dt: float, *_, **__) -> Optional[Regions]:
         frame_interval = max(int(round(self.fps * dt)), 1)
         frame = self.__next_frame(frame_interval)
         if frame is None:

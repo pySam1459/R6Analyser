@@ -336,13 +336,13 @@
         }
     },
     {
-        "name": "ba_test6b-videofile_bad_offset_invalid",
+        "name": "ba_test6b-videofile_bad_start_invalid",
         "game_type": "comp",
         "spectator": false,
         "capture": {
             "mode": "videofile",
             "file": "./resources/mock-videos/mock.mp4",
-            "offset": "some offset",
+            "start": "some start",
             "regions": {
                 "timer": [3752, 177, 159, 72],
                 "kf_line": [4273, 469, 410, 26]
@@ -350,13 +350,13 @@
         }
     },
     {
-        "name": "ba_test6b-videofile_bad_offset_negative",
+        "name": "ba_test6b-videofile_bad_start_negative",
         "game_type": "comp",
         "spectator": false,
         "capture": {
             "mode": "videofile",
             "file": "./resources/mock-videos/mock.mp4",
-            "offset": -30,
+            "start": -30,
             "regions": {
                 "timer": [3752, 177, 159, 72],
                 "kf_line": [4273, 469, 410, 26]

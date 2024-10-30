@@ -2,12 +2,13 @@ import cv2
 import numpy as np
 from dataclasses import dataclass
 from yt_dlp import YoutubeDL
-from typing import Type, TypeVar, Optional, cast
+from typing import Optional, cast
 
 from config import Config
 from utils import Timestamp, ndefault
+from utils.cv import crop2bbox
 
-from .utils import InPersonRegions, SpectatorRegions, crop2bbox
+from .regions import Regions
 from .base import *
 
 
@@ -19,15 +20,13 @@ YDL_OPTIONS = {
 }
 
 
-T = TypeVar('T', InPersonRegions, SpectatorRegions)
-
-class YoutubeVideoCapture(FpsCapture[T]):
-    def __init__(self, config: Config, region_model: Type[T], cap: cv2.VideoCapture):
-        super(YoutubeVideoCapture, self).__init__(config, region_model)
+class YoutubeVideoCapture(FpsCapture):
+    def __init__(self, config: Config, cap: cv2.VideoCapture):
+        super(YoutubeVideoCapture, self).__init__(config)
         self.cap = cap
 
         self.fps = self.cap.get(cv2.CAP_PROP_FPS)
-        self.frame_idx = self.__offset(config.capture.offset)
+        self.frame_idx = self.__offset(config.capture.start)
     
     def __offset(self, offset: Optional[Timestamp]) -> int:
         if offset is None:
@@ -54,7 +53,7 @@ class YoutubeVideoCapture(FpsCapture[T]):
 
         return frame
 
-    def next(self, dt: float, jump = False) -> Optional[T]:
+    def next(self, dt: float, jump = False) -> Optional[Regions]:
         frame_interval = max(int(round(dt * self.fps)), 1)
         frame = self.__next_frame(frame_interval, jump)
         if frame is None:
@@ -68,9 +67,9 @@ class YoutubeVideoCapture(FpsCapture[T]):
         self.cap.release()
 
 
-class YoutubeStreamCapture(TimeCapture[T]):
-    def __init__(self, config: Config, region_model: Type[T], cap: cv2.VideoCapture):
-        super(YoutubeStreamCapture, self).__init__(config, region_model)
+class YoutubeStreamCapture(TimeCapture):
+    def __init__(self, config: Config, cap: cv2.VideoCapture):
+        super(YoutubeStreamCapture, self).__init__(config)
         self.cap = cap
 
     def __next_frame(self) -> Optional[np.ndarray]:
@@ -82,7 +81,7 @@ class YoutubeStreamCapture(TimeCapture[T]):
 
         return frame
 
-    def next(self, *_, **__) -> Optional[T]:
+    def next(self, *_, **__) -> Optional[Regions]:
         frame = self.__next_frame()
         if frame is None:
             return None
@@ -129,7 +128,7 @@ def get_video_stream_details(youtube_url: str) -> _VideoStream:
                 raise ValueError("Could not retrieve a valid video URL")
 
 
-def create_youtube_capture(config: Config, region_model: Type[T]) -> YoutubeVideoCapture | YoutubeStreamCapture:
+def create_youtube_capture(config: Config) -> YoutubeVideoCapture | YoutubeStreamCapture:
     assert config.capture.url is not None, "Invalid Config! YouTube URL is not provided! Please add YouTube URL to capture.url"
 
     video_stream_url = get_video_stream_details(config.capture.url)
@@ -139,6 +138,6 @@ def create_youtube_capture(config: Config, region_model: Type[T]) -> YoutubeVide
         raise ValueError(f"Video Capture Error: Unable to open video stream from {config.capture.url}")
     
     if video_stream_url.is_live:
-        return YoutubeStreamCapture(config, region_model, cap)
+        return YoutubeStreamCapture(config, cap)
     else:
-        return YoutubeVideoCapture(config, region_model, cap)
+        return YoutubeVideoCapture(config, cap)

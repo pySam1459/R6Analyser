@@ -3,11 +3,11 @@ from collections import Counter
 from functools import partial
 from pathlib import Path
 from pydantic import BaseModel, ConfigDict, Field, field_validator, computed_field, model_validator
-from typing import Any, Optional, Self, Type
+from typing import Any, Optional, Self, Type, TypeAlias
 
-from ocr import OCRParams
+from ocr.params import OCRParams
 from settings import Settings
-from utils import Timestamp, load_file, recursive_union, gen_default_name, GameTypeRoundMap, BBox_t
+from utils import Timestamp, load_file, recursive_union, gen_default_name, BBox_t
 from utils.enums import GameType, CaptureMode, IGNMatrixMode, Team, SaveFileType
 from utils.constants import *
 
@@ -21,6 +21,7 @@ __all__ = [
     "create_analyser_config",
 ]
 
+GameTypeRoundMap: TypeAlias = dict[GameType, int]
 
 class DebugCfg(BaseModel):
     config_keys:    bool = False
@@ -199,7 +200,9 @@ class RegionsCfg(BaseModel):
 
     num_kf_lines: int
     kf_buf:       int
-    kf_buf_mult:  float
+    score_width: float
+    side_width:  float
+    t1_offset:   int
 
     team0_score:  BBox_t
     team1_score:  BBox_t
@@ -214,7 +217,7 @@ class CaptureCfg(BaseModel):
     regions: RegionsCfg
     file:    Optional[Path]
     url:     Optional[str]
-    offset:  Optional[Timestamp]
+    start:   Optional[Timestamp]
 
     model_config = ConfigDict(extra="ignore")
 

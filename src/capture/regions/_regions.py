@@ -4,12 +4,12 @@ from pydantic import BaseModel, ConfigDict, computed_field
 from typing import Optional, cast
 
 from utils import BBox_t
+from utils.cv import crop2bbox, offset_bbox
 
 
 __all__ = [
     "RegionBBoxes",
-    "InPersonRegions",
-    "SpectatorRegions"
+    "Regions",
 ]
 
 
@@ -49,40 +49,26 @@ class RegionBBoxes(BaseModel):
         
         return cast(BBox_t, (top, left, right-left, bot-top))
 
+    def crop(self, image: np.ndarray) -> dict[str, np.ndarray | list[np.ndarray]]:
+        bboxes_dump: dict[str, BBox_t | list[BBox_t]] = self.model_dump(exclude_none=True)
+        single_bboxes = {k: v for k,v in bboxes_dump.items() if not isinstance(v, list)}
+        list_bboxes   = {k: v for k,v in bboxes_dump.items() if isinstance(v, list)}
 
-def offset_bbox(bbox: BBox_t, offset: tuple[int,int]) -> BBox_t:
-    return (bbox[0]-offset[0], bbox[1]-offset[1], bbox[2], bbox[3])
-
-def crop2bbox(image: np.ndarray, bbox: BBox_t) -> np.ndarray:
-    w,h = bbox[2:]
-    x,y = bbox[0], bbox[1]
-    return image[y:y+h,x:x+w]
-
-def crop_bboxes(image: np.ndarray, bboxes: RegionBBoxes) -> dict[str, np.ndarray | list[np.ndarray]]:
-    bboxes_dump: dict[str, BBox_t | list[BBox_t]] = bboxes.model_dump(exclude_none=True)
-    single_bboxes = {k: v for k,v in bboxes_dump.items() if not isinstance(v, list)}
-    list_bboxes   = {k: v for k,v in bboxes_dump.items() if isinstance(v, list)}
-
-    offset = bboxes.max_bounds[:2]
-    return (
-        {name:  crop2bbox(image, offset_bbox(bbox, offset)) for name, bbox in single_bboxes.items()} |
-        {name: [crop2bbox(image, offset_bbox(el,   offset)) for el in bbox] for name, bbox in list_bboxes.items()}
-    )
+        offset = self.max_bounds[:2]
+        return (
+            {name:  crop2bbox(image, offset_bbox(bbox, offset)) for name, bbox in single_bboxes.items()} |
+            {name: [crop2bbox(image, offset_bbox(el,   offset)) for el in bbox] for name, bbox in list_bboxes.items()}
+        )
 
 
-class InPersonRegions(BaseModel):
+
+class Regions(BaseModel):
     timer:       np.ndarray
     kf_lines:    list[np.ndarray]
+
     team0_score: np.ndarray
     team1_score: np.ndarray
     team0_side:  np.ndarray
     team1_side:  np.ndarray
-
-    model_config = ConfigDict(extra="ignore", arbitrary_types_allowed=True)
-
-
-class SpectatorRegions(BaseModel):
-    timer:      np.ndarray
-    kf_lines:   list[np.ndarray]
 
     model_config = ConfigDict(extra="ignore", arbitrary_types_allowed=True)

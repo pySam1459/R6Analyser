@@ -12,10 +12,10 @@ from pydantic.dataclasses import dataclass
 from screeninfo import get_monitors
 from typing import Any, Optional, TypeVar, Generic, cast
 
+from args import AnalyserArgs
 from config import RTConfig, RTRegionsCFG
 from config.region_models import TimerRegion, KFLineRegion
 from utils import BBox_t
-from utils.cli import AnalyserArgs
 
 from .utils import *
 
@@ -316,10 +316,10 @@ class VideoDetails:
 
 
 def on_arrows(frame_idx: int, vdets: VideoDetails, event: tk.Event) -> int:
-    lr_frame_skip = max(int(round(FrameSkips.FRAME_SKIP * vdets.fps)), 1)
-    lr_small_skip = FrameSkips.SMALL_SKIP * vdets.fps
-    lr_big_skip   = FrameSkips.BIG_SKIP * vdets.fps
-        ## TODO: can't hold down left/right, selection scaling
+    lr_frame_skip = int(max(int(round(FrameSkips.FRAME_SKIP * vdets.fps)), 1))
+    lr_small_skip = int(FrameSkips.SMALL_SKIP * vdets.fps)
+    lr_big_skip   = int(FrameSkips.BIG_SKIP * vdets.fps)
+    ## TODO: can't hold down left/right, selection scaling
 
     if event.keycode == Keys.W and frame_idx - lr_frame_skip >= 0: ## up
         frame_idx -= lr_frame_skip
@@ -342,8 +342,9 @@ class RTVideoFile(RegionTool):
     def __init__(self, config: RTConfig) -> None:
         super(RTVideoFile, self).__init__(config)
 
-        self.frame_idx = 0
         self.vr = self.new_video(self.config)
+        self.frame_idx = config.capture.start is not None and int(config.capture.start.to_int() * self.vdets.fps)
+
         self.image = self.__get_frame(self.frame_idx)
 
         assert self.image is not None, "Cannot get video frame"
@@ -394,9 +395,9 @@ class RTYoutubeVideo(RegionTool):
     def __init__(self, config: RTConfig, cap: cv2.VideoCapture) -> None:
         super(RTYoutubeVideo, self).__init__(config)
 
-        self.frame_idx = 0
         self.cap = cap
         self.vdets = self.get_details()
+        self.frame_idx = config.capture.start is not None and int(config.capture.start.to_int() * self.vdets.fps)
         self.image = self.__get_frame(self.frame_idx)
 
         assert self.image is not None, "Cannot get video frame"

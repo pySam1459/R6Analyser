@@ -1,7 +1,8 @@
 import cv2
+
+from args import AnalyserArgs
 from capture.youtube import get_video_stream_details
 from config import RTConfig
-from utils.cli import AnalyserArgs
 from utils.enums import CaptureMode
 
 from .regiontool import RegionTool, RTScreenShot, RTVideoFile, RTYoutubeVideo
@@ -12,6 +13,7 @@ __all__ = [
     "create_regiontool",
     "check_dependencies"
 ]
+
 
 def create_youtube_rt(config: RTConfig) -> RegionTool:
     assert config.capture.url is not None, "Invalid Config! YouTube URL is not provided! Please add YouTube URL to capture.url"

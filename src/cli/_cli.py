@@ -1,10 +1,12 @@
 import argparse
 
+from args import AnalyserArgs
 from controller import Controller
-from utils.cli import AnalyserArgs
 
 
-__all__ = [ "main" ]
+__all__ = [
+    "main"
+]
 
 
 def create_parser() -> argparse.ArgumentParser:

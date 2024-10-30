@@ -3,15 +3,14 @@ import numpy as np
 from os import makedirs
 from typing import Optional, Generator
 
-from capture import Capture, InPersonRegions
+from args import AnalyserArgs
+from capture.regions import Regions
 from config import Config
 from history import KFRecord
 from ignmatrix import Player
 from ocr import OCRLineResult
 from settings import Settings
-from utils.cli import AnalyserArgs
 from utils.enums import Team, WinCondition
-from utils.keycheck import send_inc_update
 from utils.tools import TemplateMatcher
 from utils import *
 from utils.constants import *
@@ -27,9 +26,8 @@ class InPersonAnalyser(Analyser):
     END_ROUND_SECONDS = 12  ## number of seconds to check no timer to determine round end
 
     def __init__(self, args: AnalyserArgs, config: Config, settings: Settings) -> None:
-        super(InPersonAnalyser, self).__init__(args, config, settings, InPersonRegions)
+        super(InPersonAnalyser, self).__init__(args, config, settings)
 
-        self.capture: Capture[InPersonRegions]
         self.atkside_matcher = TemplateMatcher(self.assets["atkside_template"])
 
         # self.skf = SmartKillfeed(self.config, self.history, self._add_record)
@@ -40,12 +38,12 @@ class InPersonAnalyser(Analyser):
         self.end_round_seconds = None
 
     ## ----- SCORELINE -----
-    def _handle_scoreline(self, regions: InPersonRegions) -> None:
+    def _handle_scoreline(self, regions: Regions) -> None:
         """Extracts the current scoreline visible and determines when a new rounds starts"""
         if not self.state.end_round:
             return
 
-        scoreline = self.smart_scoreline.read(regions.team0_score, regions.team1_score)
+        scoreline = self.smart_scoreline.read(regions)
         if not scoreline:
             return
 
@@ -59,7 +57,7 @@ class InPersonAnalyser(Analyser):
         self.history.cround.atk_side = self.__read_atk_side(regions)
         self._verbose_print(1, f"Atk Side: {self.history.cround.atk_side}")
     
-    def __read_atk_side(self, regions: InPersonRegions) -> Team:
+    def __read_atk_side(self, regions: Regions) -> Team:
         if self.atkside_matcher.match(regions.team1_side):
             return Team.TEAM0
         else:
@@ -67,7 +65,7 @@ class InPersonAnalyser(Analyser):
 
 
     ## ----- TIMER FUNCTION -----
-    def _handle_timer(self, regions: InPersonRegions) -> None:
+    def _handle_timer(self, regions: Regions) -> None:
         """Reads and handles the timer information, used to determine when the bomb is planted and when the round ends"""
         if not self.history.is_ready:
             return
@@ -87,7 +85,7 @@ class InPersonAnalyser(Analyser):
 
         elif (self.end_round_seconds is not None and
                 self.end_round_seconds + InPersonAnalyser.END_ROUND_SECONDS < self.timer.time and
-                self.ocr_engine.read_score(regions.team0_score) is None):
+                self.ocr_engine.read_score(regions.team0_score, regions.team0_side) is None):
             self._end_round()
             self.end_round_seconds = None
 
@@ -118,7 +116,7 @@ class InPersonAnalyser(Analyser):
 
 
     ## ----- KILL FEED -----
-    def _handle_feed(self, regions: InPersonRegions) -> None:
+    def _handle_feed(self, regions: Regions) -> None:
         """Handles the killfeed by reading the names, querying the ign matrix and the information to History"""
         if not self.history.is_ready or not self.state.in_round:
             return
@@ -279,7 +277,7 @@ class InPersonAnalyser(Analyser):
         self.history.fix_round()
 
     ## ----- CHECK & TEST -----
-    def _check_regions(self, regions: InPersonRegions) -> None:
+    def _check_regions(self, regions: Regions) -> None:
         """Called when the --check-regions flag is present in the program call, saves the screenshotted regions as jpg images"""
         img_dir = DEFAULT_IMAGE_DIR / self.config.name
         if not img_dir.exists():
@@ -300,12 +298,12 @@ class InPersonAnalyser(Analyser):
             else:
                 save(name, img)
 
-    def _test_regions(self, regions: InPersonRegions) -> None:
+    def _test_regions(self, regions: Regions) -> None:
         """
         This method is called when the `--test-regions` flag is added to the program call,
         runs inference on a single screenshot.
         """
-        scoreline = self.smart_scoreline.get_scoreline(regions.team0_score, regions.team1_score)
+        scoreline = self.smart_scoreline.get_scoreline(regions)
         self.ocr_engine.set_colours(regions.team0_score, regions.team1_score)
 
         atkside   = self.__read_atk_side(regions)

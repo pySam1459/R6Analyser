@@ -6,7 +6,8 @@ from typing import Optional
 from utils import BBox_t
 from utils.enums import Team
 
-from .utils import OCRParams, HSVColourRange, cvt_rgb2hsv
+from .params import OCRParams
+from .utils import HSVColourRange, cvt_rgb2hsv
 
 
 @odataclass

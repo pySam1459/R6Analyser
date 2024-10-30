@@ -3,8 +3,8 @@ from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validat
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Optional, Self, Any
 
-from .keycheck import UserKeyData, validate_software_key, INVALID_KEY_REASONS
-from .constants import SOFTWARE_KEY_PATTERN, SOFTWARE_KEY_FILE, SETTINGS_PATH
+from utils.keycheck import UserKeyData, validate_software_key, INVALID_KEY_REASONS
+from utils.constants import SOFTWARE_KEY_PATTERN, SOFTWARE_KEY_FILE, SETTINGS_PATH
 
 
 __all__ = ["AnalyserArgs"]
