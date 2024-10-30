@@ -3,16 +3,17 @@ import numpy as np
 from dataclasses import dataclass as odataclass
 from re import match
 from tesserocr import PSM
-from typing import Optional, Callable, TypeVar
+from typing import Optional, Callable
 
 from assets import Assets
-from capture import InPersonRegions, SpectatorRegions
 from settings import Settings
-from utils import Timestamp, resize_height, filter_none, clip_around, argmin
+from utils import Timestamp, filter_none, argmin
+from utils.cv import resize_height, clip_around
 from utils.enums import Team
 from utils.constants import *
 
 from .base import BaseOCREngine
+from .params import OCRParams
 from .segment import segment
 from .utils import *
 
@@ -36,7 +37,6 @@ class OCRLineResult:
     middle_image: Optional[np.ndarray] = None
 
 
-T = TypeVar('T', InPersonRegions, SpectatorRegions)
 class OCREngine(BaseOCREngine):
     team0_colours: HSVColourRange
     team1_colours: HSVColourRange
@@ -114,7 +114,7 @@ class OCREngine(BaseOCREngine):
             return None
         
         right_image = segment_output.right.image
-        right_text = self.readtext(~right_image, OCReadMode.WORD, charlist)
+        right_text = self.readtext(~right_image, PSM.SINGLE_WORD, charlist)
         if len(right_text) <= 2:
             return None
         
@@ -131,7 +131,7 @@ class OCREngine(BaseOCREngine):
                                  None, right_image, middle_image)
 
         left_image = segment_output.left.image
-        left_text = self.readtext(~left_image, OCReadMode.WORD, charlist)
+        left_text = self.readtext(~left_image, PSM.SINGLE_WORD, charlist)
         if len(left_text) <= 2:
             return None
 
@@ -171,7 +171,7 @@ class OCREngine(BaseOCREngine):
         denoised_image = cast(np.ndarray, cv2.medianBlur(not_timer_img, 3))
         th_image = denoised_image > OCR_TIMER_THRESHOLD
 
-        results = self.readtext([denoised_image, th_image], OCReadMode.LINE, TIMER_CHARLIST)
+        results = self.readtext([denoised_image, th_image], PSM.SINGLE_LINE, TIMER_CHARLIST)
         self.__last_timer = self.__pick_timer_result(results)
 
         red_perc = get_timer_redperc(timer_img)

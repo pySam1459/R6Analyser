@@ -20,6 +20,8 @@ DEFAULT_TESSDATA_PATH = Path("./tessdata")
 
 DEFAULT_LANGUAGE = "en"
 
+KC_ENDPOINT = "kcehcyek"[::-1]
+
 ## Console text colour codes
 RED   = '\033[91m'
 YLW   = '\u001b[33m'

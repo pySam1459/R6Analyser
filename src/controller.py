@@ -4,11 +4,11 @@ from time import sleep
 from typing import cast
 
 from analyser import InPersonAnalyser, SpectatorAnalyser
+from cli.args import AnalyserArgs
 from config import Config, RTConfig, create_config, create_config_list
 from settings import create_settings
 from tools import create_regiontool, check_dependencies
 from utils import load_json
-from utils.cli import AnalyserArgs
 from utils.constants import SETTINGS_PATH
 
 

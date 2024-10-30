@@ -3,11 +3,11 @@ from collections import Counter
 from functools import partial
 from pathlib import Path
 from pydantic import BaseModel, ConfigDict, Field, field_validator, computed_field, model_validator
-from typing import Any, Optional, Self, Type
+from typing import Any, Optional, Self, Type, TypeAlias
 
-from ocr import OCRParams
+from ocr.params import OCRParams
 from settings import Settings
-from utils import Timestamp, load_file, recursive_union, gen_default_name, GameTypeRoundMap, BBox_t
+from utils import Timestamp, load_file, recursive_union, gen_default_name, BBox_t
 from utils.enums import GameType, CaptureMode, IGNMatrixMode, Team, SaveFileType
 from utils.constants import *
 
@@ -21,6 +21,7 @@ __all__ = [
     "create_analyser_config",
 ]
 
+GameTypeRoundMap: TypeAlias = dict[GameType, int]
 
 class DebugCfg(BaseModel):
     config_keys:    bool = False

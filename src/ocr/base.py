@@ -1,30 +1,29 @@
 import numpy as np
-from pathlib import Path
 from PIL import Image
 from tesserocr import PyTessBaseAPI, OEM, PSM
-from typing import overload, Sequence, Optional, Callable
+from typing import Sequence, Optional, Callable, overload
 
 from settings import Settings
 
-from .utils import OCReadMode
 
+__all__ = [
+    "BaseOCREngine"
+]
 
-TESSERACT_VARS = {"tessedit_fix_hyphens": "false"}
 
 class BaseOCREngine:
     def __init__(self, settings: Settings, _debug_print: Optional[Callable] = None) -> None:
         self._api = PyTessBaseAPI(path=str(settings.tessdata), # type: ignore
-                                  oem=OEM.LSTM_ONLY,           # type: ignore
-                                  variables=TESSERACT_VARS)    # type: ignore
+                                  oem=OEM.LSTM_ONLY)    # type: ignore
 
         self._debug_print = _debug_print
 
     @overload
-    def readtext(self, image: np.ndarray, read_mode: OCReadMode, charlist: str) -> str: ...
+    def readtext(self, image: np.ndarray, read_mode: PSM, charlist: str) -> str: ...
     @overload
-    def readtext(self, image: Sequence[np.ndarray], read_mode: OCReadMode, charlist: str) -> list[str]: ...
+    def readtext(self, image: Sequence[np.ndarray], read_mode: PSM, charlist: str) -> list[str]: ...
 
-    def readtext(self, image: np.ndarray | Sequence[np.ndarray], read_mode: OCReadMode | PSM, charlist: str) -> str | list[str]:
+    def readtext(self, image: np.ndarray | Sequence[np.ndarray], read_mode: PSM | PSM, charlist: str) -> str | list[str]:
         self._api.SetVariable("tessedit_pageseg_mode", str(read_mode))
         self._api.SetVariable("tessedit_char_whitelist", charlist)
 

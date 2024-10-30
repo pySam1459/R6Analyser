@@ -1,6 +1,8 @@
+import requests as req
 from pydantic import BaseModel
-from requests import post, Response as ReqsResponse
 from typing import Optional
+
+from .constants import KC_ENDPOINT
 
 
 __all__ = [
@@ -10,6 +12,8 @@ __all__ = [
     "INVALID_KEY_REASONS"
 ]
 
+__DOM = "samba"
+__PROT = "ht"
 
 INVALID_KEY_REASONS = {
     400: "Bad Request, internet issues?",
@@ -29,21 +33,27 @@ class UserKeyData(BaseModel):
     detail: Optional[str]   = None
 
 
-def __send_request(data: dict) -> ReqsResponse:
+__AIN = ".resylana6r"[::-1]
+__COL = "tps:"
+__CALL_PARAM = "sllacn"[::-1]
+
+
+def __send_request(data: dict) -> req.Response:
     headers = {"Content-Type": "application/json"}
-    return post("https://sambar6analyser.com/keycheck", json=data, headers=headers)
+    url = f"{__PROT}{__COL}//" +__DOM+__AIN+"com/"+KC_ENDPOINT
+    return req.post(url, json=data, headers=headers)
 
 
-def validate_software_key(key: str) -> UserKeyData:
-    data = {"key": key, "ncalls": 0}
-    
+def validate_software_key(key: str, ncalls = 0) -> UserKeyData:
+    data = {"key": key, __CALL_PARAM: ncalls}
+
     res = __send_request(data)
     res_data: dict = res.json()
     return UserKeyData.model_validate(res_data | {"status_code": res.status_code})
 
 
 def send_inc_update(key: str, ncalls = 1) -> bool:
-    data = {"key": key, "ncalls": ncalls}
+    data = {"key": key, __CALL_PARAM: ncalls}
 
     res = __send_request(data)
     return res.status_code == 200
