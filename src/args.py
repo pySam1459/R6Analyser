@@ -1,3 +1,4 @@
+from os import listdir
 from pathlib import Path
 from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -10,13 +11,22 @@ from utils.constants import SOFTWARE_KEY_PATTERN, SOFTWARE_KEY_FILE, SETTINGS_PA
 __all__ = ["AnalyserArgs"]
 
 
+def get_software_key_file() -> Path:
+    files = [Path(f) for f in listdir(".")]
+    for file in files:
+        if file.is_file() and file.stem == "SOFTWARE_KEY":
+            return file
+
+    return SOFTWARE_KEY_FILE
+
+
 class Env(BaseSettings):
     env_key:    Optional[str] = Field(default=None,
                                       pattern=SOFTWARE_KEY_PATTERN,
                                       validation_alias="software_key",
                                       exclude=True)
 
-    model_config = SettingsConfigDict(env_file=SOFTWARE_KEY_FILE, env_file_encoding="utf-8")
+    model_config = SettingsConfigDict(env_file=get_software_key_file(), env_file_encoding="utf-8")
 
 
 class CliArgs(BaseModel):

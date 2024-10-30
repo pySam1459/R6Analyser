@@ -2,6 +2,7 @@ import argparse
 import json
 import os
 import shutil
+import tomllib
 from sys import exit
 from pathlib import Path
 from zipfile import ZipFile
@@ -10,10 +11,9 @@ from typing import Any
 
 DEFAULT_EXE          = "R6Analyser.exe"
 
-DEFAULT_BUILD_CONFIG = "build_config.json"
+DEFAULT_BUILD_CONFIG = "bundle.json"
 DEFAULT_BUNDLE       = Path("build/bundle")
 DEFAULT_DIST         = Path("dist")
-DEFAULT_ZIP          = Path("dist/R6Analyser.zip")
 
 
 def load_build_config(config: Path) -> dict[str, Any]:
@@ -22,6 +22,18 @@ def load_build_config(config: Path) -> dict[str, Any]:
             return json.load(f_in)
     except Exception as e:
         print(f"Error, could not load build config {config}\n{e}")
+        exit()
+
+
+def get_version() -> str:
+    try:
+        with open("pyproject.toml", "rb") as f_in:
+            data = tomllib.load(f_in)
+        project_data = data["project"]
+        return project_data["version"]
+
+    except Exception as e:
+        print(f"Error reading version from pyproject.toml\n{e}")
         exit()
 
 
@@ -77,6 +89,10 @@ def bundle(args: argparse.Namespace) -> None:
     bundle_distexe(bconfig, bundle, dist)
     bundle_includes(bconfig, bundle)
 
+    if args.output is None:
+        version = get_version()
+        args.output = Path(f"dist/R6Analyser-{version}.zip")
+
     zip_directory(bundle, args.output)
     print("Build Finished")
 
@@ -98,7 +114,7 @@ if __name__ == "__main__":
                         help="path to dist")
     parser.add_argument("-O", "--output",
                         type=Path,
-                        default=DEFAULT_ZIP,
+                        default=None,
                         help="output dst for zip file")
 
     args = parser.parse_args()

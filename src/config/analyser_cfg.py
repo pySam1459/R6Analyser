@@ -99,7 +99,6 @@ class ConfigParser(BaseModel):
     name:                Optional[str] = Field(default=None, min_length=1, max_length=64)
     config_path:         Path
 
-    ## required
     game_type:           GameType
     spectator:           bool
     capture:             CaptureParser
@@ -108,26 +107,22 @@ class ConfigParser(BaseModel):
 
     save:                SaveParser
     scheduler:           SchedulerCfg
-    
-    ## inferred/optional
+
+    last_winner:         Team          = Team.UNKNOWN
+
     max_rounds:          Optional[int] = Field(default=None, ge=1, le=25)
     rounds_per_side:     Optional[int] = Field(default=None, ge=1, le=6)
     overtime_rounds:     Optional[int] = Field(default=None, ge=0, le=3)
-    last_winner:         Team          = Team.UNKNOWN
+    defuser_timer:       int   = Field(ge=1, le=60)
 
-    ## defaults
+    sl_majority_th:      int   = Field(ge=1, le=10)
+    ign_ratio_threshold: float = Field(ge=0.0, le=1.0)
+    ocr_params:          OCRParams
+    debug:               DebugCfg
+
     max_rounds_map:      GameTypeRoundMap
     rounds_per_side_map: GameTypeRoundMap
     overtime_rounds_map: GameTypeRoundMap
-
-    defuser_timer:       int   = Field(ge=1, le=60)
-    sl_majority_th:      int   = Field(ge=1, le=10)
-    ign_ratio_threshold: float = Field(ge=0.0, le=1.0)
-
-    ocr_params:          OCRParams
-
-    ## debug
-    debug:               DebugCfg
 
     model_config = ConfigDict(extra="forbid", use_enum_values=True)
 

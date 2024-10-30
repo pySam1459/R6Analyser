@@ -34,6 +34,6 @@ deactivate
 
 Write-Host "Running build scripts..."
 & "$VENV_PROD_BIN\pyinstaller.exe" build.spec
-& "$VENV_PROD_BIN\python.exe" scripts\bundle.py -c bundle.json -b build\bundle -d dist -O dist\R6Analyser.zip
+& "$VENV_PROD_BIN\python.exe" scripts\bundle.py -c bundle.json -b build\bundle -d dist
 
 deactivate

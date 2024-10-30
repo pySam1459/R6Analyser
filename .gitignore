@@ -20,6 +20,7 @@ dist/
 
 .env
 SOFTWARE_KEY
+SOFTWARE_KEY.*
 
 configs/*.json
 !example.json
