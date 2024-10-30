@@ -1,5 +1,5 @@
+from args import AnalyserArgs
 from capture.regions import Regions
-from cli.args import AnalyserArgs
 from config import Config
 from settings import Settings
 from utils import *

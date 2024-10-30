@@ -1,6 +1,7 @@
 import cv2
+
+from args import AnalyserArgs
 from capture.youtube import get_video_stream_details
-from cli.args import AnalyserArgs
 from config import RTConfig
 from utils.enums import CaptureMode
 

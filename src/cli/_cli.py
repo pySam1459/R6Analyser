@@ -1,6 +1,6 @@
 import argparse
 
-from cli.args import AnalyserArgs
+from args import AnalyserArgs
 from controller import Controller
 
 

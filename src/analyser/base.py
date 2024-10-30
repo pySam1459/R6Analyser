@@ -3,10 +3,10 @@ from time import perf_counter
 from pydantic.dataclasses import dataclass
 from typing import Callable
 
+from args import AnalyserArgs
 from assets import Assets
 from capture import create_capture
 from capture.regions import Regions
-from cli.args import AnalyserArgs
 from config import Config
 from history import History
 from ignmatrix import create_ignmatrix

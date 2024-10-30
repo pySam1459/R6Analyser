@@ -12,7 +12,7 @@ from pydantic.dataclasses import dataclass
 from screeninfo import get_monitors
 from typing import Any, Optional, TypeVar, Generic, cast
 
-from cli.args import AnalyserArgs
+from args import AnalyserArgs
 from config import RTConfig, RTRegionsCFG
 from config.region_models import TimerRegion, KFLineRegion
 from utils import BBox_t

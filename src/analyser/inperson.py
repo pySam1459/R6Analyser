@@ -3,8 +3,8 @@ import numpy as np
 from os import makedirs
 from typing import Optional, Generator
 
+from args import AnalyserArgs
 from capture.regions import Regions
-from cli.args import AnalyserArgs
 from config import Config
 from history import KFRecord
 from ignmatrix import Player

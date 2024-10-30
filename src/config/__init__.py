@@ -1,7 +1,7 @@
 from pathlib import Path
 from typing import cast
 
-from cli.args import AnalyserArgs
+from args import AnalyserArgs
 from settings import Settings
 
 from .analyser_cfg import Config, create_analyser_config
