@@ -40,12 +40,12 @@ class BaseOCREngine:
         self._api.SetImage(image)
         return self._api.GetUTF8Text()[:-1]
     
-    def _read_threshold(self, image: Image.Image | np.ndarray) -> Image.Image:
+    def _read_threshold(self, image: Image.Image | np.ndarray) -> np.ndarray:
         if isinstance(image, np.ndarray):
             image = Image.fromarray(image)
 
         self._api.SetImage(image)
-        return self._api.GetThresholdedImage()
+        return np.asarray(self._api.GetThresholdedImage())
     
     def stop(self) -> None:
         self._api.End()

@@ -3,13 +3,13 @@ import numpy as np
 from dataclasses import dataclass as odataclass
 from re import match
 from tesserocr import PSM
-from typing import Optional, Callable
+from typing import Optional, Callable, TypeVar
 
 from assets import Assets
+from capture import InPersonRegions, SpectatorRegions
 from settings import Settings
 from utils import Timestamp, resize_height, filter_none, clip_around, argmin
 from utils.enums import Team
-from utils.tools import TemplateMatcher
 from utils.constants import *
 
 from .base import BaseOCREngine
@@ -36,6 +36,7 @@ class OCRLineResult:
     middle_image: Optional[np.ndarray] = None
 
 
+T = TypeVar('T', InPersonRegions, SpectatorRegions)
 class OCREngine(BaseOCREngine):
     team0_colours: HSVColourRange
     team1_colours: HSVColourRange
@@ -52,12 +53,12 @@ class OCREngine(BaseOCREngine):
         self.__last_timer: Optional[Timestamp] = None
     
     ## Team colour methods
-    def read_team_huesat(self, score_image: np.ndarray) -> tuple[int,int]:
+    def average_mask_colour(self, image: np.ndarray) -> tuple[int,int]:
         """Reads the team colour my averaging the colour over the threshold mask of the team score"""
-        th_img = np.asarray(self._read_threshold(score_image))
+        th_img = self._read_threshold(image)
 
         mask = th_img == 0
-        masked_score = score_image[mask]
+        masked_score = image[mask]
 
         masked_colours = masked_score.reshape(1, -1, 3)
         masked_hsv = cvt_rgb2hsv(masked_colours, self.params.hue_offset)
@@ -72,10 +73,10 @@ class OCREngine(BaseOCREngine):
     
     def set_colours(self, team0_score: np.ndarray, team1_score: np.ndarray) -> None:
         stds = (self.params.hue_std, self.params.sat_std)
-        hs = self.read_team_huesat(team0_score)
+        hs = self.average_mask_colour(team0_score)
         colours0 = get_hsv_range(hs, stds, self.params.col_zscore)
 
-        hs = self.read_team_huesat(team1_score)
+        hs = self.average_mask_colour(team1_score)
         colours1 = get_hsv_range(hs, stds, self.params.col_zscore)
 
         self._set_colours(colours0, colours1)
@@ -84,18 +85,19 @@ class OCREngine(BaseOCREngine):
     def has_colours(self) -> bool:
         return self.__has_colours
     
-    def read_score(self, score: np.ndarray) -> Optional[str]:
-        score = clip_around(score, self.params.sl_clip_around)
-        score_median = cv2.medianBlur(score, 3)
-        score_resize = cv2.resize(score_median,
-                           None,
-                           fx=self.params.sl_scalex,
-                           fy=self.params.sl_scaley,
-                           interpolation=cv2.INTER_CUBIC)
+    def read_score(self, score: np.ndarray, side: Optional[np.ndarray] = None) -> Optional[str]:
+        """Reads a score from the scoreline, pass the side region as well for better image thresholding"""
+        image = score
+        if side is not None:
+            image = np.hstack((score, side))
 
-        text_char = self.readtext(score_resize, PSM.SINGLE_CHAR, DIGITS)
+        th_score = self._read_threshold(image)
+        th_score = th_score[:, :score.shape[1]] ## remove side image before ocr
+
+        th_clipped = clip_around(th_score, self.params.sl_clip_around)
+        text_char = self.readtext(th_clipped, PSM.SINGLE_CHAR, "0123456789O")
         if match(SCORELINE_PATTERN, text_char):
-            return text_char
+            return text_char.replace("O", "0")
 
         return None
 
