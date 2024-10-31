@@ -343,7 +343,10 @@ class RTVideoFile(RegionTool):
         super(RTVideoFile, self).__init__(config)
 
         self.vr = self.new_video(self.config)
-        self.frame_idx = config.capture.start is not None and int(config.capture.start.to_int() * self.vdets.fps)
+        if config.capture.start is None:
+            self.frame_idx = 0
+        else:
+            self.frame_idx = int(config.capture.start.to_int() * self.vdets.fps)
 
         self.image = self.__get_frame(self.frame_idx)
 
@@ -397,7 +400,10 @@ class RTYoutubeVideo(RegionTool):
 
         self.cap = cap
         self.vdets = self.get_details()
-        self.frame_idx = config.capture.start is not None and int(config.capture.start.to_int() * self.vdets.fps)
+        if config.capture.start is None:
+            self.frame_idx = 0
+        else:
+            self.frame_idx = int(config.capture.start.to_int() * self.vdets.fps)
         self.image = self.__get_frame(self.frame_idx)
 
         assert self.image is not None, "Cannot get video frame"
