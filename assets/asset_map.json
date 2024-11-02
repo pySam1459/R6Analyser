@@ -1,4 +1,5 @@
 {
     "atkside_template": "atkside_template.png",
-    "headshot_mask": "headshot_mask.png"
+    "headshot_mask": "headshot_mask.png",
+    "timer_inf": "timer_inf.png"
 }

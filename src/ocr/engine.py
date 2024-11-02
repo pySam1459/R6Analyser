@@ -2,18 +2,17 @@ import cv2
 import numpy as np
 from dataclasses import dataclass as odataclass
 from re import match
-from tesserocr import PSM
 from typing import Optional, Callable
 
 from assets import Assets
+from params import OCRParams
 from settings import Settings
 from utils import Timestamp, filter_none, argmin
-from utils.cv import resize_height, clip_around
+from utils.cv import resize_height, gen_gaussian2d, guassian_threshold
 from utils.enums import Team
 from utils.constants import *
 
-from .base import BaseOCREngine
-from .params import OCRParams
+from .base import BaseOCREngine, OCRMode
 from .segment import segment
 from .utils import *
 
@@ -22,6 +21,7 @@ __all__ = [
     "OCREngine",
     "OCRLineResult"
 ]
+
 
 @odataclass
 class OCRLineResult:
@@ -43,10 +43,15 @@ class OCREngine(BaseOCREngine):
 
     _debug_vars: dict
 
-    def __init__(self, params: OCRParams, settings: Settings, assets: Assets, _debug_print: Optional[Callable] = None) -> None:
+    def __init__(self, params: OCRParams,
+                 settings: Settings,
+                 assets: Assets,
+                 _debug_print: Optional[Callable] = None) -> None:
         super(OCREngine, self).__init__(settings, _debug_print)
-        self.__assets = assets
         self.params = params
+
+        self.__assets = assets
+        self.__gaussian = 255 * gen_gaussian2d(96, 3.0)
 
         self.__has_colours = False
 
@@ -85,7 +90,7 @@ class OCREngine(BaseOCREngine):
     def has_colours(self) -> bool:
         return self.__has_colours
     
-    def read_score(self, score: np.ndarray, side: Optional[np.ndarray] = None) -> Optional[str]:
+    def read_score(self, score: np.ndarray, side: Optional[np.ndarray] = None, save = None) -> Optional[str]:
         """Reads a score from the scoreline, pass the side region as well for better image thresholding"""
         image = score
         if side is not None:
@@ -93,9 +98,16 @@ class OCREngine(BaseOCREngine):
 
         th_score = self._read_threshold(image)
         th_score = th_score[:, :score.shape[1]] ## remove side image before ocr
+        th_median = cast(np.ndarray, cv2.medianBlur(th_score, 3))
 
-        th_clipped = clip_around(th_score, self.params.sl_clip_around)
-        text_char = self.readtext(th_clipped, PSM.SINGLE_CHAR, "0123456789O")
+        th_gaussian = guassian_threshold(~th_median, self.__gaussian)
+        th_clipped = 255 * (~(th_gaussian > 127)).astype(np.uint8)
+
+        if save:
+            cv2.imwrite(save, th_clipped)
+
+
+        text_char = self.readtext(th_clipped, OCRMode.CHAR, SCORE_CHARLIST)
         if match(SCORELINE_PATTERN, text_char):
             return text_char.replace("O", "0")
 
@@ -114,7 +126,7 @@ class OCREngine(BaseOCREngine):
             return None
         
         right_image = segment_output.right.image
-        right_text = self.readtext(~right_image, PSM.SINGLE_WORD, charlist)
+        right_text = self.readtext(~right_image, OCRMode.WORD, charlist).lstrip(IGN_EXTRA_CHARS)
         if len(right_text) <= 2:
             return None
         
@@ -131,7 +143,7 @@ class OCREngine(BaseOCREngine):
                                  None, right_image, middle_image)
 
         left_image = segment_output.left.image
-        left_text = self.readtext(~left_image, PSM.SINGLE_WORD, charlist)
+        left_text = self.readtext(~left_image, OCRMode.WORD, charlist).lstrip(IGN_EXTRA_CHARS)
         if len(left_text) <= 2:
             return None
 
@@ -167,17 +179,29 @@ class OCREngine(BaseOCREngine):
 
     def read_timer(self, timer_img: np.ndarray) -> tuple[Optional[Timestamp], bool]:
         """Returns (timer: Optional[Timestamp], is_bomb_countdown: bool)"""
-        not_timer_img = ~cv2.cvtColor(timer_img, cv2.COLOR_RGB2GRAY) # type: ignore
+        gray_image = cv2.cvtColor(timer_img, cv2.COLOR_RGB2GRAY)
+        if self.__is_inf(gray_image):
+            ## infinite symbol shows when game waits at end pick phase
+            return Timestamp(minutes=0, seconds=0), False
+
+        not_timer_img = ~gray_image # type: ignore
         denoised_image = cast(np.ndarray, cv2.medianBlur(not_timer_img, 3))
         th_image = denoised_image > OCR_TIMER_THRESHOLD
 
-        results = self.readtext([denoised_image, th_image], PSM.SINGLE_LINE, TIMER_CHARLIST)
+        results = self.readtext([denoised_image, th_image], OCRMode.LINE, TIMER_CHARLIST)
         self.__last_timer = self.__pick_timer_result(results)
 
         red_perc = get_timer_redperc(timer_img)
         self.debug_print("red_percentage", f"{red_perc=}")
 
         return self.__last_timer, red_perc > BOMB_COUNTDOWN_RT
+    
+    def __is_inf(self, timer_image: np.ndarray) -> bool:
+        template = resize_height(self.__assets["timer_inf"], timer_image.shape[0]//2)
+        result = cv2.matchTemplate(timer_image, template, cv2.TM_CCOEFF_NORMED)
+        max_result = cast(float, np.max(result))
+        return max_result > self.params.inf_th
+
 
     def __pick_timer_result(self, results: list[str]) -> Optional[Timestamp]:
         converted_results = [self.__convert_raw_to_ts(res) for res in results]

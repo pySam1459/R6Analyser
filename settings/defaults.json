@@ -8,6 +8,7 @@
             "t1_offset": 6
         }
     },
+
     "save": {
         "file_type": "xlsx",
         "save_dir": "saves"
@@ -17,37 +18,19 @@
         "timer": 1000,
         "killfeed": 500
     },
-
-    "max_rounds_map": {
-        "comp": 15,
-        "scrim": 12,
-        "ranked": 9,
-        "standard": 7,
-        "custom": -1
+    "scoreline": {
+        "majority_threshold": 3,
+        "ballet_box_size": 5
     },
-    "rounds_per_side_map": {
-        "comp": 6,
-        "scrim": 6,
-        "ranked": 3,
-        "standard": 3,
-        "custom": -1
+    "ignmatrix": {
+        "ratio_threshold": 0.7
     },
-    "overtime_rounds_map": {
-        "comp": 3,
-        "scrim": 0,
-        "ranked": 3,
-        "standard": 1,
-        "custom": -1
-    },
-
-    "defuser_timer": 45,
-    "sl_majority_th": 5,
-    "ign_ratio_threshold": 0.7,
-
-    "ocr_params": {
+    "ocr": {
         "sl_scalex": 0.4,
         "sl_scaley": 0.5,
-        "sl_clip_around": 0.1,
+        "sl_bbox_zscore": 1.85,
+
+        "inf_th": 0.75,
 
         "hue_offset": 38,
         "hue_std": 13,
@@ -63,5 +46,8 @@
     
         "hs_wide_sf": 1.35,
         "hs_th": 0.5
+    },
+    "game": {
+        "defuser_timer": 45
     }
 }

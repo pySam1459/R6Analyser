@@ -3,6 +3,7 @@ import numpy as np
 from os import makedirs
 from typing import Optional, Generator
 
+
 from args import AnalyserArgs
 from capture.regions import Regions
 from config import Config
@@ -23,15 +24,17 @@ __all__ = ["InPersonAnalyser"]
 
 
 class InPersonAnalyser(Analyser):
-    END_ROUND_SECONDS = 12  ## number of seconds to check no timer to determine round end
+    END_ROUND_SECONDS = 10  ## number of seconds to check no timer to determine round end
 
     def __init__(self, args: AnalyserArgs, config: Config, settings: Settings) -> None:
         super(InPersonAnalyser, self).__init__(args, config, settings)
 
         self.atkside_matcher = TemplateMatcher(self.assets["atkside_template"])
 
-        # self.skf = SmartKillfeed(self.config, self.history, self._add_record)
-        self.smart_scoreline = SmartScoreline(self.ocr_engine, self.config.sl_majority_th)
+        self.smart_scoreline = SmartScoreline(self.ocr_engine, self.config.scoreline)
+
+        self.smart_scoreline.verbose_print = self._verbose_print # type: ignore
+        self.ocr_engine.verbose_print = self._verbose_print # type: ignore
 
         self.prog_bar = ProgressBar(add_postfix=self.config.debug.infer_time)
 
@@ -80,12 +83,14 @@ class InPersonAnalyser(Analyser):
         elif is_bomb_countdown:
             self.__handle_bomb_countdown()
 
-        elif self.state.in_round and self.end_round_seconds is None:
+        elif (self.state.in_round and
+              self.end_round_seconds is None and
+              self.ocr_engine.read_score(regions.team0_score, regions.team0_side) is None):
             self.end_round_seconds = self.timer.time
-
-        elif (self.end_round_seconds is not None and
-                self.end_round_seconds + InPersonAnalyser.END_ROUND_SECONDS < self.timer.time and
-                self.ocr_engine.read_score(regions.team0_score, regions.team0_side) is None):
+        
+        elif (self.state.in_round and
+              self.end_round_seconds is not None and
+              self.end_round_seconds + InPersonAnalyser.END_ROUND_SECONDS <= self.timer.time):
             self._end_round()
             self.end_round_seconds = None
 
@@ -111,7 +116,7 @@ class InPersonAnalyser(Analyser):
             bpat_int = self.history.cround.bomb_planted_at.to_int()
             tdelta = int(self.timer.time - self.timer.defuse_countdown)
             self.timer.ctime = Timestamp.from_int(bpat_int - tdelta)
-            self.prog_bar.set_time(int(self.config.defuser_timer-tdelta))
+            self.prog_bar.set_time(int(self.config.game.defuser_timer-tdelta))
             self.prog_bar.refresh()
 
 
@@ -217,7 +222,6 @@ class InPersonAnalyser(Analyser):
         new_round = sl.total + 1
         self.history.new_round(new_round)
         self.history.cround.scoreline = sl
-        # self.skf.reset()
 
         self._verbose_print(1, f"New Round: {new_round} | Scoreline: {sl.left}-{sl.right}")
         self.prog_bar.new_round(sl)
@@ -239,12 +243,12 @@ class InPersonAnalyser(Analyser):
         if sl is None:
             return False
 
-        max_non_ot = self.config.max_rounds - self.config.overtime_rounds
+        max_non_ot = self.config.game.max_rounds - self.config.game.overtime_rounds
         non_ot_perside = max_non_ot // 2
         is_ot = sl.total >= max_non_ot
 
         return (
-            self.history.roundn >= self.config.max_rounds
+            self.history.roundn >= self.config.game.max_rounds
                 or (not is_ot and sl.max == non_ot_perside+1)
                 or (is_ot and sl.diff == 2)
         )

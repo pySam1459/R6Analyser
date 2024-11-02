@@ -1,4 +1,5 @@
 import json
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
 from sys import exit
@@ -91,5 +92,13 @@ def perc_s(n: int|float, d: int|float) -> float:
 def fmt_s(*args):
     return str2f(perc_s(*args))
 
-def mode_count(arr: list[T]) -> T:
-    return max(set(arr), key=lambda x: arr.count(x))
+def mode_count(arr: list[T]) -> tuple[T, int]:
+    args = [(x, arr.count(x)) for x in set(arr)]
+    return max(args)
+
+
+def check_duplicates_werr(values: list[Any], err_msg: str) -> list[Any]:
+    dups = [v for v,c in Counter(values).items() if c > 1]
+    if len(dups) > 0:
+        raise ValueError(err_msg.format(", ".join(dups)))
+    return dups

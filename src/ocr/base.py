@@ -1,4 +1,5 @@
 import numpy as np
+from enum import IntEnum
 from PIL import Image
 from tesserocr import PyTessBaseAPI, OEM, PSM
 from typing import Sequence, Optional, Callable, overload
@@ -7,23 +8,29 @@ from settings import Settings
 
 
 __all__ = [
-    "BaseOCREngine"
+    "BaseOCREngine",
+    "OCRMode"
 ]
+
+
+class OCRMode(IntEnum):
+    CHAR = PSM.SINGLE_CHAR
+    WORD = PSM.SINGLE_WORD
+    LINE = PSM.SINGLE_LINE
 
 
 class BaseOCREngine:
     def __init__(self, settings: Settings, _debug_print: Optional[Callable] = None) -> None:
-        self._api = PyTessBaseAPI(path=str(settings.tessdata), # type: ignore
-                                  oem=OEM.LSTM_ONLY)    # type: ignore
+        self._api = PyTessBaseAPI(path=str(settings.tessdata), oem=OEM.LSTM_ONLY) # type: ignore
 
         self._debug_print = _debug_print
 
     @overload
-    def readtext(self, image: np.ndarray, read_mode: PSM, charlist: str) -> str: ...
+    def readtext(self, image: np.ndarray, read_mode: OCRMode, charlist: str) -> str: ...
     @overload
-    def readtext(self, image: Sequence[np.ndarray], read_mode: PSM, charlist: str) -> list[str]: ...
+    def readtext(self, image: Sequence[np.ndarray], read_mode: OCRMode, charlist: str) -> list[str]: ...
 
-    def readtext(self, image: np.ndarray | Sequence[np.ndarray], read_mode: PSM | PSM, charlist: str) -> str | list[str]:
+    def readtext(self, image: np.ndarray | Sequence[np.ndarray], read_mode: OCRMode, charlist: str) -> str | list[str]:
         self._api.SetVariable("tessedit_pageseg_mode", str(read_mode))
         self._api.SetVariable("tessedit_char_whitelist", charlist)
 

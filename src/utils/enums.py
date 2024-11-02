@@ -1,16 +1,6 @@
 from enum import Enum, IntEnum, auto
 
 
-class IGNMatrixMode(str, Enum):
-    """
-    Mode for the IGN Matrix
-        fixed - all 10 IGNs are present before program starts and remains unchanged throughout
-        infer - <10 IGNs are present, the remaining IGNs will be inferred through the killfeed
-    """
-    FIXED = "fixed"
-    INFER = "infer"
-
-
 class CaptureMode(str, Enum):
     SCREENSHOT = "screenshot"
     VIDEOFILE  = "videofile"
@@ -20,7 +10,7 @@ class CaptureMode(str, Enum):
 
 class CaptureTimeType(Enum):
     TIME = auto()
-    FPS = auto()
+    FPS  = auto()
 
 
 class WinCondition(str, Enum):

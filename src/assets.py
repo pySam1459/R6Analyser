@@ -2,7 +2,6 @@ import cv2
 import numpy as np
 from pathlib import Path
 from pydantic import BaseModel
-from typing import Self
 
 from utils import load_file
 
@@ -15,6 +14,7 @@ __all__ = [
 class _AssetMap(BaseModel):
     atkside_template: str
     headshot_mask: str
+    timer_inf: str
 
 
 class Assets:
@@ -36,18 +36,3 @@ class Assets:
     
     def __getitem__(self, key: str) -> np.ndarray:
         return self.__cache.get(key, self.__originals[key])
-
-
-    def resize(self, name: str, dim: tuple[int,int]) -> Self:
-        img = self.__originals[name]
-        img_resize = cv2.resize(img, dim, interpolation=cv2.INTER_LINEAR)
-        self.__cache[name] = img_resize
-        return self
-    
-    def resize_height(self, name: str, height: int) -> Self:
-        img = self.__originals[name]
-        h,w = img.shape
-        dim = (int(w*height/h), height)
-        img_resize = cv2.resize(img, dim, interpolation=cv2.INTER_LINEAR)
-        self.__cache[name] = img_resize
-        return self

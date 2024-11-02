@@ -5,19 +5,10 @@ from Levenshtein import ratio
 from utils.enums import Team
 
 
-class Player_t(str, Enum):
-    FIXED = "FixedPlayer"
-    INFER = "AdaptivePlayer"
-
-
 class Player(ABC):
     @property
     @abstractmethod
     def uid(self) -> int: ...
-
-    @property
-    @abstractmethod
-    def type(self) -> Player_t: ...
 
     @property
     @abstractmethod
@@ -29,11 +20,6 @@ class Player(ABC):
 
     def __eq__(self, other: 'Player') -> bool:
         return self.uid == other.uid
-    
-    def __str__(self) -> str:
-        return f"{self.type.value}[ign={self.ign},team={self.team}]"
-
-    __repr__ = __str__
 
 
 class FixedPlayer(Player):
@@ -48,16 +34,16 @@ class FixedPlayer(Player):
         return self.__uid
     
     @property
-    def type(self) -> Player_t:
-        return Player_t.FIXED
-    
-    @property
     def ign(self) -> str:
         return self.__ign
     
     @property
     def team(self) -> Team:
         return self.__team
+
+    def __str__(self) -> str:
+        return f"FixedPlayer[ign={self.ign},team={self.team}]"
+    __repr__ = __str__
 
 
 class AdaptivePlayer(Player):
@@ -76,10 +62,6 @@ class AdaptivePlayer(Player):
     @property
     def uid(self) -> int:
         return self.__uid
-    
-    @property
-    def type(self) -> Player_t:
-        return Player_t.INFER
 
     @property
     def ign(self) -> str:
@@ -88,6 +70,10 @@ class AdaptivePlayer(Player):
     @property
     def team(self) -> Team:
         return self.__team
+    
+    def __str__(self) -> str:
+        return f"AdaptivePlayer[ign={self.ign},team={self.team}]"
+    __repr__ = __str__
 
     @property
     def noccr(self) -> int:

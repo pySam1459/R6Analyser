@@ -1,6 +1,6 @@
 from dataclasses import dataclass as odataclass
 from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator
-from typing import Any, Optional, Generator
+from typing import Any, Optional
 
 from ignmatrix import IGNMatrix, Player
 from utils import Timestamp, Scoreline
@@ -130,10 +130,15 @@ class HistoryRound(BaseModel):
         return WinCondition.UNKNOWN
     
     def __is_killopp_wincon(self, ignmat: IGNMatrix) -> bool:
-        atk_deaths = len([rec for rec in self.killfeed if rec.target.team == self.atk_side])
-        def_deaths = len([rec for rec in self.killfeed if rec.target.team == self.atk_side.opp])
-
         atk_team, def_team = ignmat.get_teams().order(self.atk_side)
+
+        atk_deaths = len([rec
+                          for rec in self.killfeed
+                          if rec.target.team == self.atk_side and rec.target in atk_team])
+        def_deaths = len([rec
+                          for rec in self.killfeed
+                          if rec.target.team == self.atk_side.opp and rec.target in def_team])
+
         return atk_deaths == len(atk_team) or def_deaths == len(def_team)
     
     def is_dead(self, pl: Player) -> bool:

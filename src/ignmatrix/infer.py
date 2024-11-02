@@ -1,7 +1,7 @@
 from typing import Optional
 
 from utils.constants import IGN_CHARLIST
-from utils.enums import IGNMatrixMode, Team
+from utils.enums import Team
 
 from .base import IGNMatrix
 from .player import Player, AdaptivePlayer
@@ -13,7 +13,7 @@ __all__ = ["IGNMatrixInfer"]
 
 class IGNMatrixInfer(IGNMatrix):
     def __init__(self, team0: list[str], team1: list[str], leven_th: float) -> None:
-        super(IGNMatrixInfer, self).__init__(IGNMatrixMode.INFER, team0, team1, leven_th)
+        super(IGNMatrixInfer, self).__init__(team0, team1, leven_th)
 
         self.__mat: list[AdaptivePlayer] = []
     

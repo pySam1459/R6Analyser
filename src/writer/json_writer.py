@@ -13,7 +13,7 @@ __all__ = ["JsonWriter"]
 
 class JsonWriter(Writer):
     def __init__(self, save_path: Path) -> None:
-        super(JsonWriter, self).__init__(SaveFileType.JSON, save_path, None)
+        super(JsonWriter, self).__init__(SaveFileType.JSON, save_path)
 
     @handle_write_errors
     def write(self, history: History, *_) -> None:

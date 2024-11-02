@@ -6,6 +6,7 @@ from tqdm import tqdm
 from typing import Optional, Self
 
 from .constants import TIMESTAMP_PATTERN, NUMBER_PATTERN
+from .enums import Team
 
 
 @dataclass
@@ -31,10 +32,10 @@ class Scoreline:
     def diff(self) -> int:
         return abs(self.left-self.right)
     
-    def inc(self, side: int) -> Self:
-        if side == 0:
+    def inc(self, side: Team) -> Self:
+        if side == Team.TEAM0:
             self.left += 1
-        elif side == 1:
+        elif side == Team.TEAM1:
             self.right += 1
         return self
 

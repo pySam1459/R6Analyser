@@ -1,3 +1,4 @@
+ipykernel
 pyinstaller
 pygame
 pytest

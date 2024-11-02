@@ -3,10 +3,10 @@ import numpy as np
 from dataclasses import dataclass as odataclass
 from typing import Optional
 
+from params import OCRParams
 from utils import BBox_t
 from utils.enums import Team
 
-from .params import OCRParams
 from .utils import HSVColourRange, cvt_rgb2hsv
 
 

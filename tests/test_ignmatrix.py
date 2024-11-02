@@ -5,7 +5,7 @@ from typing import Any
 
 from ignmatrix.fixed import IGNMatrixFixed
 from utils import load_json
-from utils.enums import IGNMatrixMode, Team
+from utils.enums import Team
 
 
 path = Path(__file__).parent / "resources" / "ignmatrix" / "fixed.json"
@@ -46,10 +46,6 @@ def test_fixed_bad_names(fixed_mat: IGNMatrixFixed, case: dict[str, Any]) -> Non
 
     if pl is not None and pl.team == pteam:
         assert score < IM_LEVEN_THRESHOLD, f"Score >= threshold, eval: {score=:.4f}"
-
-
-def test_fixed_mode(fixed_mat: IGNMatrixFixed) -> None:
-    assert fixed_mat.mode == IGNMatrixMode.FIXED
 
 
 def test_fixed_get_teams(teams) -> None:

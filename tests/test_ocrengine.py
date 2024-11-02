@@ -11,8 +11,8 @@ from typing import Sequence
 
 from assets import Assets
 from ocr import OCREngine, OCRLineResult
-from ocr.params import OCRParams
 from ocr.utils import HSVColourRange, get_hsv_range
+from params import OCRParams
 from settings import Settings, create_settings
 from utils import load_json
 
@@ -64,9 +64,9 @@ def assets() -> Assets:
 @pytest.fixture
 def ocr_params() -> OCRParams:
     defaults = load_json(project_base / "settings" / "defaults.json")
-    assert "ocr_params" in defaults
+    assert "ocr" in defaults
 
-    ocr_params = defaults["ocr_params"]
+    ocr_params = defaults["ocr"]
     return OCRParams(**ocr_params)
 
 
@@ -208,6 +208,8 @@ def test_ocr_engine_timer(test_file: Path,
 
     if stem.startswith("bomb"):
         expected_result = (None, True)
+    elif stem.startswith("inf"):
+        expected_result = ("0:00", False)
     else:
         if "_" in stem:
             _, stem = stem.split("_", maxsplit=1)

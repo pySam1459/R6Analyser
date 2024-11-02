@@ -1,11 +1,10 @@
-from functools import partial
 from Levenshtein import ratio
 from typing import Optional
 
-from utils.enums import IGNMatrixMode, Team
+from utils.enums import Team
 
 from .base import IGNMatrix
-from .player import Player, FixedPlayer
+from .player import Player
 from .utils import Teams
 
 
@@ -19,7 +18,7 @@ class IGNMatrixFixed(IGNMatrix):
     """
 
     def __init__(self, team0: list[str], team1: list[str], leven_th: float) -> None:
-        super(IGNMatrixFixed, self).__init__(IGNMatrixMode.FIXED, team0, team1, leven_th)
+        super(IGNMatrixFixed, self).__init__(team0, team1, leven_th)
 
         self.__teams = Teams([self._ttable[ign] for ign in team0],
                              [self._ttable[ign] for ign in team1])
@@ -40,5 +39,4 @@ class IGNMatrixFixed(IGNMatrix):
         if pign in self._ttable:
             return 1.0
 
-        ratio_func = partial(ratio, pign)
-        return max(map(ratio_func, self._ttable.igns()))
+        return max([ratio(pign, ign) for ign in self._ttable.igns()])

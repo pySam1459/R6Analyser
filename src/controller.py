@@ -59,12 +59,15 @@ class Controller:
         if self.args.delay > 0:
             sleep(self.args.delay)
 
+        self.__prep_config(config)
         print(f"Config: {config.name}")
         print(f"Info: Running Region Tool...")
         rt = create_regiontool(self.args, config)
         rt.run()
     
     def __run_analyser(self, config: Config) -> None:
+        self.__prep_config(config)
+
         print(f"Config: {config.name}")
         if config.spectator:
             print("Info: Spectator Mode Active")
@@ -80,3 +83,9 @@ class Controller:
         else:
             print("Info: Running Analyser...")
             analyser.run()
+
+    def __prep_config(self, config: Config | RTConfig) -> None:
+        if self.args.start is None:
+            return
+
+        config.capture.start = self.args.start

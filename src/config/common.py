@@ -3,7 +3,7 @@ import os
 from pathlib import Path
 from re import match
 
-from pydantic import BaseModel, ConfigDict, model_validator, field_validator
+from pydantic import BaseModel, ConfigDict, model_validator, field_validator, field_serializer
 from typing import Any, Optional, Self
 
 from utils import Timestamp
@@ -33,6 +33,12 @@ class CaptureCommon(BaseModel):
             return Timestamp.from_str(v)
 
         raise ValueError(f"Cannot parse capture start: {v}")
+    
+    @field_serializer("start")
+    def serialize_start(self, start: Optional[Timestamp]) -> Optional[str]:
+        if start is None:
+            return None
+        return str(start)
 
 
     @model_validator(mode="after")

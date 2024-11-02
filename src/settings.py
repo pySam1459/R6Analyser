@@ -11,13 +11,14 @@ __all__ = [
 ]
 
 class Settings(BaseModel):
-    defaults_filepath:   Path = DEFAULTS_PATH
-    debug_filepath:      Path = DEBUG_PATH
-    assets_path:         Path = ASSETS_PATH
+    defaults_filepath:  Path = DEFAULTS_PATH
+    debug_filepath:     Path = DEBUG_PATH
+    gsettings_filepath: Path = GAME_SETTINGS_PATH
+    assets_path:        Path = ASSETS_PATH
 
-    tessdata:            Path = DEFAULT_TESSDATA_PATH
+    tessdata:           Path = DEFAULT_TESSDATA_PATH
 
-    config_list_derive:  bool = True
+    config_list_derive: bool = True
 
     model_config = ConfigDict(extra="ignore")
 

@@ -4,7 +4,7 @@ from typing import Optional
 
 from config import Config
 from history import History
-from ignmatrix import IGNMatrix, Player
+from ignmatrix import IGNMatrix
 from utils.enums import SaveFileType
 from .utils import make_copyfile
 
@@ -13,7 +13,7 @@ __all__ = ["Writer"]
 
 
 class Writer(ABC):
-    def __init__(self, _type: SaveFileType, save_path: Path, config: Optional[Config]) -> None:
+    def __init__(self, _type: SaveFileType, save_path: Path, config: Optional[Config] = None) -> None:
         self._type = _type
         self._config = config
 

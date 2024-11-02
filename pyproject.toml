@@ -1,6 +1,6 @@
 [project]
 name = "R6Analyser"
-version = "0.4.1"
+version = "0.4.4"
 requires-python = ">= 3.10"
 authors = [
     {name = "Samuel Barnett", email = "pysam1459@gmail.com"}

@@ -3,7 +3,7 @@ from typing import Generator, Optional, TypeAlias
 
 from history import History, HistoryRound, KFRecord, TradedRecord
 from ignmatrix import Player
-from utils import Timestamp, fmt_s
+from utils import Timestamp
 from utils.enums import Team
 
 
@@ -79,7 +79,7 @@ def __read_killfeed(round_stats: RoundStats_t, hround: HistoryRound, players: li
 @odataclass
 class _Death:
     player: Player
-    time: Timestamp
+    time:   Timestamp
 
 
 def __check_onevx(round_stats: RoundStats_t, hround: HistoryRound, players: list[Player]) -> None:

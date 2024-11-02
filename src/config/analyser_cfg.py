@@ -1,15 +1,14 @@
 import os
-from collections import Counter
 from functools import partial
 from pathlib import Path
-from pydantic import BaseModel, ConfigDict, Field, field_validator, computed_field, model_validator
-from typing import Any, Optional, Self, Type, TypeAlias
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from typing import Any, Optional, Self, Type
 
-from ocr.params import OCRParams
 from settings import Settings
-from utils import Timestamp, load_file, recursive_union, gen_default_name, BBox_t
-from utils.enums import GameType, CaptureMode, IGNMatrixMode, Team, SaveFileType
+from utils import Timestamp, load_file, recursive_union, gen_default_name, check_duplicates_werr, BBox_t
+from utils.enums import GameType, CaptureMode, Team, SaveFileType
 from utils.constants import *
+from params import *
 
 from .common import CaptureCommon
 from .region_models import TimerRegion, KFLineRegion
@@ -21,15 +20,7 @@ __all__ = [
     "create_analyser_config",
 ]
 
-GameTypeRoundMap: TypeAlias = dict[GameType, int]
-
-class DebugCfg(BaseModel):
-    config_keys:    bool = False
-    red_percentage: bool = False
-    headshot_match: bool = False
-    infer_time:     bool = False
-
-    model_config = ConfigDict(extra="ignore")
+GAME_MAPS_ATTR = "_game_map"
 
 
 class SaveCfg(BaseModel):
@@ -40,27 +31,27 @@ class SaveCfg(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
 
-class SchedulerCfg(BaseModel):
-    scoreline: int = Field(default=1000, ge=0)
-    timer:     int = Field(default=500,  ge=0)
-    killfeed:  int = Field(default=300,  ge=0)
+class _GameSettings(BaseModel):
+    max_rounds:      dict[str, int]
+    rounds_per_side: dict[str, int]
+    overtime_rounds: dict[str, int]
+
+    model_config = ConfigDict(extra="ignore")
+
+
+class _GameParams(BaseModel):
+    defuser_timer: int = Field(default=45, ge=1,   le=60)
 
     model_config = ConfigDict(extra="ignore")
 
 
 class Defaults(BaseModel):
     save:      SaveCfg
-    scheduler: SchedulerCfg
-
-    max_rounds_map:      GameTypeRoundMap
-    rounds_per_side_map: GameTypeRoundMap
-    overtime_rounds_map: GameTypeRoundMap
-
-    defuser_timer:       int
-    sl_majority_th:      int
-    ign_ratio_threshold: float
-
-    ocr_params:    OCRParams
+    scheduler: SchedulerParams
+    scoreline: ScorelineParams
+    ignmatrix: IGNMatrixParams
+    ocr:       OCRParams
+    game:      _GameParams
 
     model_config = ConfigDict(extra="ignore")
 
@@ -105,35 +96,49 @@ class ConfigParser(BaseModel):
     team0:               list[str]     = Field(default_factory=list, min_length=0, max_length=5)
     team1:               list[str]     = Field(default_factory=list, min_length=0, max_length=5)
 
-    save:                SaveParser
-    scheduler:           SchedulerCfg
-
     last_winner:         Team          = Team.UNKNOWN
 
-    max_rounds:          Optional[int] = Field(default=None, ge=1, le=25)
-    rounds_per_side:     Optional[int] = Field(default=None, ge=1, le=6)
-    overtime_rounds:     Optional[int] = Field(default=None, ge=0, le=3)
-    defuser_timer:       int   = Field(ge=1, le=60)
-
-    sl_majority_th:      int   = Field(ge=1, le=10)
-    ign_ratio_threshold: float = Field(ge=0.0, le=1.0)
-    ocr_params:          OCRParams
-    debug:               DebugCfg
-
-    max_rounds_map:      GameTypeRoundMap
-    rounds_per_side_map: GameTypeRoundMap
-    overtime_rounds_map: GameTypeRoundMap
+    game:                GameParams
+    save:                SaveParser
+    scheduler:           SchedulerParams
+    scoreline:           ScorelineParams
+    ignmatrix:           IGNMatrixParams
+    ocr:                 OCRParams
+    debug:               DebugParams
 
     model_config = ConfigDict(extra="forbid", use_enum_values=True)
 
-    @computed_field(return_type=IGNMatrixMode)
-    @property
-    def ign_mode(self) -> IGNMatrixMode:
-        if len(self.team0) + len(self.team1) == 10:
-            return IGNMatrixMode.FIXED
-        else:
-            return IGNMatrixMode.INFER
+    @model_validator(mode="before")
+    @classmethod
+    def check_custom_params_exist(cls, values: dict[str, Any]):
+        game_type   = values.get('game_type', None)
+        game_params = values.get('game', {})
 
+        ## game-settings.json
+        gset_maps: dict[str, dict[str, int]] = values.pop(GAME_MAPS_ATTR)
+
+        game_params_set = set(game_params)
+        dc_set = set(GameParams.__dataclass_fields__)
+        missing_params = (dc_set ^ game_params_set) - game_params_set
+
+        if game_type is None:
+            raise ValueError("No game_type parameter provided")
+        elif game_type not in GameType._value2member_map_:
+            raise ValueError(f"Invalid game_type: {game_type}")
+
+        ## check if game_params isn't missing anything when gameType is custom
+        if game_type == GameType.CUSTOM:
+            if len(missing_params) != 0:
+                missing_params_s = ', '.join(missing_params)
+                raise ValueError(f"valid game parameters must be provided when game_type is 'custom'\nPlease provide: {missing_params_s}")
+            return values
+
+        ## create game_params from game-settings maps
+        for prop, pmap in gset_maps.items():
+            assert game_type in pmap, f"Game settings has been modified, {prop} has no {game_type}"
+            game_params[prop] = pmap[game_type]
+        
+        return values | {"game": game_params}
 
     @field_validator('team0', "team1")
     @classmethod
@@ -142,37 +147,12 @@ class ConfigParser(BaseModel):
         if len(invalid_igns) > 0:
             raise ValueError("Invalid IGNs: {}".format(", ".join(invalid_igns)))
 
-        ConfigParser.check_duplicates(ign_list, "Duplicate IGN/s: {}")
+        check_duplicates_werr(ign_list, "Duplicate IGN/s: {}")
         return ign_list
 
     @model_validator(mode="after")
     def check_igns_duplicates(self) -> Self:
-        ConfigParser.check_duplicates(self.team0 + self.team1, "Duplicate IGN/s: {}")
-        return self
-    
-    @staticmethod
-    def check_duplicates(values: list[Any], err_msg: str) -> list[Any]:
-        dups = [v for v,c in Counter(values).items() if c > 1]
-        if len(dups) > 0:
-            raise ValueError(err_msg.format(", ".join(dups)))
-        return dups
- 
-    @model_validator(mode="after")
-    def infer_round_info(self) -> Self:
-        prop_maps = {
-            "max_rounds": self.max_rounds_map,
-            "rounds_per_side": self.rounds_per_side_map,
-            "overtime_rounds": self.overtime_rounds_map
-        }
-        for prop, round_map in prop_maps.items():
-            if getattr(self, prop) is not None:
-                continue
-
-            if self.game_type == GameType.CUSTOM:
-                raise ValueError(f"Custom gametypes must have `{prop}` provided")
-
-            setattr(self, prop, round_map.get(self.game_type))
-
+        check_duplicates_werr(self.team0 + self.team1, "Duplicate IGN/s: {}")
         return self
     
     @model_validator(mode="after")
@@ -195,9 +175,9 @@ class RegionsCfg(BaseModel):
 
     num_kf_lines: int
     kf_buf:       int
-    score_width: float
-    side_width:  float
-    t1_offset:   int
+    score_width:  float
+    side_width:   float
+    t1_offset:    int
 
     team0_score:  BBox_t
     team1_score:  BBox_t
@@ -214,6 +194,15 @@ class CaptureCfg(BaseModel):
     url:     Optional[str]
     start:   Optional[Timestamp]
 
+    @field_validator("start", mode="before")
+    @classmethod
+    def parse_start(cls, v: Any) -> Optional[Timestamp]:
+        if v is None or isinstance(v, Timestamp):
+            return v
+        elif isinstance(v, str):
+            return Timestamp.from_str(v)
+        raise ValueError(f"Cannot parse capture.start, {v}")
+
     model_config = ConfigDict(extra="ignore")
 
 
@@ -227,22 +216,16 @@ class Config(BaseModel):
     team0:               list[str]
     team1:               list[str]
 
-    save:                SaveCfg
-    scheduler:           SchedulerCfg
-
-    ign_mode:            IGNMatrixMode = Field(exclude=True)
-
-    max_rounds:          int = Field(exclude=True)
-    rounds_per_side:     int = Field(exclude=True)
-    overtime_rounds:     int = Field(exclude=True)
-
     last_winner:         Team
-    defuser_timer:       int
-    sl_majority_th:      int
-    ign_ratio_threshold: float
 
-    ocr_params:          OCRParams
-    debug:               DebugCfg = Field(exclude=True)
+    game:                GameParams
+    save:                SaveCfg
+    scheduler:           SchedulerParams
+    scoreline:           ScorelineParams
+    ignmatrix:           IGNMatrixParams
+    ocr:                 OCRParams
+
+    debug:               DebugParams
 
     model_config = ConfigDict(extra="ignore", use_enum_values=True)
 
@@ -261,21 +244,23 @@ def _load_model_dict(path: Path, model_cls: Type[BaseModel]) -> dict[str, Any]:
         raise e
 
 
-def validate_analyser_dict(cfg: dict[str, Any],
-                           df:  dict[str, Any],
-                           dbg: dict[str, Any]) -> Config:
+def validate_analyser_dict(cfg:  dict[str, Any],
+                           base: dict[str, Any]) -> Config:
 
     ## config propreties recursively insert/replace into defaults
-    cfg = recursive_union(df, cfg)
+    cfg = recursive_union(base, cfg)
 
     ## debug props are unioned on top
-    cfg_parsed = ConfigParser.model_validate(cfg | dbg)
+    cfg_parsed = ConfigParser.model_validate(cfg)
     return Config.model_validate(cfg_parsed.model_dump())
 
 
 def create_analyser_config(config_path: Path, settings: Settings) -> Config | list[Config]:
-    df = _load_model_dict(settings.defaults_filepath, Defaults)
-    dbg = {"debug": _load_model_dict(settings.debug_filepath, DebugCfg)}
+    defaults = _load_model_dict(settings.defaults_filepath, Defaults)
 
-    validate_func = partial(validate_analyser_dict, df=df, dbg=dbg)
+    game_maps = {GAME_MAPS_ATTR: _load_model_dict(settings.gsettings_filepath, _GameSettings)}
+    debug     = {"debug": _load_model_dict(settings.debug_filepath, DebugParams)}
+
+    base = defaults | game_maps | debug
+    validate_func = partial(validate_analyser_dict, base=base)
     return validate_config(validate_func, config_path, settings)

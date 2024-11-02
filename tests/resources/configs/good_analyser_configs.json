@@ -77,9 +77,11 @@
             "Player9",
             "Player10"
         ],
-        "max_rounds": 20,
-        "rounds_per_side": 1,
-        "overtime_rounds": 1
+        "game": {
+            "max_rounds": 20,
+            "rounds_per_side": 1,
+            "overtime_rounds": 1
+        }
     },
     {
         "name": "ga_test3b-custom_everything",
@@ -114,13 +116,14 @@
             "Player9",
             "Player10"
         ],
-        "max_rounds": 20,
-        "rounds_per_side": 1,
-        "overtime_rounds": 1,
-        "defuser_timer": 30,
-
-        "ocr_params": {
-            "sat_std": 0.03,
+        "game": {
+            "max_rounds": 20,
+            "rounds_per_side": 1,
+            "overtime_rounds": 1,
+            "defuser_timer": 30
+        },
+        "ocr": {
+            "sat_std": 3,
             "hs_th": 0.7
         }
     },
@@ -339,7 +342,7 @@
         }
     },
     {
-        "name": "ga_test8-ocrparams_normal",
+        "name": "ga_test8-scoreline_normal",
         "game_type": "comp",
         "spectator": false,
         "capture": {
@@ -349,8 +352,39 @@
                 "kf_line": [4273, 469, 410, 26]
             }
         },
-        "ocr_params": {
-            "sl_clip_around": 0.05,
+        "scoreline": {
+            "majority_threshold": 5,
+            "ballet_box_size": 7
+        }
+    },
+    {
+        "name": "ga_test9-ignmatrix_normal",
+        "game_type": "comp",
+        "spectator": false,
+        "capture": {
+            "mode": "screenshot",
+            "regions": {
+                "timer": [3752, 177, 159, 72],
+                "kf_line": [4273, 469, 410, 26]
+            }
+        },
+        "ignmatrix": {
+            "ratio_threshold": 0.65
+        }
+    },
+    {
+        "name": "ga_test10-ocr_normal",
+        "game_type": "comp",
+        "spectator": false,
+        "capture": {
+            "mode": "screenshot",
+            "regions": {
+                "timer": [3752, 177, 159, 72],
+                "kf_line": [4273, 469, 410, 26]
+            }
+        },
+        "ocr": {
+            "sl_bbox_zscore": 2,
 
             "hue_offset": 32,
             "hue_std": 15,

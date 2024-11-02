@@ -77,7 +77,7 @@ class Analyser(ABC):
 
         self.assets = Assets(self.settings.assets_path)
         self.capture = create_capture(config)
-        self.ocr_engine = OCREngine(config.ocr_params, settings, self.assets)
+        self.ocr_engine = OCREngine(config.ocr, settings, self.assets)
 
         self.ign_matrix = create_ignmatrix(config)
         self.history = History()
@@ -113,7 +113,10 @@ class Analyser(ABC):
 
 
     ## ----- CHECK & TEST -----
-    def __ask_for_time(self) -> Timestamp:
+    def __get_start(self) -> Timestamp:
+        if self.args.start is not None:
+            return self.args.start
+
         while True:
             timestamp_s = input("Timestamp >> ")
             if not timestamp_s:
@@ -127,7 +130,7 @@ class Analyser(ABC):
 
     def test_and_checks(self) -> None:
         if self.capture.time_type == CaptureTimeType.FPS:
-            dt = self.__ask_for_time().to_int()
+            dt = self.__get_start().to_int()
             regions = self.capture.next(dt, jump=True)
         else:
             regions = self.capture.next()
@@ -210,13 +213,13 @@ class Analyser(ABC):
         else:
             return self.prog_bar.print
 
-    def _verbose_print(self, verbose_value: int, *prompt) -> None:
+    def _verbose_print(self, verbose_value: int, *prompt, **kwargs) -> None:
         if self.args.verbose > verbose_value:
-            self.__print("Info:", *prompt)
+            self.__print("Info:", *prompt, **kwargs)
 
-    def _debug_print(self, key: str, *prompt) -> None:
+    def _debug_print(self, key: str, *prompt, **kwargs) -> None:
         if self.config.__dict__.get(key, False):
-            self.__print("Debug:", *prompt)
+            self.__print("Debug:", *prompt, **kwargs)
     
     def _debug_postfix(self, postfix: str) -> None:
         self.prog_bar.set_postfix(postfix)

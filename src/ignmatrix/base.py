@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import Optional
 
-from utils.enums import IGNMatrixMode, Team
+from utils.enums import Team
 
 from .player import Player
 from .utils import TeamTable, Teams, get_chars
@@ -17,8 +17,7 @@ class IGNMatrix(ABC):
     The matrix uses Levenshtein distance to determine whether two IGNs are the same (could be improved?)
     """
 
-    def __init__(self, mode: IGNMatrixMode, team0: list[str], team1: list[str], leven_th: float) -> None:
-        self.__mode = mode
+    def __init__(self, team0: list[str], team1: list[str], leven_th: float) -> None:
         self._team0 = team0
         self._team1 = team1
         self._ign_threshold = leven_th
@@ -34,10 +33,6 @@ class IGNMatrix(ABC):
     @property
     def team1(self) -> list[str]:
         return self._team1
-
-    @property
-    def mode(self) -> IGNMatrixMode:
-        return self.__mode
     
     @property
     def charlist(self) -> str:

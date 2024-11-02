@@ -1,12 +1,10 @@
 from pathlib import Path
-from re import match
-from pydantic import BaseModel, ConfigDict, Field, model_validator, field_validator
-from typing import Any, Optional, Self
+from pydantic import BaseModel, ConfigDict, Field
+from typing import Optional
 
 from settings import Settings
-from utils import Timestamp, BBox_t
-from utils.constants import TIMESTAMP_PATTERN
-from utils.enums import CaptureMode, GameType
+from utils import BBox_t
+from utils.enums import GameType
 
 from .common import CaptureCommon
 from .utils import validate_config

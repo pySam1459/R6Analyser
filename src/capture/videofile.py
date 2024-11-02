@@ -1,4 +1,6 @@
 import numpy as np
+
+import tesserocr  # bug, tesserocr will not load and crash program if imported after decord
 from decord import VideoReader
 from typing import Optional
 

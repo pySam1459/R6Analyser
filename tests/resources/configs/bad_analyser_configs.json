@@ -388,5 +388,61 @@
             }
         },
         "last_winner": 3
+    },
+    {
+        "name": "ga_test9a-no_custom_settings",
+        "game_type": "custom",
+        "spectator": false,
+        "capture": {
+            "mode": "screenshot",
+            "regions": {
+                "timer": [3752, 177, 159, 72],
+                "kf_line": [4273, 469, 410, 26]
+            }
+        },
+        "team0": [
+            "Player1",
+            "Player2",
+            "Player3",
+            "Player4",
+            "Player5"
+        ],
+        "team1": [
+            "Player6",
+            "Player7",
+            "Player8",
+            "Player9",
+            "Player10"
+        ]
+    },
+    {
+        "name": "ga_test9b-only_some_custom_settings",
+        "game_type": "custom",
+        "spectator": false,
+        "capture": {
+            "mode": "screenshot",
+            "regions": {
+                "timer": [3752, 177, 159, 72],
+                "kf_line": [4273, 469, 410, 26]
+            }
+        },
+        "team0": [
+            "Player1",
+            "Player2",
+            "Player3",
+            "Player4",
+            "Player5"
+        ],
+        "team1": [
+            "Player6",
+            "Player7",
+            "Player8",
+            "Player9",
+            "Player10"
+        ],
+        "game": {
+            "max_rounds": 20,
+            "overtime_rounds": 1
+        }
     }
 ]

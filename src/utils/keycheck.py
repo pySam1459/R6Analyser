@@ -18,9 +18,9 @@ __PROT = "ht"
 INVALID_KEY_REASONS = {
     400: "Bad Request, internet issues?",
     401: "Invalid Key",
-    402: "Key has been Denied! Banned",
-    403: "Key has been Denied! Total Payment has not been received.",
-    404: "Server Error, please contact a developer ASAP.",
+    402: "Key has been Banned",
+    403: "Key has been Blocked! Total Payment has not been received.",
+    500: "Server Error, please contact a developer ASAP.",
 }
 
 
