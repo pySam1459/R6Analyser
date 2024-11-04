@@ -20,8 +20,8 @@ def load_configs(filename: str | list[str]) -> list[dict[str, Any]]:
     return utils.flatten([utils.load_json(base / file) for file in filename])
 
 def _convert_raw_name(name: str) -> str:
-    pattern = r'^(\w+)_(\w+)\.(\d+)-(.+)$'
-    replacement = r'\1_\2-\4'
+    pattern = r"^(\w+)_(\w+)\.(\d+)-(.+)$"
+    replacement = r"\1_\2-\4"
     
     return sub(pattern, replacement, name)
 

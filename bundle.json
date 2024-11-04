@@ -2,6 +2,7 @@
     "exe": "R6Analyser.exe",
     "include": [
         "tessdata",
+        "ffmpeg/ffmpeg.exe",
         "assets/atkside_template.png",
         "assets/headshot_mask.png",
         "assets/asset_map.json",

@@ -35,7 +35,7 @@ def load_json(file_path: Path):
 
 # non-builtin functions
 T = TypeVar('T')
-def ndefault(value: Any, default: Any) -> Any:
+def ndefault(value: Optional[T], default: T) -> T:
     """return value is None ? default : value"""
     if value is None: return default
     return value

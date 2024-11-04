@@ -86,6 +86,9 @@ class Timestamp:
     __repr__ = __str__
 
 
+TIMESTAMP_ZERO = Timestamp(minutes=0, seconds=0)
+
+
 class ProgressBar:
     def __init__(self, add_postfix = False) -> None:
         bar_format = "{desc}|{bar}"

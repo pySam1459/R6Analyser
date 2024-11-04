@@ -18,7 +18,10 @@ SOFTWARE_KEY_FILE     = Path("SOFTWARE_KEY")
 ASSETS_PATH           = Path("assets")
 DEFAULT_SAVE_DIR      = Path("saves")
 DEFAULT_IMAGE_DIR     = Path("images")
+DEFAULT_CHUNKS_DIR    = Path("chunks")
 DEFAULT_TESSDATA_PATH = Path("./tessdata")
+
+FFMPEG_PATH           = Path("./ffmpeg/ffmpeg.exe")
 
 DEFAULT_LANGUAGE = "en"
 
@@ -34,6 +37,7 @@ BOMB_COUNTDOWN_RT = 0.70
 TIMER_LAST_SECONDS_RT = 0.65
 
 OCR_TIMER_THRESHOLD = 20
+MIN_YT_VIDEO_HEIGHT = 1080
 
 DIGITS         = "0123456789"
 TIMER_CHARLIST = DIGITS + ":."

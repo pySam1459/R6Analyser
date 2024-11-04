@@ -16,7 +16,7 @@ class Segment:
     rect:  list[int]
 
     @staticmethod
-    def create(image: np.ndarray, rect: list[int]) -> 'Segment':
+    def create(image: np.ndarray, rect: list[int]) -> "Segment":
         x,y,w,h = rect
         return Segment(image=image[y:y+h,x:x+w], rect=rect)
 

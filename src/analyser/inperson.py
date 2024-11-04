@@ -30,12 +30,7 @@ class InPersonAnalyser(Analyser):
         super(InPersonAnalyser, self).__init__(args, config, settings)
 
         self.atkside_matcher = TemplateMatcher(self.assets["atkside_template"])
-
         self.smart_scoreline = SmartScoreline(self.ocr_engine, self.config.scoreline)
-
-        self.smart_scoreline.verbose_print = self._verbose_print # type: ignore
-        self.ocr_engine.verbose_print = self._verbose_print # type: ignore
-
         self.prog_bar = ProgressBar(add_postfix=self.config.debug.infer_time)
 
         self.end_round_seconds = None

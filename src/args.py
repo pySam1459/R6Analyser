@@ -134,7 +134,7 @@ class AnalyserArgs(CliArgs):
         else:
             raise ValueError("No Software Key Provided!")
 
-    @model_validator(mode='after')
+    @model_validator(mode="after")
     def validate_software_key(self) -> Self:
         if self.region_tool or self.check_regions or self.test_regions or self.deps_check:
             return self

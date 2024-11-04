@@ -1,5 +1,7 @@
 {
     "capture": {
+        "stream_only": false,
+        "video_chunk_size": 30,
         "regions": {
             "num_kf_lines": 3,
             "kf_buf": 6,

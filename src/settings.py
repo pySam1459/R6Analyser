@@ -17,7 +17,6 @@ class Settings(BaseModel):
     assets_path:        Path = ASSETS_PATH
 
     tessdata:           Path = DEFAULT_TESSDATA_PATH
-
     config_list_derive: bool = True
 
     model_config = ConfigDict(extra="ignore")

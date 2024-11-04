@@ -69,8 +69,15 @@ class TimeCapture(Capture, ABC):
 
 
 class FpsCapture(Capture, ABC):
-    frame_idx: int
-    fps: float
+    @property
+    @abstractmethod
+    def frame_idx(self) -> int:
+        ...
+    
+    @property
+    @abstractmethod
+    def fps(self) -> float:
+        ...
 
     @property
     def time_type(self) -> CaptureTimeType:

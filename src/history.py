@@ -37,7 +37,7 @@ class KFRecord:
 
         return kill_msg
 
-    def __eq__(self, other: 'KFRecord') -> bool:
+    def __eq__(self, other: "KFRecord") -> bool:
         """Equality check only requires index, not time/headshot (A can only kill B once)"""
         return self.player.uid == other.player.uid and self.target.uid == other.target.uid
 

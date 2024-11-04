@@ -18,7 +18,7 @@ class Player(ABC):
     @abstractmethod
     def team(self) -> Team: ...
 
-    def __eq__(self, other: 'Player') -> bool:
+    def __eq__(self, other: "Player") -> bool:
         return self.uid == other.uid
 
 

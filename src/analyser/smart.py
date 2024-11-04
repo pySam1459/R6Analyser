@@ -34,8 +34,8 @@ class SmartScoreline:
         self.__ballet_box: list[_ScorelineVote] = []
     
     def get_scoreline(self, regions: Regions) -> Optional[Scoreline]:
-        left_text  = self.__ocr_engine.read_score(regions.team0_score, regions.team0_side, "images/left.jpg")
-        right_text = self.__ocr_engine.read_score(regions.team1_score, regions.team1_side, "images/right.jpg")
+        left_text  = self.__ocr_engine.read_score(regions.team0_score, regions.team0_side)
+        right_text = self.__ocr_engine.read_score(regions.team1_score, regions.team1_side)
         if left_text is None or right_text is None:
             return None
         else:

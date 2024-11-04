@@ -41,8 +41,6 @@ class OCREngine(BaseOCREngine):
     team0_colours: HSVColourRange
     team1_colours: HSVColourRange
 
-    _debug_vars: dict
-
     def __init__(self, params: OCRParams,
                  settings: Settings,
                  assets: Assets,
@@ -90,7 +88,7 @@ class OCREngine(BaseOCREngine):
     def has_colours(self) -> bool:
         return self.__has_colours
     
-    def read_score(self, score: np.ndarray, side: Optional[np.ndarray] = None, save = None) -> Optional[str]:
+    def read_score(self, score: np.ndarray, side: Optional[np.ndarray] = None) -> Optional[str]:
         """Reads a score from the scoreline, pass the side region as well for better image thresholding"""
         image = score
         if side is not None:
@@ -102,10 +100,6 @@ class OCREngine(BaseOCREngine):
 
         th_gaussian = guassian_threshold(~th_median, self.__gaussian)
         th_clipped = 255 * (~(th_gaussian > 127)).astype(np.uint8)
-
-        if save:
-            cv2.imwrite(save, th_clipped)
-
 
         text_char = self.readtext(th_clipped, OCRMode.CHAR, SCORE_CHARLIST)
         if match(SCORELINE_PATTERN, text_char):

@@ -17,18 +17,26 @@ class VideoFileCapture(FpsCapture):
         super(VideoFileCapture, self).__init__(config)
         
         self.vr = self.__load_video(config)
-        self.fps = self.vr.get_avg_fps()
+        self.__fps = self.vr.get_avg_fps()
 
-        self.total_frames = len(self.vr)
-        self.frame_idx = self.__offset(config.capture.start)
+        self.duration = len(self.vr)
+        self.__frame_idx = self.__offset(config.capture.start)
+    
+    @property
+    def frame_idx(self) -> int:
+        return self.__frame_idx
+
+    @property
+    def fps(self) -> float:
+        return self.__fps
     
     def __offset(self, offset: Optional[Timestamp]) -> int:
         if offset is None:
             return 0
 
-        frame_idx = int(round(self.fps * offset.to_int()))
-        if frame_idx >= self.total_frames:
-            raise ValueError("Capture offset is >= total frames")
+        frame_idx = int(round(self.__fps * offset.to_int()))
+        if frame_idx >= self.duration:
+            raise ValueError("Capture offset is >= duration")
         
         return frame_idx
     
@@ -43,11 +51,11 @@ class VideoFileCapture(FpsCapture):
             raise ValueError(f"Video Capture Error: Unable to open video file {video_path}\n{e}")
 
     def __next_frame(self, frame_interval: int) -> Optional[np.ndarray]:
-        self.frame_idx = self.frame_idx + frame_interval
-        if self.frame_idx >= self.total_frames:
+        self.__frame_idx = self.__frame_idx + frame_interval
+        if self.__frame_idx >= self.duration:
             return None
         
-        return self.vr[self.frame_idx].asnumpy()
+        return self.vr[self.__frame_idx].asnumpy()
 
     def next(self, dt: float, *_, **__) -> Optional[Regions]:
         frame_interval = max(int(round(self.fps * dt)), 1)

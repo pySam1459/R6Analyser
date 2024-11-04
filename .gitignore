@@ -5,6 +5,8 @@ saves/
 images/
 archive/
 lib/
+chunks/
+ffmpeg/
 
 tessdata/
 

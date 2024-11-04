@@ -61,7 +61,10 @@ class RegionsParser(TimerRegion, KFLineRegion):
 
 
 class CaptureParser(CaptureCommon):
-    regions: RegionsParser
+    regions:     RegionsParser
+
+    stream_only:      bool = False
+    video_chunk_size: int  = 30
 
     model_config = ConfigDict(extra="forbid")
 
@@ -111,8 +114,8 @@ class ConfigParser(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def check_custom_params_exist(cls, values: dict[str, Any]):
-        game_type   = values.get('game_type', None)
-        game_params = values.get('game', {})
+        game_type   = values.get("game_type", None)
+        game_params = values.get("game", {})
 
         ## game-settings.json
         gset_maps: dict[str, dict[str, int]] = values.pop(GAME_MAPS_ATTR)
@@ -129,7 +132,7 @@ class ConfigParser(BaseModel):
         ## check if game_params isn't missing anything when gameType is custom
         if game_type == GameType.CUSTOM:
             if len(missing_params) != 0:
-                missing_params_s = ', '.join(missing_params)
+                missing_params_s = ", ".join(missing_params)
                 raise ValueError(f"valid game parameters must be provided when game_type is 'custom'\nPlease provide: {missing_params_s}")
             return values
 
@@ -140,7 +143,7 @@ class ConfigParser(BaseModel):
         
         return values | {"game": game_params}
 
-    @field_validator('team0', "team1")
+    @field_validator("team0", "team1")
     @classmethod
     def validate_teams(cls, ign_list: list[str]) -> list[str]:
         invalid_igns = [ign for ign in ign_list if not IGN_REGEX.fullmatch(ign)]
@@ -188,11 +191,14 @@ class RegionsCfg(BaseModel):
 
 
 class CaptureCfg(BaseModel):
-    mode:    CaptureMode
-    regions: RegionsCfg
-    file:    Optional[Path]
-    url:     Optional[str]
-    start:   Optional[Timestamp]
+    mode:        CaptureMode
+    regions:     RegionsCfg
+    file:        Optional[Path]
+    url:         Optional[str]
+    start:       Optional[Timestamp]
+
+    stream_only: bool
+    video_chunk_size: int
 
     @field_validator("start", mode="before")
     @classmethod

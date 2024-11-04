@@ -37,7 +37,7 @@ def make_copyfile(save_path: Path) -> Path:
 
 
 def default_save_file(suffix="xlsx") -> str:
-    now_time = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+    now_time = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     return f"{now_time}.{suffix}"
 
 
