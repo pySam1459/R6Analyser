@@ -80,7 +80,8 @@ class RegionTool(Generic[T], ABC):
         "kf_line": "blue"
     }
 
-    def __init__(self, config: RTConfig) -> None:
+    def __init__(self, args: AnalyserArgs, config: RTConfig) -> None:
+        self.args = args
         self.config = config
         self.running = True
 
@@ -117,6 +118,14 @@ class RegionTool(Generic[T], ABC):
     @abstractmethod
     def capture_rect(self) -> Rect_t:
         ...
+    
+    def _get_start(self, fps: float) -> int:
+        if self.args.start is not None:
+            return int(self.args.start.to_int() * fps)
+        elif self.config.capture.start is not None:
+            return int(self.config.capture.start.to_int() * fps)
+
+        return 0
 
     def __set_model(self, reg: str, rect: BBox_t) -> T:
         rm = self.__create_region_model(reg, rect, self.region_params)
@@ -127,6 +136,7 @@ class RegionTool(Generic[T], ABC):
         self.root = tk.Tk()
         self.root.geometry(f"{width}x{height}+0+0")
         self.root.wm_title("Region Tool")
+        self.root.resizable(False, False)
 
         self.canvas = tk.Canvas(self.root,
                                 width=width,
@@ -289,7 +299,7 @@ class RegionTool(Generic[T], ABC):
 
 class RTScreenShot(RegionTool):
     def __init__(self, args: AnalyserArgs, config: RTConfig) -> None:
-        super(RTScreenShot, self).__init__(config)
+        super(RTScreenShot, self).__init__(args, config)
         
         monitors = get_monitors()
         display = monitors[args.display-1]
@@ -309,10 +319,10 @@ class RTScreenShot(RegionTool):
 
 @dataclass
 class VideoDetails:
-    max_frame: int
-    frame_width: int
+    max_frame:    int
+    frame_width:  int
     frame_height: int
-    fps: int
+    fps:          float
 
 
 def on_arrows(frame_idx: int, vdets: VideoDetails, event: tk.Event) -> int:
@@ -339,14 +349,11 @@ def on_arrows(frame_idx: int, vdets: VideoDetails, event: tk.Event) -> int:
 
 
 class RTVideoFile(RegionTool):
-    def __init__(self, config: RTConfig) -> None:
-        super(RTVideoFile, self).__init__(config)
+    def __init__(self, args: AnalyserArgs, config: RTConfig) -> None:
+        super(RTVideoFile, self).__init__(args, config)
 
-        self.vr = self.new_video(self.config)
-        if config.capture.start is None:
-            self.frame_idx = 0
-        else:
-            self.frame_idx = int(config.capture.start.to_int() * self.vdets.fps)
+        self.vr, self.vdets = self.new_video(self.config)
+        self.frame_idx = self._get_start(self.vdets.fps)
 
         self.image = self.__get_frame(self.frame_idx)
 
@@ -359,23 +366,23 @@ class RTVideoFile(RegionTool):
     def capture_rect(self) -> Rect_t:
         return self._capture_rect
 
-    def new_video(self, config: RTConfig) -> VideoReader:
+    def new_video(self, config: RTConfig) -> tuple[VideoReader, VideoDetails]:
         if config.capture.file is None:
             raise ValueError(f"Configuration capture file is None!")
 
         try:
             vr = VideoReader(str(config.capture.file), num_threads=1)
             h,w,*_ = vr[0].asnumpy().shape
-            self.vdets = VideoDetails(
+            vdets = VideoDetails(
                 max_frame=len(vr),
                 frame_width=w,
                 frame_height=h,
                 fps=vr.get_avg_fps(),
             )
+            return vr, vdets
+
         except Exception as e:
             raise ValueError(f"An Error occurred when attempting to read from video file\n{e}")
-
-        return vr
         
     def __get_frame(self, frame_idx: int) -> Optional[np.ndarray]:
         if frame_idx >= self.vdets.max_frame:
@@ -395,15 +402,12 @@ class RTVideoFile(RegionTool):
 
 
 class RTYoutubeVideo(RegionTool):
-    def __init__(self, config: RTConfig, cap: cv2.VideoCapture) -> None:
-        super(RTYoutubeVideo, self).__init__(config)
+    def __init__(self, args: AnalyserArgs, config: RTConfig, cap: cv2.VideoCapture) -> None:
+        super(RTYoutubeVideo, self).__init__(args, config)
 
         self.cap = cap
         self.vdets = self.get_details()
-        if config.capture.start is None:
-            self.frame_idx = 0
-        else:
-            self.frame_idx = int(config.capture.start.to_int() * self.vdets.fps)
+        self.frame_idx = self._get_start(self.vdets.fps)
         self.image = self.__get_frame(self.frame_idx)
 
         assert self.image is not None, "Cannot get video frame"
@@ -422,10 +426,10 @@ class RTYoutubeVideo(RegionTool):
 
         h,w,*_ = frame.shape
         return VideoDetails(
-            max_frame=int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT)),
-            frame_width=w,
-            frame_height=h,
-            fps=int(round(self.cap.get(cv2.CAP_PROP_FPS))),
+            max_frame    = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT)),
+            frame_width  = w,
+            frame_height = h,
+            fps          = round(self.cap.get(cv2.CAP_PROP_FPS)),
         )
         
     def __get_frame(self, frame_idx: int) -> Optional[np.ndarray]:

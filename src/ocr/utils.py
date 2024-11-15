@@ -18,7 +18,8 @@ RED_RGB_SPACE = np.array([
 def get_timer_redperc(image: np.ndarray) -> float:
     """Returns the % of the image which is red"""
     mask = cv2.inRange(image, RED_RGB_SPACE[0], RED_RGB_SPACE[1])
-    return cast(float, np.sum(mask > 0) / mask.size) # type: ignore
+    avg_perc = np.sum(mask > 0) / mask.size
+    return float(avg_perc)
 
 
 def cvt_rgb2hsv(image: np.ndarray, offset: int) -> np.ndarray:

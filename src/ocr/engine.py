@@ -6,7 +6,6 @@ from typing import Optional, Callable
 
 from assets import Assets
 from params import OCRParams
-from settings import Settings
 from utils import Timestamp, filter_none, argmin
 from utils.cv import resize_height, gen_gaussian2d, guassian_threshold
 from utils.enums import Team
@@ -44,10 +43,9 @@ class OCREngine(BaseOCREngine):
     _debug_vars: dict
 
     def __init__(self, params: OCRParams,
-                 settings: Settings,
                  assets: Assets,
                  _debug_print: Optional[Callable] = None) -> None:
-        super(OCREngine, self).__init__(settings, _debug_print)
+        super(OCREngine, self).__init__(_debug_print)
         self.params = params
 
         self.__assets = assets

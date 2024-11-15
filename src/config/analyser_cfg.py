@@ -4,7 +4,7 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from typing import Any, Optional, Self, Type
 
-from settings import Settings
+import settings
 from utils import Timestamp, load_file, recursive_union, gen_default_name, check_duplicates_werr, BBox_t
 from utils.enums import GameType, CaptureMode, Team, SaveFileType
 from utils.constants import *
@@ -255,12 +255,12 @@ def validate_analyser_dict(cfg:  dict[str, Any],
     return Config.model_validate(cfg_parsed.model_dump())
 
 
-def create_analyser_config(config_path: Path, settings: Settings) -> Config | list[Config]:
-    defaults = _load_model_dict(settings.defaults_filepath, Defaults)
+def create_analyser_config(config_path: Path) -> Config | list[Config]:
+    defaults = _load_model_dict(settings.SETTINGS.defaults_filepath, Defaults)
 
-    game_maps = {GAME_MAPS_ATTR: _load_model_dict(settings.gsettings_filepath, _GameSettings)}
-    debug     = {"debug": _load_model_dict(settings.debug_filepath, DebugParams)}
+    game_maps = {GAME_MAPS_ATTR: _load_model_dict(settings.SETTINGS.gsettings_filepath, _GameSettings)}
+    debug     = {"debug": _load_model_dict(settings.SETTINGS.debug_filepath, DebugParams)}
 
     base = defaults | game_maps | debug
     validate_func = partial(validate_analyser_dict, base=base)
-    return validate_config(validate_func, config_path, settings)
+    return validate_config(validate_func, config_path)

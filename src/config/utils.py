@@ -2,7 +2,7 @@ from pathlib import Path
 from pydantic import BaseModel, BeforeValidator
 from typing import Any, Annotated, TypeVar, TypeAlias, Callable
 
-from settings import Settings
+import settings
 from utils import load_json, recursive_union, BBox_t
 from utils.enums import CaptureMode
 
@@ -18,13 +18,13 @@ def load_config_json(config_path: Path) -> dict[str,Any] | list[dict[str,Any]]:
 
 
 T = TypeVar('T', bound=BaseModel)
-def validate_config(validate_func: Callable[[Any], T], config_path: Path, settings: Settings) -> T | list[T]:
+def validate_config(validate_func: Callable[[Any], T], config_path: Path) -> T | list[T]:
     cfg_json = load_config_json(config_path)
 
     if isinstance(cfg_json, dict):
         return validate_func(cfg_json)
 
-    if not settings.config_list_derive: ## all configs in list are full
+    if not settings.SETTINGS.config_list_derive: ## all configs in list are full
         return [validate_func(el) for el in cfg_json]
 
     first_config = validate_func(cfg_json[0])

@@ -3,10 +3,10 @@ from sys import exit
 from time import sleep
 from typing import cast
 
+import settings
 from analyser import InPersonAnalyser, SpectatorAnalyser
 from args import AnalyserArgs
 from config import Config, RTConfig, create_config, create_config_list
-from settings import create_settings
 from tools import create_regiontool, check_dependencies
 from utils import load_json
 from utils.constants import SETTINGS_PATH
@@ -24,13 +24,13 @@ class Controller:
         assert args.config_path is not None, "Config Path is not provided!"
         assert not args.is_test or (args.is_test and not args.is_tool), "Tests and Checks cannot be run with tools"
 
-        self.settings = create_settings(SETTINGS_PATH)
+        settings.SETTINGS = settings.create_settings(SETTINGS_PATH)
         self.num_games = self.__get_num_games(args.config_path)
 
         if self.num_games == 1:
-            self.config_list = [create_config(args, args.config_path, self.settings)]
+            self.config_list = [create_config(args, args.config_path)]
         elif self.num_games > 1:
-            self.config_list = create_config_list(args, args.config_path, self.settings)
+            self.config_list = create_config_list(args, args.config_path)
         else:
             raise ValueError(f"No configuration provided in {args.config_path}")
     
@@ -59,22 +59,19 @@ class Controller:
         if self.args.delay > 0:
             sleep(self.args.delay)
 
-        self.__prep_config(config)
         print(f"Config: {config.name}")
         print(f"Info: Running Region Tool...")
         rt = create_regiontool(self.args, config)
         rt.run()
     
     def __run_analyser(self, config: Config) -> None:
-        self.__prep_config(config)
-
         print(f"Config: {config.name}")
         if config.spectator:
             print("Info: Spectator Mode Active")
-            analyser = SpectatorAnalyser(self.args, config, self.settings)
+            analyser = SpectatorAnalyser(self.args, config)
         else:
             print("Info: Person Mode Active")
-            analyser = InPersonAnalyser(self.args, config, self.settings)
+            analyser = InPersonAnalyser(self.args, config)
 
         if self.args.is_test:
             print("Info: Running Tests and Checks")
@@ -83,9 +80,3 @@ class Controller:
         else:
             print("Info: Running Analyser...")
             analyser.run()
-
-    def __prep_config(self, config: Config | RTConfig) -> None:
-        if self.args.start is None:
-            return
-
-        config.capture.start = self.args.start

@@ -4,7 +4,7 @@ from PIL import Image
 from tesserocr import PyTessBaseAPI, OEM, PSM
 from typing import Sequence, Optional, Callable, overload
 
-from settings import Settings
+import settings
 
 
 __all__ = [
@@ -20,8 +20,9 @@ class OCRMode(IntEnum):
 
 
 class BaseOCREngine:
-    def __init__(self, settings: Settings, _debug_print: Optional[Callable] = None) -> None:
-        self._api = PyTessBaseAPI(path=str(settings.tessdata), oem=OEM.LSTM_ONLY) # type: ignore
+    def __init__(self, _debug_print: Optional[Callable] = None) -> None:
+        tessdata_path = str(settings.SETTINGS.tessdata)
+        self._api = PyTessBaseAPI(path=tessdata_path, oem=OEM.LSTM_ONLY) # type: ignore
 
         self._debug_print = _debug_print
 

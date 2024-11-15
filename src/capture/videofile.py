@@ -1,11 +1,11 @@
 import numpy as np
 
-import tesserocr  # bug, tesserocr will not load and crash program if imported after decord
+import tesserocr  # bugfix, tesserocr will not load and crash program if imported after decord
 from decord import VideoReader
 from typing import Optional
 
+from args import AnalyserArgs
 from config import Config
-from utils import Timestamp
 from utils.cv import crop2bbox
 
 from .base import FpsCapture
@@ -13,24 +13,24 @@ from .regions import Regions
 
 
 class VideoFileCapture(FpsCapture):
-    def __init__(self, config: Config) -> None:
-        super(VideoFileCapture, self).__init__(config)
+    def __init__(self, args: AnalyserArgs, config: Config) -> None:
+        super(VideoFileCapture, self).__init__(args, config)
         
         self.vr = self.__load_video(config)
-        self.fps = self.vr.get_avg_fps()
+        self.__fps = self.vr.get_avg_fps()
 
         self.total_frames = len(self.vr)
-        self.frame_idx = self.__offset(config.capture.start)
-    
-    def __offset(self, offset: Optional[Timestamp]) -> int:
-        if offset is None:
-            return 0
+        self.__frame_idx = self._get_start()
+        if self.__frame_idx >= self.total_frames:
+            raise ValueError("Start time > video duration")
 
-        frame_idx = int(round(self.fps * offset.to_int()))
-        if frame_idx >= self.total_frames:
-            raise ValueError("Capture offset is >= total frames")
-        
-        return frame_idx
+    @property
+    def frame_idx(self) -> int:
+        return self.__frame_idx
+
+    @property
+    def fps(self) -> float:
+        return self.__fps
     
     def __load_video(self, config: Config) -> VideoReader:
         if config.capture.file is None:
@@ -43,11 +43,11 @@ class VideoFileCapture(FpsCapture):
             raise ValueError(f"Video Capture Error: Unable to open video file {video_path}\n{e}")
 
     def __next_frame(self, frame_interval: int) -> Optional[np.ndarray]:
-        self.frame_idx = self.frame_idx + frame_interval
-        if self.frame_idx >= self.total_frames:
+        self.__frame_idx = self.__frame_idx + frame_interval
+        if self.__frame_idx >= self.total_frames:
             return None
         
-        return self.vr[self.frame_idx].asnumpy()
+        return self.vr[self.__frame_idx].asnumpy()
 
     def next(self, dt: float, *_, **__) -> Optional[Regions]:
         frame_interval = max(int(round(self.fps * dt)), 1)

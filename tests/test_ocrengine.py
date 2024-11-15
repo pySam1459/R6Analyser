@@ -9,11 +9,11 @@ from Levenshtein import ratio
 from PIL import Image
 from typing import Sequence
 
+import settings
 from assets import Assets
 from ocr import OCREngine, OCRLineResult
 from ocr.utils import HSVColourRange, get_hsv_range
 from params import OCRParams
-from settings import Settings, create_settings
 from utils import load_json
 
 
@@ -51,10 +51,9 @@ def setup_test_dir():
         rmtree(out_path)
     makedirs(out_path, exist_ok=True)
 
-@pytest.fixture
-def settings() -> Settings:
-    settings_path = res_path / "settings" / "ocr_engine_settings.json"
-    return create_settings(settings_path)
+
+settings.SETTINGS = settings.create_settings(res_path / "settings" / "ocr_engine_settings.json")
+
 
 @pytest.fixture
 def assets() -> Assets:
@@ -89,7 +88,6 @@ def write_score_out_image(test_file: Path, image: Image.Image) -> None:
 @pytest.mark.parametrize("test_file", sl_test_files, ids=get_ids)
 def test_ocr_engine_scoreline(test_file: Path,
                               ocr_params: OCRParams,
-                              settings: Settings,
                               assets: Assets) -> None:
     image = load_rgb(test_file)
 
@@ -139,12 +137,11 @@ def get_colours(test_file: Path, ocr_params: OCRParams) -> Sequence[HSVColourRan
 @pytest.mark.parametrize("test_file", kflines_test_files, ids=get_ids)
 def test_ocr_engine_kfline(test_file: Path,
                            ocr_params: OCRParams,
-                           settings: Settings,
                            assets: Assets) -> None:
     image = load_rgb(test_file)
     colours = get_colours(test_file, ocr_params)
 
-    engine = OCREngine(ocr_params, settings, assets)
+    engine = OCREngine(ocr_params, assets)
     engine._set_colours(colours[0], colours[1])
 
     result = engine.read_kfline(image)
@@ -194,11 +191,10 @@ def test_ocr_engine_kfline(test_file: Path,
 @pytest.mark.parametrize("test_file", timer_test_files, ids=get_ids)
 def test_ocr_engine_timer(test_file: Path,
                           ocr_params: OCRParams,
-                          settings: Settings,
                           assets: Assets) -> None:
     image = load_rgb(test_file)
 
-    engine = OCREngine(ocr_params, settings, assets) # type: ignore
+    engine = OCREngine(ocr_params, assets) # type: ignore
 
     timer, is_bc = engine.read_timer(image)
     if timer is not None:
@@ -227,13 +223,12 @@ def test_ocr_engine_timer(test_file: Path,
 
 @pytest.mark.skip(reason="Used to measure OCREngine.read_kfline performance")
 def test_ocr_engine_kfline_performance(ocr_params: OCRParams,
-                                       settings: Settings,
                                        assets: Assets) -> None:
     images = [cv2.imread(str(file), cv2.IMREAD_COLOR)
               for file in kflines_test_files]
     n = len(images)
 
-    engine = OCREngine(ocr_params, settings, assets)
+    engine = OCREngine(ocr_params, assets)
 
     n_iter = 500
     start = perf_counter()

@@ -10,7 +10,6 @@ from config import Config
 from history import KFRecord
 from ignmatrix import Player
 from ocr import OCRLineResult
-from settings import Settings
 from utils.enums import Team, WinCondition
 from utils.tools import TemplateMatcher
 from utils import *
@@ -26,16 +25,11 @@ __all__ = ["InPersonAnalyser"]
 class InPersonAnalyser(Analyser):
     END_ROUND_SECONDS = 10  ## number of seconds to check no timer to determine round end
 
-    def __init__(self, args: AnalyserArgs, config: Config, settings: Settings) -> None:
-        super(InPersonAnalyser, self).__init__(args, config, settings)
-
-        self.atkside_matcher = TemplateMatcher(self.assets["atkside_template"])
+    def __init__(self, args: AnalyserArgs, config: Config) -> None:
+        super(InPersonAnalyser, self).__init__(args, config)
 
         self.smart_scoreline = SmartScoreline(self.ocr_engine, self.config.scoreline)
-
-        self.smart_scoreline.verbose_print = self._verbose_print # type: ignore
-        self.ocr_engine.verbose_print = self._verbose_print # type: ignore
-
+        self.atkside_matcher = TemplateMatcher(self.assets["atkside_template"])
         self.prog_bar = ProgressBar(add_postfix=self.config.debug.infer_time)
 
         self.end_round_seconds = None
@@ -137,7 +131,7 @@ class InPersonAnalyser(Analyser):
 
             record = KFRecord(player, target, self.timer.ctime, line.headshot)
             self._add_record(record)
-            ## TODO: once a kfline is read for the first time, cache segments, match against to quickly skip
+            ## TODO maybe?: once a kfline is read for the first time, cache segments, match against to quickly skip
             # if self._add_record(record):
             #   self.ocr_engine.cache_line(line)
 
@@ -310,11 +304,11 @@ class InPersonAnalyser(Analyser):
         scoreline = self.smart_scoreline.get_scoreline(regions)
         self.ocr_engine.set_colours(regions.team0_score, regions.team1_score)
 
-        atkside   = self.__read_atk_side(regions)
+        atkside = self.__read_atk_side(regions)
         time_read, is_bomb_countdown = self.ocr_engine.read_timer(regions.timer)
         print(f"\nTest: {scoreline=} | {atkside=} | {time_read} | {is_bomb_countdown=}")
-        print(f"Team 0 colours: ", self.ocr_engine.team0_colours)
-        print(f"Team 1 colours: ", self.ocr_engine.team1_colours)
+        # print(f"Team 0 colours: ", self.ocr_engine.team0_colours)
+        # print(f"Team 1 colours: ", self.ocr_engine.team1_colours)
 
         for line in self.__read_feed(regions.kf_lines):
             if line.headshot:

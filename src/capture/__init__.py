@@ -1,5 +1,5 @@
+from args import AnalyserArgs
 from config import Config
-
 from utils.enums import CaptureMode
 
 from .base import Capture
@@ -15,13 +15,13 @@ __all__ = [
 ]
 
 
-def create_capture(config: Config) -> Capture:
+def create_capture(args: AnalyserArgs, config: Config) -> Capture:
     match config.capture.mode:
         case CaptureMode.SCREENSHOT:
             return ScreenshotCapture(config)
         case CaptureMode.VIDEOFILE:
-            return VideoFileCapture(config)
+            return VideoFileCapture(args, config)
         case CaptureMode.YOUTUBE:
-            return create_youtube_capture(config)
+            return create_youtube_capture(args, config)
         case CaptureMode.TWITCH:
             return TwitchStreamCapture(config)

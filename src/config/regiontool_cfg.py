@@ -2,7 +2,6 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict, Field
 from typing import Optional
 
-from settings import Settings
 from utils import BBox_t
 from utils.enums import GameType
 
@@ -51,5 +50,5 @@ class RTConfig(BaseModel): ## Region tool config
     model_config = ConfigDict(extra="allow", use_enum_values=True)
 
 
-def create_regiontool_config(config_path: Path, settings: Settings) -> RTConfig | list[RTConfig]:
-    return validate_config(RTConfig.model_validate, config_path, settings)
+def create_regiontool_config(config_path: Path) -> RTConfig | list[RTConfig]:
+    return validate_config(RTConfig.model_validate, config_path)

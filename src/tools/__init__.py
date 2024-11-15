@@ -15,7 +15,7 @@ __all__ = [
 ]
 
 
-def create_youtube_rt(config: RTConfig) -> RegionTool:
+def create_youtube_rt(args: AnalyserArgs, config: RTConfig) -> RegionTool:
     assert config.capture.url is not None, "Invalid Config! YouTube URL is not provided! Please add YouTube URL to capture.url"
 
     video_stream_url = get_video_stream_details(config.capture.url)
@@ -27,7 +27,7 @@ def create_youtube_rt(config: RTConfig) -> RegionTool:
     if video_stream_url.is_live:
         raise NotImplementedError(f"RegionTool does not support Youtube livestream yet")
     else:
-        return RTYoutubeVideo(config, cap)
+        return RTYoutubeVideo(args, config, cap)
 
 
 def create_regiontool(args: AnalyserArgs, config: RTConfig) -> RegionTool:
@@ -36,8 +36,8 @@ def create_regiontool(args: AnalyserArgs, config: RTConfig) -> RegionTool:
         case CaptureMode.SCREENSHOT:
             return RTScreenShot(args, config)
         case CaptureMode.VIDEOFILE:
-            return RTVideoFile(config)
+            return RTVideoFile(args, config)
         case CaptureMode.YOUTUBE:
-            return create_youtube_rt(config)
+            return create_youtube_rt(args, config)
         case _:
             raise NotImplementedError(f"RegionTool does not support {mode} yet")

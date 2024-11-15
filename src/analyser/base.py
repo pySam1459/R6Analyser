@@ -3,6 +3,7 @@ from time import perf_counter
 from pydantic.dataclasses import dataclass
 from typing import Callable
 
+import settings
 from args import AnalyserArgs
 from assets import Assets
 from capture import create_capture
@@ -12,7 +13,6 @@ from history import History
 from ignmatrix import create_ignmatrix
 from ocr import OCREngine
 from scheduler import create_scheduler
-from settings import Settings
 from utils.enums import Team, CaptureTimeType
 from utils.keycheck import send_inc_update
 from utils.constants import RED, WHITE
@@ -67,17 +67,15 @@ class Analyser(ABC):
     Operates the main inference loop `run` and records match/round information"""
 
     def __init__(self, args: AnalyserArgs,
-                 config: Config,
-                 settings: Settings):
+                 config: Config):
 
         self.args = args
         self.config = config
-        self.settings = settings
         self._debug_print("config_keys", f"Config\n{config}")
 
-        self.assets = Assets(self.settings.assets_path)
-        self.capture = create_capture(config)
-        self.ocr_engine = OCREngine(config.ocr, settings, self.assets)
+        self.assets = Assets(settings.SETTINGS.assets_path)
+        self.capture = create_capture(args, config)
+        self.ocr_engine = OCREngine(config.ocr, self.assets)
 
         self.ign_matrix = create_ignmatrix(config)
         self.history = History()
@@ -113,25 +111,9 @@ class Analyser(ABC):
 
 
     ## ----- CHECK & TEST -----
-    def __get_start(self) -> Timestamp:
-        if self.args.start is not None:
-            return self.args.start
-
-        while True:
-            timestamp_s = input("Timestamp >> ")
-            if not timestamp_s:
-                exit()
-
-            ts = Timestamp.from_str(timestamp_s)
-            if ts is not None:
-                return ts
-            else:
-                print("Invalid Timestamp")
-
     def test_and_checks(self) -> None:
         if self.capture.time_type == CaptureTimeType.FPS:
-            dt = self.__get_start().to_int()
-            regions = self.capture.next(dt, jump=True)
+            regions = self.capture.next(0, jump=True)
         else:
             regions = self.capture.next()
 

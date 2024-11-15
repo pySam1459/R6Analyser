@@ -39,6 +39,12 @@ class CaptureCommon(BaseModel):
         if start is None:
             return None
         return str(start)
+    
+    @field_serializer("file")
+    def serialize_file(self, file: Optional[Path]) -> Optional[str]:
+        if file is None:
+            return None
+        return str(file)
 
 
     @model_validator(mode="after")

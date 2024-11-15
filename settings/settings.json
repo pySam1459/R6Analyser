@@ -1,5 +1,5 @@
 {
     "tessdata": "./tessdata",
-
-    "config_list_derive": true
+    "config_list_derive": true,
+    "min_video_resolution": 720
 }

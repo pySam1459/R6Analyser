@@ -1,15 +1,14 @@
 from args import AnalyserArgs
 from capture.regions import Regions
 from config import Config
-from settings import Settings
 from utils import *
 
 from .base import Analyser
 
 
 class SpectatorAnalyser(Analyser):
-    def __init__(self, args: AnalyserArgs, config: Config, settings: Settings) -> None:
-        super(SpectatorAnalyser, self).__init__(args, config, settings)
+    def __init__(self, args: AnalyserArgs, config: Config) -> None:
+        super(SpectatorAnalyser, self).__init__(args, config)
 
         self.prog_bar = ProgressBar(add_postfix=self.config.debug.infer_time)
 

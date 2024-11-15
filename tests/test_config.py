@@ -6,10 +6,10 @@ from pydantic import ValidationError
 from unittest.mock import patch
 from typing import Any
 
+import settings
 import utils
 from config.analyser_cfg import create_analyser_config
 from config.regiontool_cfg import create_regiontool_config
-from settings import Settings
 
 
 def load_configs(filename: str | list[str]) -> list[dict[str, Any]]:
@@ -42,9 +42,7 @@ def get_config_name(config: dict[str, Any] | list[dict[str, Any]]) -> str:
 def cfg_path() -> Path:
     return Path("configs") / "test.json"
 
-@pytest.fixture
-def settings() -> Settings:
-    return Settings(config_list_derive=True)
+settings.SETTINGS = settings.Settings(config_list_derive=True)
 
 
 ## ------ Good Analyser Configs ------
@@ -54,12 +52,12 @@ def settings() -> Settings:
 def cfg_dict_ga(request):
     return request.param
 
-def test_good_analyser_validate(cfg_dict_ga, cfg_path, settings) -> None:
+def test_good_analyser_validate(cfg_dict_ga, cfg_path) -> None:
     with (patch.object(Path, "exists", return_value=True),
           patch.object(os,   "access", return_value=True),
           patch.object(os, "makedirs"),
           patch("config.utils.load_json", return_value=cfg_dict_ga)):
-        create_analyser_config(cfg_path, settings)
+        create_analyser_config(cfg_path)
 
 
 ## ------ Good RegionTool Configs ------
@@ -70,12 +68,12 @@ def test_good_analyser_validate(cfg_dict_ga, cfg_path, settings) -> None:
 def cfg_dict_grt(request):
     return request.param
 
-def test_good_regiontool_validate(cfg_dict_grt, cfg_path, settings) -> None:
+def test_good_regiontool_validate(cfg_dict_grt, cfg_path) -> None:
     with (patch.object(Path, "exists", return_value=True),
           patch.object(os, "access", return_value=True),
           patch.object(os, "makedirs"),
           patch("config.utils.load_json", return_value=cfg_dict_grt)):
-        create_regiontool_config(cfg_path, settings)
+        create_regiontool_config(cfg_path)
 
 
 # ## ------ Bad Analyser Configs ------
@@ -86,13 +84,13 @@ def test_good_regiontool_validate(cfg_dict_grt, cfg_path, settings) -> None:
 def cfg_dict_ba(request):
     return request.param
 
-def test_bad_analyser_validate(cfg_dict_ba, cfg_path, settings) -> None:
+def test_bad_analyser_validate(cfg_dict_ba, cfg_path) -> None:
     with (pytest.raises(ValidationError),
             patch.object(Path, "exists", return_value=True),
             patch.object(os, "access", return_value=True),
             patch.object(os, "makedirs"),
             patch("config.utils.load_json", return_value=cfg_dict_ba)):
-        create_analyser_config(cfg_path, settings)
+        create_analyser_config(cfg_path)
 
 
 # ## ------ Bad RegionTool Configs ------
@@ -103,10 +101,10 @@ def test_bad_analyser_validate(cfg_dict_ba, cfg_path, settings) -> None:
 def cfg_dict_brt(request):
     return request.param
 
-def test_bad_regiontool_validate(cfg_dict_brt, cfg_path, settings) -> None:
+def test_bad_regiontool_validate(cfg_dict_brt, cfg_path) -> None:
     with (pytest.raises(ValidationError),
             patch.object(Path, "exists", return_value=True),
             patch.object(os, "access", return_value=True),
             patch.object(os, "makedirs"),
             patch("config.utils.load_json", return_value=cfg_dict_brt)):
-        create_regiontool_config(cfg_path, settings)
+        create_regiontool_config(cfg_path)

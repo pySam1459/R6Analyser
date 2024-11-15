@@ -54,6 +54,9 @@ class Timestamp:
 
     def to_int(self) -> int:
         return self.minutes * 60 + self.seconds
+    
+    def to_frames(self, fps: float, min_: int = 0) -> int:
+        return max(int(round(self.to_int() * fps)), min_)
 
     @staticmethod
     def from_int(num: int) -> 'Timestamp':

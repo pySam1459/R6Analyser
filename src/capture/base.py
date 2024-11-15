@@ -3,6 +3,7 @@ from abc import ABC, abstractmethod
 from time import time
 from typing import Optional
 
+from args import AnalyserArgs
 from config import Config
 from utils.enums import CaptureTimeType
 
@@ -18,6 +19,8 @@ __all__ = [
 
 class Capture(ABC):
     def __init__(self, config: Config):
+        self.config = config
+
         region_dump = config.capture.regions.model_dump(exclude_none=True)
         self._bboxes = RegionBBoxes.model_validate(region_dump)
 
@@ -69,8 +72,25 @@ class TimeCapture(Capture, ABC):
 
 
 class FpsCapture(Capture, ABC):
-    frame_idx: int
-    fps: float
+    def __init__(self, args: AnalyserArgs, config: Config) -> None:
+        super(FpsCapture, self).__init__(config)
+        self.args = args
+    
+    @property
+    @abstractmethod
+    def frame_idx(self) -> int:
+        ...
+    @property
+    @abstractmethod
+    def fps(self) -> float:
+        ...
+    
+    def _get_start(self) -> int:
+        if self.args.start is not None:
+            return self.args.start.to_frames(self.fps)
+        elif self.config.capture.start is not None:
+            return self.config.capture.start.to_frames(self.fps)
+        return 0
 
     @property
     def time_type(self) -> CaptureTimeType:
