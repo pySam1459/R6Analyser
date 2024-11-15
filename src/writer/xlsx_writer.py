@@ -6,7 +6,7 @@ from typing import Any
 from config import Config
 from history import History, HistoryRound
 from ignmatrix import IGNMatrix, Player
-from utils import ndefault, fmt_s
+from utils import ndefault
 from utils.enums import SaveFileType, Team
 from stats import *
 
@@ -49,6 +49,20 @@ BOOL_MAP = {
     True: "TRUE",
     False: "FALSE"
 }
+
+
+def str2f(v: float) -> str:
+    """Converts v to a 2f rounded string"""
+    return f"{v:.3f}"
+
+def perc_s(n: int|float, d: int|float) -> float:
+    """Performs n / d, returning 0.0 on d == 0"""
+    if d == 0:
+        return 0.0
+    return n / d
+
+def fmt_s(*args):
+    return str2f(perc_s(*args))
 
 
 class XlsxWriter(Writer):

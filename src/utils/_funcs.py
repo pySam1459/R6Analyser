@@ -79,19 +79,6 @@ def listsub(src: list[T], sub: list[T]) -> list[T]:
 def gen_default_name() -> str:
     return datetime.now().strftime("r6analyser-%d_%m_%Y-%H:%M:%S")
 
-def str2f(v: float) -> str:
-    """Converts v to a 2f rounded string"""
-    return f"{v:.2f}"
-
-def perc_s(n: int|float, d: int|float) -> float:
-    """Performs n / d, returning 0.0 on d == 0"""
-    if d == 0:
-        return 0.0
-    return n / d * 100.0
-
-def fmt_s(*args):
-    return str2f(perc_s(*args))
-
 def mode_count(arr: list[T]) -> tuple[T, int]:
     args = [(x, arr.count(x)) for x in set(arr)]
     return max(args)
